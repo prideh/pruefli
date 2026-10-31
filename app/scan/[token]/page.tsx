@@ -29,6 +29,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 import { deduplicateRelayFiles, assembleCapturedPages } from '@/lib/relay-dedup';
+import { parseRelaySessionResponse, getRelayNetworkErrorMessage } from '@/lib/relay-session';
 
 interface RelayStudentOption {
   id: string;
@@ -129,6 +130,7 @@ export default function MobileScanRelayPage() {
 
   const [loading, setLoading] = useState(true);
   const [sessionError, setSessionError] = useState('');
+  const [isTokenExpired, setIsTokenExpired] = useState(false);
   const [teacherName, setTeacherName] = useState('');
   const [exams, setExams] = useState<RelayExamOption[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<string>('AUTO');
@@ -153,12 +155,27 @@ export default function MobileScanRelayPage() {
   const fetchSessionData = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(`/api/mobile-relay?token=${encodeURIComponent(token)}`);
-      const data = await res.json();
-      if (!res.ok) {
-        setSessionError(data.error || 'Sitzung ungültig oder abgelaufen.');
+      let res: Response;
+      try {
+        res = await fetch(`/api/mobile-relay?token=${encodeURIComponent(token)}`);
+      } catch {
+        setSessionError(getRelayNetworkErrorMessage());
+        setIsTokenExpired(false);
         return;
       }
+
+      const result = await parseRelaySessionResponse(res);
+      if (!result.success) {
+        setSessionError(result.error || 'Fehler beim Laden der Sitzungsdaten.');
+        setIsTokenExpired(Boolean(result.isTokenExpired));
+        return;
+      }
+
+      // Successful poll: clear previous transient error and reset token expired flag
+      setSessionError('');
+      setIsTokenExpired(false);
+
+      const data = result.data || {};
       setTeacherName(data.teacherName || 'Lehrperson');
       setExams(data.exams || []);
       setRecentUploads(data.recentUploads || []);
@@ -186,8 +203,6 @@ export default function MobileScanRelayPage() {
           setActiveMode(data.targetMode);
         }
       }
-    } catch {
-      setSessionError('Verbindung zum Server fehlgeschlagen.');
     } finally {
       setLoading(false);
     }
@@ -235,10 +250,15 @@ export default function MobileScanRelayPage() {
         method: 'POST',
         body: formData,
       });
-      const data = await res.json();
+      let data: { error?: string; pagesCount?: number } | null = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
 
       if (!res.ok) {
-        setUploadErrorMsg(data.error || 'Upload fehlgeschlagen.');
+        setUploadErrorMsg(data?.error || `Upload fehlgeschlagen (HTTP ${res.status}).`);
       } else {
         capturedPages.forEach((p) => URL.revokeObjectURL(p.previewUrl));
         setCapturedPages([]);
@@ -347,6 +367,11 @@ export default function MobileScanRelayPage() {
   }
 
   if (sessionError) {
+    const isExpired =
+      isTokenExpired ||
+      sessionError.toLowerCase().includes('abgelaufen') ||
+      sessionError.toLowerCase().includes('ungültig');
+
     return (
       <Box
         sx={{
@@ -363,10 +388,29 @@ export default function MobileScanRelayPage() {
             <Alert severity="error" sx={{ borderRadius: '10px', mb: 2 }}>
               {sessionError}
             </Alert>
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              Bitte öffne das prüefli-Dashboard auf deinem Computer und klicke erneut auf{' '}
-              <strong>&quot;Smartphone-Kamera (QR-Scan)&quot;</strong>.
-            </Typography>
+            {isExpired ? (
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Bitte öffne das prüefli-Dashboard auf deinem Computer und klicke erneut auf{' '}
+                <strong>&quot;Smartphone-Kamera (QR-Scan)&quot;</strong>.
+              </Typography>
+            ) : (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                  <CircularProgress size={18} />
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Automatischer Wiederverbindungsversuch läuft...
+                  </Typography>
+                </Stack>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => fetchSessionData()}
+                  sx={{ textTransform: 'none', fontWeight: 600, alignSelf: 'flex-start' }}
+                >
+                  Jetzt erneut versuchen
+                </Button>
+              </Stack>
+            )}
           </CardContent>
         </Card>
       </Box>
