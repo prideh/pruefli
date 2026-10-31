@@ -93,6 +93,7 @@ export async function POST(request: Request) {
     // For new exams
     const examTitle = formData.get('examTitle') as string | null;
     const examSubject = formData.get('examSubject') as string | null;
+    const maxPointsRaw = formData.get('maxPoints') as string | null;
     const rubric = formData.get('rubric') as File | string | null;
     const examTemplate = formData.get('examTemplate') as File | string | null;
     const gradingNotes = formData.get('gradingNotes') as string | null;
@@ -279,8 +280,18 @@ export async function POST(request: Request) {
         }
       }
 
+      const parsedMaxPoints = maxPointsRaw ? Number(maxPointsRaw) : 0;
+      const initialMaxPoints =
+        Number.isFinite(parsedMaxPoints) && parsedMaxPoints > 0 ? parsedMaxPoints : 20;
+
       if (existingExam) {
         finalExamId = existingExam.id;
+        if (existingExam.maxPoints <= 0 && initialMaxPoints > 0) {
+          await db.exam.update({
+            where: { id: existingExam.id },
+            data: { maxPoints: initialMaxPoints },
+          });
+        }
       } else {
         const examRecord = await db.exam.create({
           data: {
@@ -291,7 +302,7 @@ export async function POST(request: Request) {
             gradingNotes: gradingNotes?.trim() || null,
             gradingFormula,
             gradeRounding,
-            maxPoints: 0, // Will be updated by the first finished correction
+            maxPoints: initialMaxPoints,
             classId: classId,
           },
         });

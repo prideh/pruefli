@@ -204,6 +204,7 @@ export default function Dashboard() {
   // New exam states
   const [examTitle, setExamTitle] = useState<string>('');
   const [examSubject, setExamSubject] = useState<string>('Mathematik');
+  const [examMaxPoints, setExamMaxPoints] = useState<number>(20);
   const [rubricText, setRubricText] = useState<string>('');
   const [rubricFile, setRubricFile] = useState<File | null>(null);
   const [rubricScannedPages, setRubricScannedPages] = useState<number>(0);
@@ -621,9 +622,15 @@ export default function Dashboard() {
       setError('Bitte wähle einen Schüler oder Auto-Match aus.');
       return;
     }
-    if (selectedExamId === 'NEW' && (!examTitle || !examSubject)) {
-      setError('Bitte gib einen Prüfungstitel und ein Fach für die neue Prüfung an.');
-      return;
+    if (selectedExamId === 'NEW') {
+      if (!examTitle.trim() || !examSubject.trim()) {
+        setError('Bitte gib einen Prüfungstitel und ein Fach für die neue Prüfung an.');
+        return;
+      }
+      if (!examMaxPoints || Number(examMaxPoints) <= 0) {
+        setError('Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.');
+        return;
+      }
     }
     if (studentFiles.length === 0) {
       setError('Bitte lade mindestens eine Schülerarbeit (PDF oder Bild) hoch.');
@@ -649,8 +656,12 @@ export default function Dashboard() {
         if (!isFirst && resolvedExamId !== 'NEW') {
           formData.append('examId', resolvedExamId);
         } else if (selectedExamId === 'NEW') {
-          formData.append('examTitle', examTitle);
+          formData.append('examTitle', examTitle.trim());
           formData.append('examSubject', examSubject);
+          formData.append(
+            'maxPoints',
+            String(Number(examMaxPoints) > 0 ? Number(examMaxPoints) : 20)
+          );
           formData.append('gradingFormula', gradingFormula);
           formData.append('gradeRounding', gradeRounding);
           if (examTemplateFile) {
@@ -1513,7 +1524,7 @@ export default function Dashboard() {
                       {selectedExamId === 'NEW' && (
                         <Stack spacing={2.5} sx={{ borderLeft: '3px solid #1b77d1', pl: 2, py: 1 }}>
                           <Grid container spacing={2}>
-                            <Grid size={{ xs: 12, sm: 8 }}>
+                            <Grid size={{ xs: 12, sm: 6 }}>
                               <TextField
                                 label="Prüfungstitel"
                                 value={examTitle}
@@ -1521,9 +1532,10 @@ export default function Dashboard() {
                                 placeholder="z.B. Klassenarbeit 1: Lineare Gleichungen"
                                 fullWidth
                                 size="small"
+                                required
                               />
                             </Grid>
-                            <Grid size={{ xs: 12, sm: 4 }}>
+                            <Grid size={{ xs: 12, sm: 3 }}>
                               <FormControl fullWidth size="small">
                                 <InputLabel id="subject-select-label">Fach (KI-Profil)</InputLabel>
                                 <Select
@@ -1546,6 +1558,24 @@ export default function Dashboard() {
                                 </FormHelperText>
                               </FormControl>
                             </Grid>
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                              <TextField
+                                label="Maximalpunktzahl"
+                                type="number"
+                                value={examMaxPoints}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setExamMaxPoints(val > 0 ? val : 0);
+                                }}
+                                slotProps={{
+                                  htmlInput: { min: 1, step: 0.5 },
+                                }}
+                                fullWidth
+                                size="small"
+                                required
+                                helperText="Max. Punkte (z. B. 20)"
+                              />
+                            </Grid>
                           </Grid>
 
                           {/* Primary Field: Musterlösung */}
@@ -1554,7 +1584,15 @@ export default function Dashboard() {
                               variant="caption"
                               sx={{ fontWeight: 700, color: 'text.secondary' }}
                             >
-                              Musterlösung / Erwartungshorizont:
+                              Musterlösung / Erwartungshorizont der Lehrperson:
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}
+                            >
+                              Hier die Lösungsvorgabe oder das Kriterienraster hinterlegen (als Text
+                              oder Datei). Die Schülerarbeiten werden anschliessend in Schritt ③
+                              hochgeladen.
                             </Typography>
                             {rubricFile ||
                             rubricText.startsWith('{"mimeType":') ||
@@ -1577,7 +1615,7 @@ export default function Dashboard() {
                                     sx={{ color: 'text.primary', fontWeight: 600 }}
                                   >
                                     {rubricFile
-                                      ? rubricFile.name
+                                      ? `Musterlösung: ${rubricFile.name}`
                                       : `Smartphone-Musterlösung geladen (${rubricScannedPages || 1} ${(rubricScannedPages || 1) === 1 ? 'Seite' : 'Seiten'})`}
                                   </Typography>
                                 </Stack>
@@ -1887,6 +1925,12 @@ export default function Dashboard() {
                               setError(
                                 'Bitte gib in Schritt ② zuerst einen Prüfungstitel ein, bevor du den QR-Scanner für diese neue Prüfung startest.'
                               );
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                              return;
+                            }
+                            if (!examMaxPoints || Number(examMaxPoints) <= 0) {
+                              setError('Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.');
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
                               return;
                             }
                             try {
@@ -1910,7 +1954,7 @@ export default function Dashboard() {
                                 body: JSON.stringify({
                                   title: examTitle.trim(),
                                   subject: examSubject,
-                                  maxPoints: 0,
+                                  maxPoints: Number(examMaxPoints) > 0 ? Number(examMaxPoints) : 20,
                                   rubricText: resolvedRubric,
                                   examTemplateText: examTemplateScannedPayload || null,
                                   gradingNotes: gradingNotes.trim() || null,
@@ -1922,12 +1966,14 @@ export default function Dashboard() {
                               const created = await res.json();
                               if (!res.ok) {
                                 setError(created.error || 'Prüfung konnte nicht angelegt werden.');
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
                                 return;
                               }
                               setExams((prev) => [created.exam, ...prev]);
                               setSelectedExamId(created.exam.id);
                             } catch {
                               setError('Fehler beim Anlegen der Prüfung für den QR-Scan.');
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
                               return;
                             }
                           }
@@ -2122,6 +2168,13 @@ export default function Dashboard() {
                               ? 'Wähle eine oder mehrere Dateien aus • PDF, JPG, PNG'
                               : 'Wähle eine einzelne Datei aus • PDF, JPG, PNG'}
                           </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{ color: '#64748b', fontWeight: 600, mt: 0.5 }}
+                          >
+                            (Hier nur Schülerarbeiten hochladen — die Musterlösung gehört in Schritt
+                            ②)
+                          </Typography>
                         </Stack>
                       )}
                     </Box>
@@ -2137,6 +2190,9 @@ export default function Dashboard() {
                       if (selectedExamId === 'NEW') {
                         if (!examTitle.trim()) {
                           missingRequirements.push('Prüfungstitel angeben (Schritt ②)');
+                        }
+                        if (!examMaxPoints || Number(examMaxPoints) <= 0) {
+                          missingRequirements.push('Gültige Maximalpunktzahl angeben (Schritt ②)');
                         }
                         if (!rubricText.trim() && !rubricFile) {
                           missingRequirements.push('Musterlösung hinterlegen (Schritt ②)');

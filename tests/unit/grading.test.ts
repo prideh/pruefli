@@ -173,4 +173,21 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
     expect(undefInst).toContain('FACHFOKUS ALLGEMEIN:');
     expect(undefInst).not.toContain('FACHFOKUS MATHEMATIK');
   });
+
+  it('safely handles exam maxPoints fallbacks and positive validation', () => {
+    // 0 or negative maxPoints clamped in grade calculation
+    expect(calculateSwissGrade(10, 0)).toBe('1.0');
+    expect(calculateSwissGrade(10, -5)).toBe('1.0');
+
+    // Default maxPoints fallback value (20) used in dialog and API
+    const fallbackMaxPoints = (raw: number | null | undefined) =>
+      Number.isFinite(raw) && Number(raw) > 0 ? Number(raw) : 20;
+
+    expect(fallbackMaxPoints(undefined)).toBe(20);
+    expect(fallbackMaxPoints(null)).toBe(20);
+    expect(fallbackMaxPoints(0)).toBe(20);
+    expect(fallbackMaxPoints(-10)).toBe(20);
+    expect(fallbackMaxPoints(30)).toBe(30);
+    expect(fallbackMaxPoints(25.5)).toBe(25.5);
+  });
 });
