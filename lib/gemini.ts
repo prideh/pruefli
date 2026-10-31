@@ -641,6 +641,9 @@ const CORRECTION_RESPONSE_SCHEMA: Schema = {
 
 export function getSubjectFocusInstruction(subject?: string): string {
   const norm = (subject || '').toLowerCase();
+  if (norm.includes('mathe') || norm.includes('arithmetik') || norm.includes('algebra')) {
+    return 'FACHFOKUS MATHEMATIK: Achte besonders auf äquivalente Gleichungsumformungen, Vorzeichenregeln, Klammerauflösungen und eine lückenlose Überprüfung von Folgefehlern mit dem fehlerhaften Zwischenwert.';
+  }
   if (norm.includes('physik')) {
     return 'FACHFOKUS PHYSIK: Achte besonders auf korrekte physikalische Formeln, Einheitenumrechnungen, Grössenordnungen und Vorzeichen. Fehlt im Endresultat nur die physikalische Einheit bei ansonsten perfektem Rechenweg, ziehe maximal 0.5 Punkte im letzten Schritt ab.';
   }
@@ -667,7 +670,7 @@ export function getSubjectFocusInstruction(subject?: string): string {
   ) {
     return 'FACHFOKUS SPRACHE: Achte besonders auf inhaltliche Vollständigkeit, Textverständnis, Kohärenz, Argumentationsstruktur sowie Grammatik, Ausdruck und Orthographie.';
   }
-  return 'FACHFOKUS MATHEMATIK: Achte besonders auf äquivalente Gleichungsumformungen, Vorzeichenregeln, Klammerauflösungen und eine lückenlose Überprüfung von Folgefehlern mit dem fehlerhaften Zwischenwert.';
+  return 'FACHFOKUS ALLGEMEIN: Achte auf sachliche und fachliche Korrektheit, nachvollziehbare Teilschritte, vollständige Antworten sowie eine faire und nachvollziehbare Begründung der Punktevergabe.';
 }
 
 // System prompt instructing Gemini 3.8 Flash on 3-tier hierarchy, diplomatic OCR, Folgefehler math, Swiss orthography, and calibrated uncertainty

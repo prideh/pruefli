@@ -27,7 +27,10 @@ import {
   Select,
   MenuItem,
   IconButton,
+  Tooltip,
+  FormHelperText,
 } from '@mui/material';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
 import AddIcon from '@mui/icons-material/Add';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
@@ -46,6 +49,7 @@ import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
   SUBJECT_PROFILES,
+  getSubjectSupportInfo,
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
@@ -506,7 +510,36 @@ export default function ExamsPage() {
     }
   };
 
-  const filteredExams = exams.filter((ex) => ex.classId === activeClassId);
+  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('ALL');
+
+  const classExams = React.useMemo(
+    () => exams.filter((ex) => ex.classId === activeClassId),
+    [exams, activeClassId]
+  );
+
+  const availableSubjects = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    classExams.forEach((ex) => {
+      const s = ex.subject || 'Allgemein';
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    return Object.entries(counts).map(([name, count]) => ({ name, count }));
+  }, [classExams]);
+
+  const effectiveSubjectFilter = React.useMemo(() => {
+    if (selectedSubjectFilter === 'ALL') return 'ALL';
+    const exists = availableSubjects.some((s) => s.name === selectedSubjectFilter);
+    return exists ? selectedSubjectFilter : 'ALL';
+  }, [availableSubjects, selectedSubjectFilter]);
+
+  const filteredExams = React.useMemo(() => {
+    return classExams.filter((ex) => {
+      if (effectiveSubjectFilter !== 'ALL' && ex.subject !== effectiveSubjectFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [classExams, effectiveSubjectFilter]);
 
   return (
     <DashboardLayout>
@@ -620,6 +653,7 @@ export default function ExamsPage() {
                         onClick={() => {
                           setActiveTabClassId(cls.id);
                           setDialogClassId(cls.id);
+                          setSelectedSubjectFilter('ALL');
                         }}
                         sx={{
                           minWidth: '220px',
@@ -747,7 +781,7 @@ export default function ExamsPage() {
                   </Button>
                 </Link>
               </Card>
-            ) : filteredExams.length === 0 ? (
+            ) : classExams.length === 0 ? (
               <Card
                 sx={{
                   borderRadius: '16px',
@@ -783,212 +817,357 @@ export default function ExamsPage() {
                 </Button>
               </Card>
             ) : (
-              <Grid container spacing={3}>
-                {filteredExams.map((ex) => (
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }} key={ex.id}>
-                    <Card
+              <Stack spacing={2.5}>
+                {/* Subject Filter Bar */}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 1.5,
+                    p: 1.5,
+                    px: 2,
+                    borderRadius: '10px',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                  }}
+                >
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ flexWrap: 'wrap', alignItems: 'center' }}
+                  >
+                    <Typography
+                      variant="caption"
+                      sx={{ fontWeight: 750, color: 'text.secondary', mr: 0.5 }}
+                    >
+                      Nach Fach filtern:
+                    </Typography>
+                    <Chip
+                      label={`Alle Fächer (${classExams.length})`}
+                      size="small"
+                      onClick={() => setSelectedSubjectFilter('ALL')}
                       sx={{
-                        borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
-                        boxShadow: 'none',
-                        transition: 'all 0.25s ease',
-                        height: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        '&:hover': {
-                          transform: 'translateY(-2px)',
-                          borderColor: '#1b77d1',
-                          boxShadow: '0 10px 20px -10px rgba(0,0,0,0.05)',
-                        },
+                        fontWeight: effectiveSubjectFilter === 'ALL' ? 750 : 550,
+                        backgroundColor: effectiveSubjectFilter === 'ALL' ? '#1b77d1' : '#f1f5f9',
+                        color: effectiveSubjectFilter === 'ALL' ? '#ffffff' : '#334155',
+                        cursor: 'pointer',
+                      }}
+                    />
+                    {availableSubjects.map((sub) => (
+                      <Chip
+                        key={sub.name}
+                        label={`${sub.name} (${sub.count})`}
+                        size="small"
+                        onClick={() => setSelectedSubjectFilter(sub.name)}
+                        sx={{
+                          fontWeight: effectiveSubjectFilter === sub.name ? 750 : 550,
+                          backgroundColor:
+                            effectiveSubjectFilter === sub.name ? '#1b77d1' : '#f1f5f9',
+                          color: effectiveSubjectFilter === sub.name ? '#ffffff' : '#334155',
+                          cursor: 'pointer',
+                        }}
+                      />
+                    ))}
+                  </Stack>
+
+                  <Link href="/subjects" passHref style={{ textDecoration: 'none' }}>
+                    <Button
+                      size="small"
+                      variant="text"
+                      startIcon={<MenuBookIcon sx={{ fontSize: '1.05rem' }} />}
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        color: '#1b77d1',
+                        fontSize: '0.825rem',
                       }}
                     >
-                      <CardContent sx={{ p: 3, pb: 1 }}>
-                        <Stack
-                          direction="row"
-                          sx={{ justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}
-                        >
-                          <Box>
-                            <Typography
-                              variant="h6"
-                              sx={{ fontWeight: 800, color: '#0f172a', mb: 0.5, lineClamp: 2 }}
-                            >
-                              {ex.title}
-                            </Typography>
-                            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
-                              <Chip
-                                label={ex.subject}
-                                size="small"
-                                sx={{
-                                  backgroundColor: '#e3f2fd',
-                                  color: '#1b77d1',
-                                  fontWeight: 700,
-                                  fontSize: '0.75rem',
-                                }}
-                              />
-                              {ex.isGenerated && !ex.isApproved && (
-                                <Chip
-                                  label="Entwurf: Freigabe erforderlich"
-                                  size="small"
-                                  color="warning"
-                                  sx={{ fontWeight: 700, fontSize: '0.72rem', height: 24 }}
-                                />
-                              )}
-                              {ex.isApproved && ex.isGenerated && (
-                                <Chip
-                                  label="Freigegeben & Eingefroren"
-                                  size="small"
-                                  sx={{
-                                    backgroundColor: '#dcfce7',
-                                    color: '#15803d',
-                                    fontWeight: 700,
-                                    fontSize: '0.72rem',
-                                    height: 24,
-                                  }}
-                                />
-                              )}
-                            </Stack>
-                          </Box>
-                          <Box
+                      Fächer-Ansicht öffnen
+                    </Button>
+                  </Link>
+                </Box>
+
+                {filteredExams.length === 0 ? (
+                  <Card
+                    sx={{
+                      borderRadius: '12px',
+                      border: '1px dashed #cbd5e1',
+                      p: 4,
+                      textAlign: 'center',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    <Typography
+                      variant="subtitle1"
+                      sx={{ fontWeight: 700, color: '#475569', mb: 1 }}
+                    >
+                      Keine Prüfungen für das Fach &quot;{effectiveSubjectFilter}&quot; in dieser
+                      Klasse gefunden.
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setSelectedSubjectFilter('ALL')}
+                      sx={{ textTransform: 'none', fontWeight: 650, borderRadius: '8px' }}
+                    >
+                      Filter zurücksetzen
+                    </Button>
+                  </Card>
+                ) : (
+                  <Grid container spacing={3}>
+                    {filteredExams.map((ex) => {
+                      const support = getSubjectSupportInfo(ex.subject);
+                      const isVerified = support.supportLevel === 'VERIFIED_MODALITY';
+
+                      return (
+                        <Grid size={{ xs: 12, sm: 6, md: 4 }} key={ex.id}>
+                          <Card
                             sx={{
-                              width: '40px',
-                              height: '40px',
-                              borderRadius: '8px',
-                              backgroundColor: '#fff7ed',
-                              color: '#ea580c',
+                              borderRadius: '12px',
+                              border: '1px solid #e2e8f0',
+                              boxShadow: 'none',
+                              transition: 'all 0.25s ease',
+                              height: '100%',
                               display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
+                              flexDirection: 'column',
+                              justifyContent: 'space-between',
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                borderColor: '#1b77d1',
+                                boxShadow: '0 10px 20px -10px rgba(0,0,0,0.05)',
+                              },
                             }}
                           >
-                            <AssignmentIcon sx={{ fontSize: '1.25rem' }} />
-                          </Box>
-                        </Stack>
-
-                        <Divider sx={{ mb: 2, borderColor: '#f1f5f9' }} />
-
-                        <Grid container spacing={2}>
-                          <Grid size={{ xs: 6 }}>
-                            <Stack spacing={0.25}>
-                              <Typography
-                                variant="caption"
-                                sx={{ color: 'text.secondary', fontWeight: 600 }}
+                            <CardContent sx={{ p: 3, pb: 1 }}>
+                              <Stack
+                                direction="row"
+                                sx={{
+                                  justifyContent: 'space-between',
+                                  alignItems: 'flex-start',
+                                  mb: 2,
+                                }}
                               >
-                                Klasse
-                              </Typography>
-                              <Typography
-                                variant="body2"
-                                sx={{ fontWeight: 700, color: '#334155' }}
-                              >
-                                {ex.className}
-                              </Typography>
-                            </Stack>
-                          </Grid>
-                          <Grid size={{ xs: 6 }}>
-                            <Stack spacing={0.25}>
-                              <Typography
-                                variant="caption"
-                                sx={{ color: 'text.secondary', fontWeight: 600 }}
-                              >
-                                Max. Punkte
-                              </Typography>
-                              <Typography
-                                variant="body2"
-                                sx={{ fontWeight: 700, color: '#334155' }}
-                              >
-                                {ex.maxPoints} Punkte
-                              </Typography>
-                            </Stack>
-                          </Grid>
-                          <Grid size={{ xs: 6 }} sx={{ mt: 1 }}>
-                            <Stack spacing={0.25}>
-                              <Typography
-                                variant="caption"
-                                sx={{ color: 'text.secondary', fontWeight: 600 }}
-                              >
-                                Korrekturen
-                              </Typography>
-                              <Typography
-                                variant="body2"
-                                sx={{ fontWeight: 700, color: '#334155' }}
-                              >
-                                {ex.submissionsCount} bewertet
-                              </Typography>
-                            </Stack>
-                          </Grid>
-                          <Grid size={{ xs: 6 }} sx={{ mt: 1 }}>
-                            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                              <Typography
-                                variant="caption"
-                                sx={{ color: 'text.secondary', fontWeight: 600 }}
-                              >
-                                Schnitt (Ø):
-                              </Typography>
-                              {ex.averageGrade !== 'N/A' ? (
-                                <Chip
-                                  label={ex.averageGrade}
-                                  size="small"
+                                <Box>
+                                  <Typography
+                                    variant="h6"
+                                    sx={{
+                                      fontWeight: 800,
+                                      color: '#0f172a',
+                                      mb: 0.5,
+                                      lineClamp: 2,
+                                    }}
+                                  >
+                                    {ex.title}
+                                  </Typography>
+                                  <Stack
+                                    direction="row"
+                                    spacing={1}
+                                    sx={{ flexWrap: 'wrap', mb: 1, alignItems: 'center' }}
+                                  >
+                                    <Chip
+                                      label={ex.subject}
+                                      size="small"
+                                      sx={{
+                                        backgroundColor: '#e3f2fd',
+                                        color: '#1b77d1',
+                                        fontWeight: 700,
+                                        fontSize: '0.75rem',
+                                      }}
+                                    />
+                                    <Tooltip title={support.supportDescription} arrow>
+                                      <Chip
+                                        label={support.supportBadge}
+                                        size="small"
+                                        variant="outlined"
+                                        sx={{
+                                          fontSize: '0.7rem',
+                                          fontWeight: 650,
+                                          height: 24,
+                                          borderColor: isVerified ? '#86efac' : '#cbd5e1',
+                                          color: isVerified ? '#15803d' : '#475569',
+                                        }}
+                                      />
+                                    </Tooltip>
+                                    {ex.isGenerated && !ex.isApproved && (
+                                      <Chip
+                                        label="Entwurf: Freigabe erforderlich"
+                                        size="small"
+                                        color="warning"
+                                        sx={{ fontWeight: 700, fontSize: '0.72rem', height: 24 }}
+                                      />
+                                    )}
+                                    {ex.isApproved && ex.isGenerated && (
+                                      <Chip
+                                        label="Freigegeben & Eingefroren"
+                                        size="small"
+                                        sx={{
+                                          backgroundColor: '#dcfce7',
+                                          color: '#15803d',
+                                          fontWeight: 700,
+                                          fontSize: '0.72rem',
+                                          height: 24,
+                                        }}
+                                      />
+                                    )}
+                                  </Stack>
+                                </Box>
+                                <Box
                                   sx={{
-                                    backgroundColor:
-                                      parseFloat(ex.averageGrade) >= 4.0 ? '#dcfce7' : '#fee2e2',
-                                    color:
-                                      parseFloat(ex.averageGrade) >= 4.0 ? '#15803d' : '#b91c1c',
-                                    fontWeight: 'bold',
-                                    borderRadius: '6px',
-                                    fontSize: '0.75rem',
-                                  }}
-                                />
-                              ) : (
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    fontWeight: 600,
-                                    color: 'text.secondary',
-                                    fontSize: '0.8rem',
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '8px',
+                                    backgroundColor: '#fff7ed',
+                                    color: '#ea580c',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
                                   }}
                                 >
-                                  Keine Noten
-                                </Typography>
-                              )}
-                            </Stack>
-                          </Grid>
-                        </Grid>
-                      </CardContent>
+                                  <AssignmentIcon sx={{ fontSize: '1.25rem' }} />
+                                </Box>
+                              </Stack>
 
-                      <CardActions sx={{ p: 2, pt: 0, justifyContent: 'space-between' }}>
-                        <Button
-                          size="small"
-                          startIcon={<ContentCopyIcon />}
-                          onClick={() => handleOpenCopy(ex)}
-                          sx={{
-                            textTransform: 'none',
-                            fontWeight: 650,
-                            color: 'text.secondary',
-                            '&:hover': { backgroundColor: '#f1f5f9', color: '#0f172a' },
-                          }}
-                        >
-                          Prüfung duplizieren
-                        </Button>
-                        <Link href={`/exams/${ex.id}`} passHref style={{ textDecoration: 'none' }}>
-                          <Button
-                            size="small"
-                            endIcon={<ArrowForwardIcon />}
-                            sx={{
-                              textTransform: 'none',
-                              fontWeight: 700,
-                              color: '#1b77d1',
-                              '&:hover': { backgroundColor: '#f0f7ff' },
-                            }}
-                          >
-                            Musterlösung & Statistiken
-                          </Button>
-                        </Link>
-                      </CardActions>
-                    </Card>
+                              <Divider sx={{ mb: 2, borderColor: '#f1f5f9' }} />
+
+                              <Grid container spacing={2}>
+                                <Grid size={{ xs: 6 }}>
+                                  <Stack spacing={0.25}>
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ color: 'text.secondary', fontWeight: 600 }}
+                                    >
+                                      Klasse
+                                    </Typography>
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 700, color: '#334155' }}
+                                    >
+                                      {ex.className}
+                                    </Typography>
+                                  </Stack>
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                  <Stack spacing={0.25}>
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ color: 'text.secondary', fontWeight: 600 }}
+                                    >
+                                      Max. Punkte
+                                    </Typography>
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 700, color: '#334155' }}
+                                    >
+                                      {ex.maxPoints} Punkte
+                                    </Typography>
+                                  </Stack>
+                                </Grid>
+                                <Grid size={{ xs: 6 }} sx={{ mt: 1 }}>
+                                  <Stack spacing={0.25}>
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ color: 'text.secondary', fontWeight: 600 }}
+                                    >
+                                      Korrekturen
+                                    </Typography>
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 700, color: '#334155' }}
+                                    >
+                                      {ex.submissionsCount} bewertet
+                                    </Typography>
+                                  </Stack>
+                                </Grid>
+                                <Grid size={{ xs: 6 }} sx={{ mt: 1 }}>
+                                  <Stack
+                                    direction="row"
+                                    spacing={0.75}
+                                    sx={{ alignItems: 'center' }}
+                                  >
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ color: 'text.secondary', fontWeight: 600 }}
+                                    >
+                                      Schnitt (Ø):
+                                    </Typography>
+                                    {ex.averageGrade !== 'N/A' ? (
+                                      <Chip
+                                        label={ex.averageGrade}
+                                        size="small"
+                                        sx={{
+                                          backgroundColor:
+                                            parseFloat(ex.averageGrade) >= 4.0
+                                              ? '#dcfce7'
+                                              : '#fee2e2',
+                                          color:
+                                            parseFloat(ex.averageGrade) >= 4.0
+                                              ? '#15803d'
+                                              : '#b91c1c',
+                                          fontWeight: 'bold',
+                                          borderRadius: '6px',
+                                          fontSize: '0.75rem',
+                                        }}
+                                      />
+                                    ) : (
+                                      <Typography
+                                        variant="body2"
+                                        sx={{
+                                          fontWeight: 600,
+                                          color: 'text.secondary',
+                                          fontSize: '0.8rem',
+                                        }}
+                                      >
+                                        Keine Noten
+                                      </Typography>
+                                    )}
+                                  </Stack>
+                                </Grid>
+                              </Grid>
+                            </CardContent>
+
+                            <CardActions sx={{ p: 2, pt: 0, justifyContent: 'space-between' }}>
+                              <Button
+                                size="small"
+                                startIcon={<ContentCopyIcon />}
+                                onClick={() => handleOpenCopy(ex)}
+                                sx={{
+                                  textTransform: 'none',
+                                  fontWeight: 650,
+                                  color: 'text.secondary',
+                                  '&:hover': { backgroundColor: '#f1f5f9', color: '#0f172a' },
+                                }}
+                              >
+                                Prüfung duplizieren
+                              </Button>
+                              <Link
+                                href={`/exams/${ex.id}`}
+                                passHref
+                                style={{ textDecoration: 'none' }}
+                              >
+                                <Button
+                                  size="small"
+                                  endIcon={<ArrowForwardIcon />}
+                                  sx={{
+                                    textTransform: 'none',
+                                    fontWeight: 700,
+                                    color: '#1b77d1',
+                                    '&:hover': { backgroundColor: '#f0f7ff' },
+                                  }}
+                                >
+                                  Musterlösung & Statistiken
+                                </Button>
+                              </Link>
+                            </CardActions>
+                          </Card>
+                        </Grid>
+                      );
+                    })}
                   </Grid>
-                ))}
-              </Grid>
+                )}
+              </Stack>
             )}
           </>
         )}
@@ -1036,10 +1215,14 @@ export default function ExamsPage() {
                       >
                         {SUBJECT_PROFILES.map((s) => (
                           <MenuItem key={s.value} value={s.value}>
-                            {s.label}
+                            {s.label} ({s.supportBadge})
                           </MenuItem>
                         ))}
                       </Select>
+                      <FormHelperText sx={{ fontSize: '0.73rem', color: 'text.secondary' }}>
+                        {getSubjectSupportInfo(examSubject).supportBadge}:{' '}
+                        {getSubjectSupportInfo(examSubject).profileFocus}
+                      </FormHelperText>
                     </FormControl>
                   </Grid>
                 </Grid>
@@ -1457,10 +1640,14 @@ export default function ExamsPage() {
                       >
                         {SUBJECT_PROFILES.map((s) => (
                           <MenuItem key={s.value} value={s.value}>
-                            {s.label}
+                            {s.label} ({s.supportBadge})
                           </MenuItem>
                         ))}
                       </Select>
+                      <FormHelperText sx={{ fontSize: '0.73rem', color: 'text.secondary' }}>
+                        {getSubjectSupportInfo(copySubject).supportBadge}:{' '}
+                        {getSubjectSupportInfo(copySubject).profileFocus}
+                      </FormHelperText>
                     </FormControl>
                   </Grid>
                 </Grid>
@@ -1802,20 +1989,24 @@ export default function ExamsPage() {
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <FormControl fullWidth>
-                      <InputLabel id="gen-subject-label">Fach</InputLabel>
+                      <InputLabel id="gen-subject-label">Fach (KI-Profil)</InputLabel>
                       <Select
                         labelId="gen-subject-label"
                         value={genSubject}
-                        label="Fach"
+                        label="Fach (KI-Profil)"
                         onChange={(e) => setGenSubject(e.target.value)}
                         sx={{ borderRadius: '8px' }}
                       >
                         {SUBJECT_PROFILES.map((s) => (
                           <MenuItem key={s.value} value={s.value}>
-                            {s.label}
+                            {s.label} ({s.supportBadge})
                           </MenuItem>
                         ))}
                       </Select>
+                      <FormHelperText sx={{ fontSize: '0.73rem', color: 'text.secondary' }}>
+                        {getSubjectSupportInfo(genSubject).supportBadge}:{' '}
+                        {getSubjectSupportInfo(genSubject).profileFocus}
+                      </FormHelperText>
                     </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>

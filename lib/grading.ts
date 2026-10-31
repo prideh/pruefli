@@ -34,52 +34,240 @@ export const GRADE_ROUNDING_OPTIONS: {
   { value: '0.5', label: 'Halbnoten (0.5 – z. B. 4.5)' },
 ];
 
-export const SUBJECT_PROFILES: {
+export type SubjectSupportLevel = 'VERIFIED_MODALITY' | 'FOCUS_PROFILE' | 'GENERIC_FALLBACK';
+
+export interface SubjectProfile {
   value: string;
   label: string;
   profileFocus: string;
-}[] = [
+  supportLevel: 'VERIFIED_MODALITY' | 'FOCUS_PROFILE';
+  supportBadge: string;
+  supportDescription: string;
+}
+
+export const SUBJECT_PROFILES: SubjectProfile[] = [
   {
     value: 'Mathematik',
     label: 'Mathematik',
     profileFocus: 'Rechenwege, Zwischenschritte, Äquivalenzumformungen & Folgefehler',
+    supportLevel: 'VERIFIED_MODALITY',
+    supportBadge: 'Verifizierte Modalität',
+    supportDescription:
+      'Voll verifizierte Folgefehler-Logik & Zwischenwert-Nachrechnung für mathematische Rechenwege.',
   },
   {
     value: 'Geometrie',
     label: 'Geometrie',
     profileFocus: 'Konstruktionsschritte, Winkel-/Längenbeziehungen, Skizzen & Masseinheiten',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für Konstruktionsschritte & Einheiten aktiv. Spezialisierte Zeichnungsanalyse in Vorbereitung.',
   },
   {
     value: 'Physik',
     label: 'Physik',
     profileFocus: 'Physikalische Formeln, Einheiten, Grössenordnungen & Vorzeichen',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für physikalische Formeln & Masseinheiten aktiv. Dedizierte Einheiten-Engine in Vorbereitung.',
   },
   {
     value: 'Chemie',
     label: 'Chemie',
     profileFocus: 'Reaktionsgleichungen, Stöchiometrie, Wertigkeiten & Molberechnungen',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für Reaktionsgleichungen & Stöchiometrie aktiv. Strukturformel-Analyse in Vorbereitung.',
   },
   {
     value: 'Biologie',
     label: 'Biologie',
     profileFocus: 'Fachterminologie, biologische Prozesse & Ursache-Wirkungs-Ketten',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für Fachterminologie, biochemische Vorgänge & Ursache-Wirkungs-Ketten aktiv.',
   },
   {
     value: 'Informatik',
     label: 'Informatik / ICT',
     profileFocus: 'Algorithmische Logik, Kontrollstrukturen, Randfälle & Code-Korrektheit',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für algorithmische Logik & Kontrollstrukturen aktiv (mit Syntax-Toleranz bei Handschrift).',
   },
   {
     value: 'Wirtschaft',
     label: 'Wirtschaft & Recht',
     profileFocus: 'Fachbegriffe, Buchungssätze, Kennzahlen & strukturierte Argumentation',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für ökonomische und juristische Fachbegriffe, Buchungssätze & fallbezogene Argumentation aktiv.',
   },
   {
     value: 'Sprache',
     label: 'Sprache / Deutsch',
     profileFocus: 'Inhaltliche Präzision, Textverständnis, Ausdruck & Orthographie',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für Textverständnis, Argumentationskohärenz & Orthographie aktiv.',
   },
 ];
+
+export interface SubjectSupportInfo {
+  subjectName: string;
+  matchedProfile: SubjectProfile | null;
+  supportLevel: SubjectSupportLevel;
+  supportBadge: string;
+  supportDescription: string;
+  profileFocus: string;
+}
+
+export function getSubjectSupportInfo(subjectName?: string | null): SubjectSupportInfo {
+  const raw = (subjectName || '').trim();
+  if (!raw) {
+    return {
+      subjectName: 'Allgemein',
+      matchedProfile: null,
+      supportLevel: 'GENERIC_FALLBACK',
+      supportBadge: 'Basis-Korrektur',
+      supportDescription:
+        'Allgemeines Korrektur- und Teilschritte-Profil. Kein fachspezifisches KI-Fokusprofil aktiv.',
+      profileFocus:
+        'Sachliche und fachliche Korrektheit, nachvollziehbare Teilschritte & faire Punktevergabe',
+    };
+  }
+
+  const norm = raw.toLowerCase();
+
+  // 1. Exact value or label match
+  const exact = SUBJECT_PROFILES.find(
+    (p) => p.value.toLowerCase() === norm || p.label.toLowerCase() === norm
+  );
+  if (exact) {
+    return {
+      subjectName: exact.label,
+      matchedProfile: exact,
+      supportLevel: exact.supportLevel,
+      supportBadge: exact.supportBadge,
+      supportDescription: exact.supportDescription,
+      profileFocus: exact.profileFocus,
+    };
+  }
+
+  // 2. Substring matching for known profiles
+  if (norm.includes('mathe') || norm.includes('arithmetik') || norm.includes('algebra')) {
+    const p = SUBJECT_PROFILES.find((x) => x.value === 'Mathematik')!;
+    return {
+      subjectName: raw,
+      matchedProfile: p,
+      supportLevel: p.supportLevel,
+      supportBadge: p.supportBadge,
+      supportDescription: p.supportDescription,
+      profileFocus: p.profileFocus,
+    };
+  }
+  if (norm.includes('physik')) {
+    const p = SUBJECT_PROFILES.find((x) => x.value === 'Physik')!;
+    return {
+      subjectName: raw,
+      matchedProfile: p,
+      supportLevel: p.supportLevel,
+      supportBadge: p.supportBadge,
+      supportDescription: p.supportDescription,
+      profileFocus: p.profileFocus,
+    };
+  }
+  if (norm.includes('chemie')) {
+    const p = SUBJECT_PROFILES.find((x) => x.value === 'Chemie')!;
+    return {
+      subjectName: raw,
+      matchedProfile: p,
+      supportLevel: p.supportLevel,
+      supportBadge: p.supportBadge,
+      supportDescription: p.supportDescription,
+      profileFocus: p.profileFocus,
+    };
+  }
+  if (norm.includes('geometrie')) {
+    const p = SUBJECT_PROFILES.find((x) => x.value === 'Geometrie')!;
+    return {
+      subjectName: raw,
+      matchedProfile: p,
+      supportLevel: p.supportLevel,
+      supportBadge: p.supportBadge,
+      supportDescription: p.supportDescription,
+      profileFocus: p.profileFocus,
+    };
+  }
+  if (norm.includes('biologie')) {
+    const p = SUBJECT_PROFILES.find((x) => x.value === 'Biologie')!;
+    return {
+      subjectName: raw,
+      matchedProfile: p,
+      supportLevel: p.supportLevel,
+      supportBadge: p.supportBadge,
+      supportDescription: p.supportDescription,
+      profileFocus: p.profileFocus,
+    };
+  }
+  if (norm.includes('informatik') || norm.includes('ict')) {
+    const p = SUBJECT_PROFILES.find((x) => x.value === 'Informatik')!;
+    return {
+      subjectName: raw,
+      matchedProfile: p,
+      supportLevel: p.supportLevel,
+      supportBadge: p.supportBadge,
+      supportDescription: p.supportDescription,
+      profileFocus: p.profileFocus,
+    };
+  }
+  if (norm.includes('wirtschaft') || norm.includes('recht')) {
+    const p = SUBJECT_PROFILES.find((x) => x.value === 'Wirtschaft')!;
+    return {
+      subjectName: raw,
+      matchedProfile: p,
+      supportLevel: p.supportLevel,
+      supportBadge: p.supportBadge,
+      supportDescription: p.supportDescription,
+      profileFocus: p.profileFocus,
+    };
+  }
+  if (
+    norm.includes('sprache') ||
+    norm.includes('deutsch') ||
+    norm.includes('englisch') ||
+    norm.includes('franz')
+  ) {
+    const p = SUBJECT_PROFILES.find((x) => x.value === 'Sprache')!;
+    return {
+      subjectName: raw,
+      matchedProfile: p,
+      supportLevel: p.supportLevel,
+      supportBadge: p.supportBadge,
+      supportDescription: p.supportDescription,
+      profileFocus: p.profileFocus,
+    };
+  }
+
+  // 3. Fallback for custom or unrecognized subjects
+  return {
+    subjectName: raw,
+    matchedProfile: null,
+    supportLevel: 'GENERIC_FALLBACK',
+    supportBadge: 'Basis-Korrektur',
+    supportDescription:
+      'Allgemeines Korrektur- und Teilschritte-Profil. Kein fachspezifisches KI-Fokusprofil aktiv.',
+    profileFocus:
+      'Sachliche und fachliche Korrektheit, nachvollziehbare Teilschritte & faire Punktevergabe',
+  };
+}
 
 /**
  * Calculates the unrounded raw Swiss school grade (1.0 to 6.0) using the configured formula.

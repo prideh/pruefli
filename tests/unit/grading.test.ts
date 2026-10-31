@@ -5,7 +5,9 @@ import {
   matchStudentByNameWithConfidence,
   parseStudentExamUrls,
   SUBJECT_PROFILES,
+  getSubjectSupportInfo,
 } from '@/lib/grading';
+import { getSubjectFocusInstruction } from '@/lib/gemini';
 
 describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
   it('calculates LINEAR_60 grades accurately (Note 4.0 at 60%)', () => {
@@ -95,11 +97,80 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
     ]);
   });
 
-  it('provides all 8 Swiss subject profiles without Eszett', () => {
+  it('provides all 8 Swiss subject profiles without Eszett and with qualified support levels', () => {
     expect(SUBJECT_PROFILES.length).toBeGreaterThanOrEqual(8);
     for (const sp of SUBJECT_PROFILES) {
       expect(sp.label).not.toContain('ß');
       expect(sp.profileFocus).not.toContain('ß');
+      expect(sp.supportBadge).not.toContain('ß');
+      expect(sp.supportDescription).not.toContain('ß');
+      expect(['VERIFIED_MODALITY', 'FOCUS_PROFILE']).toContain(sp.supportLevel);
     }
+
+    const mathProfile = SUBJECT_PROFILES.find((p) => p.value === 'Mathematik');
+    expect(mathProfile?.supportLevel).toBe('VERIFIED_MODALITY');
+    expect(mathProfile?.supportBadge).toBe('Verifizierte Modalität');
+
+    const physicsProfile = SUBJECT_PROFILES.find((p) => p.value === 'Physik');
+    expect(physicsProfile?.supportLevel).toBe('FOCUS_PROFILE');
+    expect(physicsProfile?.supportBadge).toBe('Fokus-Profil');
+  });
+
+  it('resolves qualified subject support info via getSubjectSupportInfo', () => {
+    // Exact or substring match for verified modality
+    const math = getSubjectSupportInfo('Mathematik');
+    expect(math.supportLevel).toBe('VERIFIED_MODALITY');
+    expect(math.supportBadge).toBe('Verifizierte Modalität');
+    expect(math.matchedProfile?.value).toBe('Mathematik');
+
+    const matheShort = getSubjectSupportInfo('Mathe');
+    expect(matheShort.supportLevel).toBe('VERIFIED_MODALITY');
+
+    // Focus profile
+    const chem = getSubjectSupportInfo('Chemie');
+    expect(chem.supportLevel).toBe('FOCUS_PROFILE');
+    expect(chem.supportBadge).toBe('Fokus-Profil');
+
+    const ict = getSubjectSupportInfo('Informatik / ICT');
+    expect(ict.supportLevel).toBe('FOCUS_PROFILE');
+
+    // Unknown or fallback subject
+    const history = getSubjectSupportInfo('Geschichte');
+    expect(history.supportLevel).toBe('GENERIC_FALLBACK');
+    expect(history.supportBadge).toBe('Basis-Korrektur');
+    expect(history.matchedProfile).toBeNull();
+    expect(history.supportDescription).not.toContain('ß');
+
+    const empty = getSubjectSupportInfo('');
+    expect(empty.supportLevel).toBe('GENERIC_FALLBACK');
+  });
+
+  it('provides qualified getSubjectFocusInstruction with explicit general fallback', () => {
+    // Math keywords get math instruction
+    const mathInst = getSubjectFocusInstruction('Mathematik');
+    expect(mathInst).toContain('FACHFOKUS MATHEMATIK:');
+    expect(mathInst).not.toContain('ß');
+
+    const algebraInst = getSubjectFocusInstruction('Algebra');
+    expect(algebraInst).toContain('FACHFOKUS MATHEMATIK:');
+
+    // Specific subjects get their focus instruction
+    expect(getSubjectFocusInstruction('Physik')).toContain('FACHFOKUS PHYSIK:');
+    expect(getSubjectFocusInstruction('Biologie')).toContain('FACHFOKUS BIOLOGIE:');
+    expect(getSubjectFocusInstruction('Informatik')).toContain('FACHFOKUS INFORMATIK');
+
+    // Unknown subjects get FACHFOKUS ALLGEMEIN (never silent math fallback!)
+    const historyInst = getSubjectFocusInstruction('Geschichte');
+    expect(historyInst).toContain('FACHFOKUS ALLGEMEIN:');
+    expect(historyInst).not.toContain('FACHFOKUS MATHEMATIK');
+    expect(historyInst).not.toContain('ß');
+
+    const emptyInst = getSubjectFocusInstruction('');
+    expect(emptyInst).toContain('FACHFOKUS ALLGEMEIN:');
+    expect(emptyInst).not.toContain('FACHFOKUS MATHEMATIK');
+
+    const undefInst = getSubjectFocusInstruction(undefined);
+    expect(undefInst).toContain('FACHFOKUS ALLGEMEIN:');
+    expect(undefInst).not.toContain('FACHFOKUS MATHEMATIK');
   });
 });

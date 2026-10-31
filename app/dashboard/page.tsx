@@ -68,6 +68,7 @@ import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
   SUBJECT_PROFILES,
+  getSubjectSupportInfo,
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
@@ -1524,19 +1525,25 @@ export default function Dashboard() {
                             </Grid>
                             <Grid size={{ xs: 12, sm: 4 }}>
                               <FormControl fullWidth size="small">
-                                <InputLabel id="subject-select-label">Fach</InputLabel>
+                                <InputLabel id="subject-select-label">Fach (KI-Profil)</InputLabel>
                                 <Select
                                   labelId="subject-select-label"
                                   value={examSubject}
-                                  label="Fach"
+                                  label="Fach (KI-Profil)"
                                   onChange={(e) => setExamSubject(e.target.value)}
                                 >
                                   {SUBJECT_PROFILES.map((sp) => (
                                     <MenuItem key={sp.value} value={sp.value}>
-                                      {sp.label}
+                                      {sp.label} ({sp.supportBadge})
                                     </MenuItem>
                                   ))}
                                 </Select>
+                                <FormHelperText
+                                  sx={{ fontSize: '0.73rem', color: 'text.secondary' }}
+                                >
+                                  {getSubjectSupportInfo(examSubject).supportBadge}:{' '}
+                                  {getSubjectSupportInfo(examSubject).profileFocus}
+                                </FormHelperText>
                               </FormControl>
                             </Grid>
                           </Grid>

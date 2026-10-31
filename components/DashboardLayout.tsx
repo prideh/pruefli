@@ -27,6 +27,7 @@ import SchoolIcon from '@mui/icons-material/School';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import GroupIcon from '@mui/icons-material/Group';
 import AssignmentIcon from '@mui/icons-material/Assignment';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
 import HistoryIcon from '@mui/icons-material/History';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { getCachedTeacher, setCachedTeacher, clearSessionCache } from '@/lib/sessionCache';
@@ -187,6 +188,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { text: 'Übersicht', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Klassen', icon: <GroupIcon />, path: '/classes' },
     { text: 'Prüfungen', icon: <AssignmentIcon />, path: '/exams' },
+    { text: 'Fächer', icon: <MenuBookIcon />, path: '/subjects' },
     { text: 'Korrekturen', icon: <HistoryIcon />, path: '/submissions' },
   ];
 
