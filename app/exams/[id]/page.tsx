@@ -36,6 +36,7 @@ import {
   IconButton,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import AddIcon from '@mui/icons-material/Add';
 import { getErrorMessage } from '@/lib/api-error';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -45,6 +46,7 @@ import AssessmentIcon from '@mui/icons-material/Assessment';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import StarsIcon from '@mui/icons-material/Stars';
 import SchoolIcon from '@mui/icons-material/School';
+import PersonIcon from '@mui/icons-material/Person';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import SaveIcon from '@mui/icons-material/Save';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -60,7 +62,12 @@ import { BarChart } from '@mui/x-charts/BarChart';
 import DashboardLayout from '@/components/DashboardLayout';
 import ErrorState from '@/components/ErrorState';
 import QrScannerDialog from '@/components/QrScannerDialog';
-import { useDataCache, invalidateExams, invalidateSubmissions } from '@/lib/dataCache';
+import {
+  useDataCache,
+  invalidateExams,
+  invalidateSubmissions,
+  invalidateStudents,
+} from '@/lib/dataCache';
 import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
@@ -306,6 +313,53 @@ export default function ExamDetailsPage() {
     link.download = `Notenliste_${safeTitle}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  // Add Student Dialog State
+  const [openAddStudent, setOpenAddStudent] = useState(false);
+  const [addStudentName, setAddStudentName] = useState('');
+  const [addStudentLoading, setAddStudentLoading] = useState(false);
+  const [addStudentError, setAddStudentError] = useState('');
+
+  const handleAddStudentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = addStudentName.trim();
+    if (!trimmed) {
+      setAddStudentError('Bitte gib einen Schülernamen an.');
+      return;
+    }
+    if (!exam?.classId) {
+      setAddStudentError('Keine Klasse gefunden.');
+      return;
+    }
+
+    setAddStudentLoading(true);
+    setAddStudentError('');
+
+    try {
+      const res = await fetch(`/api/classes/${exam.classId}/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAddStudentError(data.error || 'Schüler/in konnte nicht hinzugefügt werden.');
+        return;
+      }
+
+      invalidateStudents(data.student?.id, exam.classId);
+      invalidateExams(examId, exam.classId);
+      await fetchData();
+      setOpenAddStudent(false);
+      setAddStudentName('');
+    } catch (err) {
+      setAddStudentError(
+        err instanceof Error ? err.message : 'Schüler/in konnte nicht hinzugefügt werden.'
+      );
+    } finally {
+      setAddStudentLoading(false);
+    }
   };
 
   const handleRubricFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2146,12 +2200,75 @@ export default function ExamDetailsPage() {
             </Stack>
 
             {roster.length === 0 ? (
-              <Typography
-                variant="body2"
-                sx={{ color: 'text.secondary', fontStyle: 'italic', py: 4, textAlign: 'center' }}
+              <Box
+                sx={{
+                  py: 6,
+                  px: 3,
+                  textAlign: 'center',
+                  border: '2px dashed #cbd5e1',
+                  borderRadius: '12px',
+                  backgroundColor: '#f8fafc',
+                }}
               >
-                Keine Schüler/innen für diese Prüfung gefunden.
-              </Typography>
+                <PersonIcon sx={{ fontSize: '3rem', color: '#94a3b8', mb: 1.5 }} />
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#334155', mb: 0.5 }}>
+                  Keine Schüler/innen für diese Prüfung gefunden
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ color: 'text.secondary', maxWidth: '440px', mx: 'auto', mb: 2.5 }}
+                >
+                  {exam?.className
+                    ? `In der Klasse "${exam.className}" sind noch keine Schüler/innen erfasst.`
+                    : 'In dieser Klasse sind noch keine Schüler/innen erfasst.'}{' '}
+                  Füge Schüler/innen hinzu, um Abgaben zuzuordnen und Noten zu berechnen.
+                </Typography>
+                <Stack
+                  direction="row"
+                  spacing={1.5}
+                  sx={{ justifyContent: 'center', flexWrap: 'wrap' }}
+                >
+                  {exam?.classId && (
+                    <>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        startIcon={<AddIcon />}
+                        onClick={() => {
+                          setAddStudentError('');
+                          setAddStudentName('');
+                          setOpenAddStudent(true);
+                        }}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          borderRadius: '8px',
+                          backgroundColor: '#1b77d1',
+                          '&:hover': { backgroundColor: '#1565c0' },
+                        }}
+                      >
+                        Schüler/in hinzufügen
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<SchoolIcon />}
+                        component={Link}
+                        href={`/classes/${exam.classId}`}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          borderRadius: '8px',
+                          color: '#334155',
+                          borderColor: '#cbd5e1',
+                        }}
+                      >
+                        Klassenverwaltung öffnen
+                      </Button>
+                    </>
+                  )}
+                </Stack>
+              </Box>
             ) : (
               <TableContainer
                 component={Box}
@@ -2380,7 +2497,7 @@ export default function ExamDetailsPage() {
                   required
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
                 />
-                {allClasses.length > 0 && (
+                {allClasses.length > 0 ? (
                   <FormControl fullWidth>
                     <InputLabel id="duplicate-class-label">Zielklasse</InputLabel>
                     <Select
@@ -2397,6 +2514,10 @@ export default function ExamDetailsPage() {
                       ))}
                     </Select>
                   </FormControl>
+                ) : (
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Die Prüfung wird in der aktuellen Klasse dupliziert.
+                  </Typography>
                 )}
               </Stack>
             </DialogContent>
@@ -2489,6 +2610,69 @@ export default function ExamDetailsPage() {
             fetchData();
           }}
         />
+
+        {/* Add Student Dialog */}
+        <Dialog
+          open={openAddStudent}
+          onClose={(_e, reason) => {
+            if (addStudentLoading || reason === 'backdropClick') return;
+            setOpenAddStudent(false);
+          }}
+          maxWidth="xs"
+          fullWidth
+        >
+          <form onSubmit={handleAddStudentSubmit}>
+            <DialogTitle sx={{ fontWeight: 800, color: '#0f172a' }}>
+              Schüler/in hinzufügen
+            </DialogTitle>
+            <DialogContent>
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                {addStudentError && <Alert severity="error">{addStudentError}</Alert>}
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  Füge der Klasse <strong>{exam?.className}</strong> eine Schülerin oder einen
+                  Schüler hinzu.
+                </Typography>
+                <TextField
+                  label="Vor- und Nachname"
+                  placeholder="z. B. Sophie Meier"
+                  fullWidth
+                  variant="outlined"
+                  value={addStudentName}
+                  onChange={(e) => setAddStudentName(e.target.value)}
+                  autoFocus
+                  required
+                  disabled={addStudentLoading}
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+                />
+              </Stack>
+            </DialogContent>
+            <DialogActions sx={{ p: 2, pt: 0 }}>
+              <Button
+                onClick={() => setOpenAddStudent(false)}
+                disabled={addStudentLoading}
+                sx={{ textTransform: 'none', fontWeight: 650 }}
+              >
+                Abbrechen
+              </Button>
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={addStudentLoading || !addStudentName.trim()}
+                startIcon={
+                  addStudentLoading ? <CircularProgress size={16} color="inherit" /> : <AddIcon />
+                }
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  backgroundColor: '#1b77d1',
+                  borderRadius: '8px',
+                }}
+              >
+                {addStudentLoading ? 'Wird hinzugefügt...' : 'Hinzufügen'}
+              </Button>
+            </DialogActions>
+          </form>
+        </Dialog>
       </Box>
     </DashboardLayout>
   );

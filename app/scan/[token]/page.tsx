@@ -486,38 +486,59 @@ export default function MobileScanRelayPage() {
                 )}
 
                 {/* Exam Selector (shown when not locked to a submission replacement) */}
-                {!lockedSubmissionId && exams.length > 0 && (
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Prüfung & Klasse</InputLabel>
-                    <Select
-                      value={selectedExamId}
-                      label="Prüfung & Klasse"
-                      onChange={(e) => {
-                        setSelectedExamId(e.target.value);
-                        if (!lockedStudentId) {
-                          setSelectedStudentId('AUTO');
-                        }
+                {!lockedSubmissionId &&
+                  (exams.length > 0 ? (
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Prüfung & Klasse</InputLabel>
+                      <Select
+                        value={selectedExamId}
+                        label="Prüfung & Klasse"
+                        onChange={(e) => {
+                          setSelectedExamId(e.target.value);
+                          if (!lockedStudentId) {
+                            setSelectedStudentId('AUTO');
+                          }
+                        }}
+                        sx={{ borderRadius: '10px', fontWeight: 600 }}
+                      >
+                        {activeMode === 'SUBMISSION' && (
+                          <MenuItem value="AUTO">
+                            ✨ Automatisch erkennen (KI erkennt Klasse, Prüfung & Schüler/in)
+                          </MenuItem>
+                        )}
+                        {exams.map((ex) => (
+                          <MenuItem key={ex.id} value={ex.id}>
+                            {ex.className} · {ex.title} ({ex.subject})
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  ) : (
+                    <Box
+                      sx={{
+                        p: 1.5,
+                        borderRadius: '10px',
+                        backgroundColor: '#fffbeb',
+                        border: '1px solid #fde68a',
                       }}
-                      sx={{ borderRadius: '10px', fontWeight: 600 }}
                     >
-                      {activeMode === 'SUBMISSION' && (
-                        <MenuItem value="AUTO">
-                          ✨ Automatisch erkennen (KI erkennt Klasse, Prüfung & Schüler/in)
-                        </MenuItem>
-                      )}
-                      {exams.map((ex) => (
-                        <MenuItem key={ex.id} value={ex.id}>
-                          {ex.className} · {ex.title} ({ex.subject})
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                )}
+                      <Typography
+                        variant="caption"
+                        sx={{ fontWeight: 700, color: '#92400e', display: 'block', mb: 0.5 }}
+                      >
+                        PRÜFUNG & KLASSE
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#92400e', fontSize: '0.85rem' }}>
+                        Noch keine Prüfungen angelegt. Bitte erstelle zuerst eine Prüfung auf dem
+                        Desktop im Dashboard oder unter Prüfungen.
+                      </Typography>
+                    </Box>
+                  ))}
 
                 {/* Optional Student Selector when scanning student exams for a known class */}
                 {activeMode === 'SUBMISSION' &&
                   selectedExamId !== 'AUTO' &&
-                  availableStudents.length > 0 && (
+                  (availableStudents.length > 0 ? (
                     <FormControl fullWidth size="small">
                       <InputLabel>Schüler/in (optional bei fehlendem Namen)</InputLabel>
                       <Select
@@ -536,7 +557,27 @@ export default function MobileScanRelayPage() {
                         ))}
                       </Select>
                     </FormControl>
-                  )}
+                  ) : (
+                    <Box
+                      sx={{
+                        p: 1.5,
+                        borderRadius: '10px',
+                        backgroundColor: '#fffbeb',
+                        border: '1px solid #fde68a',
+                      }}
+                    >
+                      <Typography
+                        variant="caption"
+                        sx={{ fontWeight: 700, color: '#92400e', display: 'block', mb: 0.5 }}
+                      >
+                        SCHÜLER-ZUORDNUNG
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#92400e', fontSize: '0.85rem' }}>
+                        Keine Schüler/innen in dieser Klasse gefunden. Füge Schüler/innen auf dem
+                        Desktop unter &quot;Klassen&quot; hinzu.
+                      </Typography>
+                    </Box>
+                  ))}
 
                 <Box
                   sx={{

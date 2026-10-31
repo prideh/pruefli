@@ -1520,15 +1520,27 @@ export default function ClassDetailsPage() {
                   onChange={(e) => setTargetClassId(e.target.value)}
                   sx={{ borderRadius: '8px' }}
                 >
-                  {allClasses
-                    .filter((c) => c.id !== classId)
-                    .map((c) => (
-                      <MenuItem key={c.id} value={c.id}>
-                        {c.name}
-                      </MenuItem>
-                    ))}
+                  {allClasses.filter((c) => c.id !== classId).length === 0 ? (
+                    <MenuItem value="" disabled>
+                      Keine weiteren Klassen vorhanden
+                    </MenuItem>
+                  ) : (
+                    allClasses
+                      .filter((c) => c.id !== classId)
+                      .map((c) => (
+                        <MenuItem key={c.id} value={c.id}>
+                          {c.name}
+                        </MenuItem>
+                      ))
+                  )}
                 </Select>
               </FormControl>
+              {allClasses.filter((c) => c.id !== classId).length === 0 && (
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Es existiert keine weitere Klasse für einen Transfer. Lege zuerst eine weitere
+                  Klasse unter &quot;Klassen&quot; an.
+                </Typography>
+              )}
             </Stack>
           </DialogContent>
           <DialogActions sx={{ p: 2, pt: 0 }}>

@@ -1056,11 +1056,17 @@ export default function ExamsPage() {
                         required
                         sx={{ borderRadius: '8px' }}
                       >
-                        {classes.map((c) => (
-                          <MenuItem key={c.id} value={c.id}>
-                            {c.name}
+                        {classes.length === 0 ? (
+                          <MenuItem value="" disabled>
+                            Keine Klassen vorhanden
                           </MenuItem>
-                        ))}
+                        ) : (
+                          classes.map((c) => (
+                            <MenuItem key={c.id} value={c.id}>
+                              {c.name}
+                            </MenuItem>
+                          ))
+                        )}
                       </Select>
                     </FormControl>
                   </Grid>
@@ -1472,11 +1478,17 @@ export default function ExamsPage() {
                         sx={{ borderRadius: '8px' }}
                         MenuProps={{ disablePortal: true }}
                       >
-                        {classes.map((c) => (
-                          <MenuItem key={c.id} value={c.id}>
-                            {c.name} {c.id === copySourceExam?.classId && '(Aktuelle Klasse)'}
+                        {classes.length === 0 ? (
+                          <MenuItem value="" disabled>
+                            Keine Klassen vorhanden
                           </MenuItem>
-                        ))}
+                        ) : (
+                          classes.map((c) => (
+                            <MenuItem key={c.id} value={c.id}>
+                              {c.name} {c.id === copySourceExam?.classId && '(Aktuelle Klasse)'}
+                            </MenuItem>
+                          ))
+                        )}
                       </Select>
                     </FormControl>
                   </Grid>
@@ -1771,11 +1783,17 @@ export default function ExamsPage() {
                         required
                         sx={{ borderRadius: '8px' }}
                       >
-                        {classes.map((c) => (
-                          <MenuItem key={c.id} value={c.id}>
-                            {c.name}
+                        {classes.length === 0 ? (
+                          <MenuItem value="" disabled>
+                            Keine Klassen vorhanden
                           </MenuItem>
-                        ))}
+                        ) : (
+                          classes.map((c) => (
+                            <MenuItem key={c.id} value={c.id}>
+                              {c.name}
+                            </MenuItem>
+                          ))
+                        )}
                       </Select>
                     </FormControl>
                   </Grid>

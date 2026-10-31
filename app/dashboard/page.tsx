@@ -33,6 +33,7 @@ import {
   DialogActions,
   IconButton,
   Tooltip,
+  FormHelperText,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -293,6 +294,104 @@ export default function Dashboard() {
       console.error('Error fetching classes:', err);
     }
   }, [handleClassChange]);
+
+  // Quick Create Class & Student States
+  const [openCreateClass, setOpenCreateClass] = useState<boolean>(false);
+  const [newClassName, setNewClassName] = useState<string>('');
+  const [createClassLoading, setCreateClassLoading] = useState<boolean>(false);
+  const [createClassError, setCreateClassError] = useState<string>('');
+
+  const [openCreateStudent, setOpenCreateStudent] = useState<boolean>(false);
+  const [newStudentName, setNewStudentName] = useState<string>('');
+  const [targetClassForStudent, setTargetClassForStudent] = useState<string>('');
+  const [createStudentLoading, setCreateStudentLoading] = useState<boolean>(false);
+  const [createStudentError, setCreateStudentError] = useState<string>('');
+
+  const handleCreateClassSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newClassName.trim();
+    if (!trimmed) {
+      setCreateClassError('Bitte gib einen Klassennamen an.');
+      return;
+    }
+    setCreateClassLoading(true);
+    setCreateClassError('');
+    try {
+      const res = await fetch('/api/classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateClassError(data.error || 'Klasse konnte nicht erstellt werden.');
+        return;
+      }
+      invalidateClasses();
+      await fetchClasses();
+      if (data.class?.id) {
+        await handleClassChange(data.class.id);
+      }
+      setOpenCreateClass(false);
+      setNewClassName('');
+    } catch (err) {
+      setCreateClassError(err instanceof Error ? err.message : 'Fehler beim Erstellen der Klasse.');
+    } finally {
+      setCreateClassLoading(false);
+    }
+  };
+
+  const handleCreateStudentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newStudentName.trim();
+    const targetClassId = targetClassForStudent || selectedClassId;
+    if (!trimmed) {
+      setCreateStudentError('Bitte gib einen Schülernamen an.');
+      return;
+    }
+    if (!targetClassId) {
+      setCreateStudentError('Keine Klasse ausgewählt.');
+      return;
+    }
+    setCreateStudentLoading(true);
+    setCreateStudentError('');
+    try {
+      const res = await fetch(`/api/classes/${targetClassId}/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateStudentError(data.error || 'Schüler/in konnte nicht erstellt werden.');
+        return;
+      }
+      invalidateClasses(targetClassId);
+      const studentsRes = await fetch(`/api/classes/${targetClassId}/students`);
+      if (studentsRes.ok) {
+        const studentsData = await studentsRes.json();
+        const updatedStudents = studentsData.students || [];
+        if (targetClassId === selectedClassId) {
+          setStudents(updatedStudents);
+          if (data.student?.id) {
+            setSelectedStudentId(data.student.id);
+          }
+        }
+        setStudentsByClass((prev) => ({
+          ...prev,
+          [targetClassId]: updatedStudents,
+        }));
+      }
+      setOpenCreateStudent(false);
+      setNewStudentName('');
+    } catch (err) {
+      setCreateStudentError(
+        err instanceof Error ? err.message : 'Fehler beim Erstellen des Schülers.'
+      );
+    } finally {
+      setCreateStudentLoading(false);
+    }
+  };
 
   // 3. Fetch recent submissions history from DB
   const fetchRecentSubmissions = React.useCallback(async (forceRefresh = false) => {
@@ -1185,15 +1284,55 @@ export default function Dashboard() {
                             labelId="class-select-label"
                             value={selectedClassId}
                             label="Klasse auswählen"
-                            onChange={(e) => handleClassChange(e.target.value)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'CREATE_CLASS') {
+                                setOpenCreateClass(true);
+                                return;
+                              }
+                              handleClassChange(val);
+                            }}
                             sx={{ borderRadius: '8px' }}
                           >
+                            <MenuItem
+                              value="CREATE_CLASS"
+                              sx={{ color: 'primary.main', fontWeight: 600 }}
+                            >
+                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                <AddCircleIcon sx={{ color: 'primary.main', fontSize: '1.2rem' }} />
+                                <Typography
+                                  variant="body2"
+                                  sx={{ fontWeight: 'bold', color: 'primary.main' }}
+                                >
+                                  [Neue Klasse erstellen]
+                                </Typography>
+                              </Stack>
+                            </MenuItem>
                             {classes.map((cls) => (
                               <MenuItem key={cls.id} value={cls.id}>
                                 {cls.name} ({cls._count?.students || 0} Schüler)
                               </MenuItem>
                             ))}
                           </Select>
+                          {classes.length === 0 && !initialDataLoading && (
+                            <FormHelperText sx={{ color: '#b45309', mt: 0.75 }}>
+                              Noch keine Klassen vorhanden.{' '}
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => setOpenCreateClass(true)}
+                                sx={{
+                                  p: 0,
+                                  textTransform: 'none',
+                                  fontWeight: 700,
+                                  minWidth: 'auto',
+                                  verticalAlign: 'baseline',
+                                }}
+                              >
+                                Jetzt erste Klasse erstellen
+                              </Button>
+                            </FormHelperText>
+                          )}
                         </FormControl>
                         {selectedClassId && (
                           <Tooltip
@@ -1242,7 +1381,13 @@ export default function Dashboard() {
                             value={selectedStudentId}
                             label="Schüler-Zuordnung"
                             onChange={(e) => {
-                              setSelectedStudentId(e.target.value);
+                              const val = e.target.value;
+                              if (val === 'CREATE_STUDENT') {
+                                setTargetClassForStudent(selectedClassId);
+                                setOpenCreateStudent(true);
+                                return;
+                              }
+                              setSelectedStudentId(val);
                               setError('');
                               setStudentFiles([]);
                             }}
@@ -1259,12 +1404,48 @@ export default function Dashboard() {
                                 </Typography>
                               </Stack>
                             </MenuItem>
+                            <MenuItem
+                              value="CREATE_STUDENT"
+                              sx={{ color: 'primary.main', fontWeight: 600 }}
+                            >
+                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                <AddCircleIcon sx={{ color: 'primary.main', fontSize: '1.1rem' }} />
+                                <Typography
+                                  variant="body2"
+                                  sx={{ fontWeight: 700, color: 'primary.main' }}
+                                >
+                                  [Schüler/in hinzufügen]
+                                </Typography>
+                              </Stack>
+                            </MenuItem>
                             {students.map((student) => (
                               <MenuItem key={student.id} value={student.id}>
                                 {student.name} (Manuelle Einzelzuordnung)
                               </MenuItem>
                             ))}
                           </Select>
+                          {students.length === 0 && (
+                            <FormHelperText sx={{ color: 'text.secondary', mt: 0.75 }}>
+                              Noch keine Schüler/innen in dieser Klasse vorhanden.{' '}
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => {
+                                  setTargetClassForStudent(selectedClassId);
+                                  setOpenCreateStudent(true);
+                                }}
+                                sx={{
+                                  p: 0,
+                                  textTransform: 'none',
+                                  fontWeight: 700,
+                                  minWidth: 'auto',
+                                  verticalAlign: 'baseline',
+                                }}
+                              >
+                                Schüler/in hinzufügen
+                              </Button>
+                            </FormHelperText>
+                          )}
                         </FormControl>
                       </Grid>
                     )}
@@ -2162,12 +2343,18 @@ export default function Dashboard() {
                                   <FormControl size="small" sx={{ minWidth: '160px' }}>
                                     <Select
                                       value={assignState[sub.id] || ''}
-                                      onChange={(e) =>
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === 'CREATE_STUDENT') {
+                                          setTargetClassForStudent(activeClassIdForAssign);
+                                          setOpenCreateStudent(true);
+                                          return;
+                                        }
                                         setAssignState((prev) => ({
                                           ...prev,
-                                          [sub.id]: e.target.value,
-                                        }))
-                                      }
+                                          [sub.id]: val,
+                                        }));
+                                      }}
                                       displayEmpty
                                       sx={{
                                         height: '32px',
@@ -2184,6 +2371,12 @@ export default function Dashboard() {
                                           {st.name}
                                         </MenuItem>
                                       ))}
+                                      <MenuItem
+                                        value="CREATE_STUDENT"
+                                        sx={{ color: 'primary.main', fontWeight: 600 }}
+                                      >
+                                        + Schüler/in hinzufügen
+                                      </MenuItem>
                                     </Select>
                                   </FormControl>
                                   <Button
@@ -2506,6 +2699,146 @@ export default function Dashboard() {
           }
         }}
       />
+
+      {/* Create Class Modal */}
+      <Dialog
+        open={openCreateClass}
+        onClose={(_e, reason) => {
+          if (createClassLoading || reason === 'backdropClick') return;
+          setOpenCreateClass(false);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <form onSubmit={handleCreateClassSubmit}>
+          <DialogTitle sx={{ fontWeight: 800, color: '#0f172a' }}>
+            Neue Klasse erstellen
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              {createClassError && <Alert severity="error">{createClassError}</Alert>}
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Gib den Namen der Klasse ein (z. B. &quot;3a Sekundarstufe&quot; oder
+                &quot;Gymnasium 1b&quot;).
+              </Typography>
+              <TextField
+                label="Klassenname"
+                fullWidth
+                variant="outlined"
+                value={newClassName}
+                onChange={(e) => setNewClassName(e.target.value)}
+                autoFocus
+                required
+                disabled={createClassLoading}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ p: 2, pt: 0 }}>
+            <Button
+              onClick={() => {
+                setOpenCreateClass(false);
+                setNewClassName('');
+                setCreateClassError('');
+              }}
+              disabled={createClassLoading}
+              sx={{ textTransform: 'none', fontWeight: 650 }}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={createClassLoading || !newClassName.trim()}
+              startIcon={
+                createClassLoading ? (
+                  <CircularProgress size={16} color="inherit" />
+                ) : (
+                  <AddCircleIcon />
+                )
+              }
+              sx={{
+                textTransform: 'none',
+                fontWeight: 700,
+                backgroundColor: '#1b77d1',
+                borderRadius: '8px',
+              }}
+            >
+              {createClassLoading ? 'Wird erstellt...' : 'Klasse erstellen'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* Create Student Modal */}
+      <Dialog
+        open={openCreateStudent}
+        onClose={(_e, reason) => {
+          if (createStudentLoading || reason === 'backdropClick') return;
+          setOpenCreateStudent(false);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <form onSubmit={handleCreateStudentSubmit}>
+          <DialogTitle sx={{ fontWeight: 800, color: '#0f172a' }}>
+            Schüler/in hinzufügen
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              {createStudentError && <Alert severity="error">{createStudentError}</Alert>}
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Gib den Vor- und Nachnamen der Schülerin oder des Schülers ein.
+              </Typography>
+              <TextField
+                label="Vor- und Nachname"
+                placeholder="z. B. Max Muster"
+                fullWidth
+                variant="outlined"
+                value={newStudentName}
+                onChange={(e) => setNewStudentName(e.target.value)}
+                autoFocus
+                required
+                disabled={createStudentLoading}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ p: 2, pt: 0 }}>
+            <Button
+              onClick={() => {
+                setOpenCreateStudent(false);
+                setNewStudentName('');
+                setCreateStudentError('');
+              }}
+              disabled={createStudentLoading}
+              sx={{ textTransform: 'none', fontWeight: 650 }}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={createStudentLoading || !newStudentName.trim()}
+              startIcon={
+                createStudentLoading ? (
+                  <CircularProgress size={16} color="inherit" />
+                ) : (
+                  <AddCircleIcon />
+                )
+              }
+              sx={{
+                textTransform: 'none',
+                fontWeight: 700,
+                backgroundColor: '#1b77d1',
+                borderRadius: '8px',
+              }}
+            >
+              {createStudentLoading ? 'Wird gespeichert...' : 'Hinzufügen'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
     </DashboardLayout>
   );
 }
