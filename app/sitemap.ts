@@ -3,6 +3,9 @@ import { getBaseUrl } from '@/lib/seo-url';
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = getBaseUrl();
+  if (!baseUrl) {
+    return [];
+  }
 
   return [
     {

@@ -8,43 +8,9 @@ import FunctionsIcon from '@mui/icons-material/Functions';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import SchoolIcon from '@mui/icons-material/School';
+import { buildHomeMetadata } from '@/lib/seo-url';
 
-export const metadata: Metadata = {
-  title: 'prüefli - Intelligente Prüfungskorrektur für Lehrpersonen',
-  description:
-    'Die Schweizer Korrektur-Plattform für Schulen: Automatisierte Prüfungsbewertung mit Handschrifterkennung, Teilschritt-Bewertung und transparenter Fehleranalyse.',
-  alternates: {
-    canonical: '/',
-  },
-  openGraph: {
-    title: 'prüefli - Intelligente Prüfungskorrektur für Lehrpersonen',
-    description:
-      'Die Schweizer Korrektur-Plattform für Schulen: Automatisierte Prüfungsbewertung mit Handschrifterkennung, Teilschritt-Bewertung und transparenter Fehleranalyse.',
-    url: '/',
-    siteName: 'prüefli',
-    images: [
-      {
-        url: '/og-image.png',
-        width: 1200,
-        height: 630,
-        alt: 'prüefli - Intelligente Prüfungskorrektur für Lehrpersonen',
-      },
-    ],
-    locale: 'de_CH',
-    type: 'website',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'prüefli - Intelligente Prüfungskorrektur für Lehrpersonen',
-    description:
-      'Die Schweizer Korrektur-Plattform für Schulen: Automatisierte Prüfungsbewertung mit Handschrifterkennung, Teilschritt-Bewertung und transparenter Fehleranalyse.',
-    images: ['/og-image.png'],
-  },
-  robots: {
-    index: true,
-    follow: true,
-  },
-};
+export const metadata: Metadata = buildHomeMetadata();
 
 export default function Home() {
   return (

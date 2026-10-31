@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import robots from '@/app/robots';
 import sitemap from '@/app/sitemap';
 import manifest from '@/app/manifest';
 import { metadata as rootMetadata } from '@/app/layout';
 import { metadata as homeMetadata } from '@/app/page';
+import { buildRootMetadata, buildHomeMetadata } from '@/lib/seo-url';
 import { metadata as dashboardMeta } from '@/app/dashboard/layout';
 import { metadata as classesMeta } from '@/app/classes/layout';
 import { metadata as examsMeta } from '@/app/exams/layout';
@@ -17,10 +18,27 @@ import { metadata as registerMeta } from '@/app/register/layout';
 import * as fs from 'fs';
 import * as path from 'path';
 
-describe('SEO Metadata, Robots, Sitemap & Icons (Issue #17)', () => {
-  it('app/robots.ts erlaubt die Landing-Page und sperrt geschuetzte & Token-Routen aus', () => {
-    const robotsData = robots();
-    const rules = Array.isArray(robotsData.rules) ? robotsData.rules[0] : robotsData.rules;
+describe('SEO Metadata, Robots, Sitemap & Icons (Issue #17 & #22)', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    delete process.env.APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.BASE_URL;
+    delete process.env.RENDER_EXTERNAL_URL;
+    delete process.env.VERCEL_URL;
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('app/robots.ts erlaubt die Landing-Page, sperrt geschuetzte Routen aus und emittiert keine tote Fallback-Domain', () => {
+    const robotsUnconfigured = robots();
+    const rules = Array.isArray(robotsUnconfigured.rules)
+      ? robotsUnconfigured.rules[0]
+      : robotsUnconfigured.rules;
 
     expect(rules.allow).toContain('/$');
 
@@ -40,13 +58,20 @@ describe('SEO Metadata, Robots, Sitemap & Icons (Issue #17)', () => {
         '/api/',
       ])
     );
-    expect(robotsData.sitemap).toMatch(/\/sitemap\.xml$/);
+    expect(robotsUnconfigured.sitemap).toBeUndefined();
+
+    process.env.APP_URL = 'https://grade-ai-qkkc.onrender.com';
+    const robotsConfigured = robots();
+    expect(robotsConfigured.sitemap).toBe('https://grade-ai-qkkc.onrender.com/sitemap.xml');
   });
 
-  it('app/sitemap.ts fuehrt ausschliesslich die oeffentliche Landing-Page auf', () => {
+  it('app/sitemap.ts bleibt ohne konfigurierte Basis-URL leer und fuehrt mit Basis-URL nur die Landing-Page auf', () => {
+    expect(sitemap()).toEqual([]);
+
+    process.env.APP_URL = 'https://grade-ai-qkkc.onrender.com';
     const sitemapData = sitemap();
     expect(sitemapData).toHaveLength(1);
-    expect(sitemapData[0].url).toMatch(/^https?:\/\/.+\/$/);
+    expect(sitemapData[0].url).toBe('https://grade-ai-qkkc.onrender.com/');
     expect(sitemapData[0].priority).toBe(1.0);
     expect(sitemapData[0].changeFrequency).toBe('weekly');
   });
@@ -59,30 +84,39 @@ describe('SEO Metadata, Robots, Sitemap & Icons (Issue #17)', () => {
     expect(manifestData.icons?.length).toBeGreaterThan(0);
   });
 
-  it('app/layout.tsx definiert metadataBase, Favicon & App-Icons', () => {
-    expect(rootMetadata.metadataBase).toBeDefined();
+  it('app/layout.tsx definiert Favicon & App-Icons und setzt metadataBase nur bei konfigurierter Basis-URL', () => {
     expect(rootMetadata.icons).toBeDefined();
     expect(rootMetadata.manifest).toBe('/manifest.webmanifest');
+
+    const unconfigured = buildRootMetadata(undefined);
+    expect(unconfigured.metadataBase).toBeUndefined();
+
+    const configured = buildRootMetadata('https://grade-ai-qkkc.onrender.com');
+    expect(configured.metadataBase).toEqual(new URL('https://grade-ai-qkkc.onrender.com'));
   });
 
-  it('Landing-Page app/page.tsx definiert vollstaendige OpenGraph-, Twitter- und kanonische Metadaten', () => {
+  it('Landing-Page app/page.tsx definiert OpenGraph-, Twitter- und kanonische Metadaten ohne tote Fallback-Domain', () => {
     expect(homeMetadata.title).toBeDefined();
     expect(homeMetadata.description).toBeDefined();
-    expect(homeMetadata.alternates?.canonical).toBe('/');
-
-    const og = homeMetadata.openGraph as Record<string, unknown>;
-    expect(og).toBeDefined();
-    expect(og.title).toContain('prüefli');
-    expect(og.type).toBe('website');
-    expect(og.locale).toBe('de_CH');
-    expect(Array.isArray(og.images)).toBe(true);
-
-    const twitter = homeMetadata.twitter as Record<string, unknown>;
-    expect(twitter).toBeDefined();
-    expect(twitter.card).toBe('summary_large_image');
-    expect(twitter.images).toBeDefined();
-
     expect(homeMetadata.robots).toEqual({ index: true, follow: true });
+
+    const unconfigured = buildHomeMetadata(undefined);
+    expect(unconfigured.alternates).toBeUndefined();
+    const ogUnconfigured = unconfigured.openGraph as Record<string, unknown>;
+    expect(ogUnconfigured.title).toContain('prüefli');
+    expect(ogUnconfigured.type).toBe('website');
+    expect(ogUnconfigured.locale).toBe('de_CH');
+    expect(ogUnconfigured.url).toBeUndefined();
+    expect(ogUnconfigured.images).toBeUndefined();
+
+    const configured = buildHomeMetadata('https://grade-ai-qkkc.onrender.com');
+    expect(configured.alternates?.canonical).toBe('/');
+    const ogConfigured = configured.openGraph as Record<string, unknown>;
+    expect(ogConfigured.url).toBe('/');
+    expect(Array.isArray(ogConfigured.images)).toBe(true);
+    const twitterConfigured = configured.twitter as Record<string, unknown>;
+    expect(twitterConfigured.card).toBe('summary_large_image');
+    expect(twitterConfigured.images).toBeDefined();
   });
 
   it('alle internen App-Routen tragen explizit noindex & nofollow', () => {
@@ -122,6 +156,7 @@ describe('SEO Metadata, Robots, Sitemap & Icons (Issue #17)', () => {
 
   it('haelt Schweizer Rechtschreibung ein (kein "ß")', () => {
     const filesToCheck = [
+      'lib/seo-url.ts',
       'app/robots.ts',
       'app/sitemap.ts',
       'app/manifest.ts',

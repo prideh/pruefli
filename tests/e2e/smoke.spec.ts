@@ -83,8 +83,29 @@ test.describe('Smoke Tests — Critical Availability, Security Boundaries & Orth
     expect(landingRes?.status()).toBe(200);
     const ogTitle = await page.locator('meta[property="og:title"]').getAttribute('content');
     expect(ogTitle).toContain('prüefli');
-    const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
-    expect(canonical).toMatch(/^https?:\/\/.*grade-ai/);
+
+    // Never emit hardcoded invented fallback domains (e.g. dead grade-ai.ch)
+    const html = await page.content();
+    expect(html).not.toContain('grade-ai.ch');
+
+    const configuredBase =
+      process.env.APP_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.BASE_URL && process.env.BASE_URL !== '/' ? process.env.BASE_URL : undefined) ||
+      process.env.RENDER_EXTERNAL_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
+
+    if (configuredBase) {
+      const normalized =
+        configuredBase.startsWith('http://') || configuredBase.startsWith('https://')
+          ? configuredBase
+          : `https://${configuredBase}`;
+      const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
+      expect(canonical).toContain(new URL(normalized).origin);
+    } else {
+      const canonicalCount = await page.locator('link[rel="canonical"]').count();
+      expect(canonicalCount).toBe(0);
+    }
 
     await page.goto('/login');
     const robotsMeta = await page.locator('meta[name="robots"]').getAttribute('content');
