@@ -324,7 +324,7 @@ describe('Dokumenttyp-Erkennung & Validierungs-Gate (lib/document-validation.ts)
           name: 'consent_form.pdf',
           type: 'application/pdf',
           size: consentBuffer.length,
-          arrayBuffer: async () => consentBuffer.buffer,
+          arrayBuffer: async () => Uint8Array.from(consentBuffer).buffer,
         },
         'Die Musterlösung'
       );
@@ -345,7 +345,7 @@ describe('Dokumenttyp-Erkennung & Validierungs-Gate (lib/document-validation.ts)
           name: 'consent_form.pdf',
           type: 'application/pdf',
           size: consentBuffer.length,
-          arrayBuffer: async () => consentBuffer.buffer,
+          arrayBuffer: async () => Uint8Array.from(consentBuffer).buffer,
         },
         'Die Musterlösung',
         { overrideDocumentType: true }
@@ -380,7 +380,7 @@ describe('Dokumenttyp-Erkennung & Validierungs-Gate (lib/document-validation.ts)
           name: 'einverstaendnis.png',
           type: 'image/png',
           size: consentPng.length,
-          arrayBuffer: async () => consentPng.buffer,
+          arrayBuffer: async () => Uint8Array.from(consentPng).buffer,
         },
         'Die Schülerarbeit'
       );

@@ -624,7 +624,12 @@ export async function validateDocument(
 export async function validateStudentExamUpload(
   file:
     | File
-    | { name?: string; type?: string; size?: number; arrayBuffer?: () => Promise<ArrayBuffer> }
+    | {
+        name?: string;
+        type?: string;
+        size?: number;
+        arrayBuffer?: () => Promise<ArrayBuffer | ArrayBufferLike>;
+      }
     | Buffer,
   label = 'Die Schülerarbeit',
   options?: DocumentValidationOptions
