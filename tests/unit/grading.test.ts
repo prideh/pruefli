@@ -5,6 +5,8 @@ import {
   matchStudentByNameWithConfidence,
   parseStudentExamUrls,
   resolveEffectiveGradingMaxPoints,
+  isAssignedCompletedSubmission,
+  computeAssignedGradeAverage,
   SUBJECT_PROFILES,
   getSubjectSupportInfo,
 } from '@/lib/grading';
@@ -268,6 +270,107 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       expect(res.effectiveMaxPoints).toBe(20);
       expect(res.shouldUpdateExamMaxPoints).toBe(false);
       expect(res.isMaxPointsMismatch).toBe(false);
+    });
+  });
+
+  describe('Unified Grade Average Across Views (Issue #75: computeAssignedGradeAverage)', () => {
+    it('schliesst nicht zugeordnete ("Zuordnung ausstehend", studentId == null) und unfertige Arbeiten vom Notenschnitt aus', () => {
+      // Repro aus Issue #75:
+      // 3 zugeordnete Schuelerarbeiten mit Schnitt 5.42 (5.25 + 5.50 + 5.50 = 16.25 / 3 = 5.4166... -> 5.42)
+      // plus 2 nicht zugeordnete Arbeiten (studentId: null, "Nicht zugeordnet"), die den Schnitt sonst auf ~3.99 / 4.01 druecken wuerden
+      const submissions = [
+        {
+          status: 'COMPLETED',
+          studentId: 'student-1',
+          assignedStudentId: 'student-1',
+          studentName: 'Lukas Mueller',
+          isStudentMatchUncertain: false,
+          gradeRaw: 5.25,
+          grade: '5.3',
+        },
+        {
+          status: 'COMPLETED',
+          studentId: 'student-2',
+          assignedStudentId: 'student-2',
+          studentName: 'Anna Meier',
+          isStudentMatchUncertain: false,
+          gradeRaw: 5.5,
+          grade: '5.5',
+        },
+        {
+          status: 'COMPLETED',
+          studentId: 'student-3',
+          assignedStudentId: 'student-3',
+          studentName: 'Sophie Keller',
+          isStudentMatchUncertain: false,
+          gradeRaw: 5.5,
+          grade: '5.5',
+        },
+        // Nicht zugeordnete Arbeiten ("Zuordnung ausstehend") aus Duplikat-/Auto-Match-Flow:
+        {
+          status: 'COMPLETED',
+          studentId: null,
+          assignedStudentId: null,
+          studentName: 'Nicht zugeordnet',
+          isStudentMatchUncertain: true,
+          gradeRaw: 1.85,
+          grade: '1.9',
+        },
+        {
+          status: 'COMPLETED',
+          studentId: null,
+          assignedStudentId: null,
+          studentName: 'Nicht zugeordnet',
+          isStudentMatchUncertain: true,
+          gradeRaw: 1.85,
+          grade: '1.9',
+        },
+        // Fehlgeschlagene oder laufende Jobs:
+        {
+          status: 'FAILED',
+          studentId: 'student-1',
+          assignedStudentId: null,
+          studentName: 'Lukas Mueller',
+          isStudentMatchUncertain: false,
+          gradeRaw: 1.0,
+          grade: '—',
+        },
+      ];
+
+      expect(isAssignedCompletedSubmission(submissions[0])).toBe(true);
+      expect(isAssignedCompletedSubmission(submissions[3])).toBe(false);
+      expect(isAssignedCompletedSubmission(submissions[5])).toBe(false);
+
+      const result = computeAssignedGradeAverage(submissions);
+      expect(result.count).toBe(3);
+      expect(result.sum).toBeCloseTo(16.25, 4);
+      expect(result.averageGrade).toBe('5.42');
+    });
+
+    it('berechnet ueber mehrere Pruefungen eines Fachs denselben gewichteten Schnitt wie Klassendetail und Uebersicht', () => {
+      // Pruefung 1: 2 zugeordnete Abgaben (5.25, 5.50 -> sum = 10.75, avg = 5.38)
+      // Pruefung 2: 1 zugeordnete Abgabe (5.50 -> sum = 5.50, avg = 5.50)
+      const exam1Avg = computeAssignedGradeAverage([
+        { status: 'COMPLETED', studentId: 's1', gradeRaw: 5.25 },
+        { status: 'COMPLETED', studentId: 's2', gradeRaw: 5.5 },
+        { status: 'COMPLETED', studentId: null, gradeRaw: 1.85 },
+      ]);
+      const exam2Avg = computeAssignedGradeAverage([
+        { status: 'COMPLETED', studentId: 's3', gradeRaw: 5.5 },
+        { status: 'COMPLETED', studentId: null, gradeRaw: 1.85 },
+      ]);
+
+      expect(exam1Avg.averageGrade).toBe('5.38');
+      expect(exam1Avg.count).toBe(2);
+      expect(exam2Avg.averageGrade).toBe('5.50');
+      expect(exam2Avg.count).toBe(1);
+
+      // Gewichteter Fach-/Klassenschnitt ueber alle 3 zugeordneten Arbeiten: (10.75 + 5.50) / 3 = 5.42
+      const weightedSubjectAvg = (
+        (exam1Avg.sum + exam2Avg.sum) /
+        (exam1Avg.count + exam2Avg.count)
+      ).toFixed(2);
+      expect(weightedSubjectAvg).toBe('5.42');
     });
   });
 });

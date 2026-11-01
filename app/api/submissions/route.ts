@@ -184,6 +184,7 @@ export async function GET(request?: Request | NextRequest) {
       return {
         id: sub.id,
         studentId: sub.studentId || sub.targetStudentId || null,
+        assignedStudentId: sub.studentId || null,
         studentName,
         extractedStudentName: sub.extractedStudentName,
         suggestedStudentId: resolvedSuggestedStudentId,
@@ -195,6 +196,7 @@ export async function GET(request?: Request | NextRequest) {
         className: sub.exam.class.name,
         subject: sub.exam.subject,
         grade: sub.status === 'COMPLETED' ? sub.gradeRounded : '—',
+        gradeRaw: sub.status === 'COMPLETED' ? sub.gradeRaw : null,
         points:
           sub.status === 'COMPLETED'
             ? `${sub.earnedPoints.toFixed(1)} / ${sub.exam.maxPoints}`

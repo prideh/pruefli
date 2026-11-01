@@ -33,8 +33,8 @@ export async function GET() {
           },
         },
         submissions: {
-          where: { status: 'COMPLETED' },
-          select: { gradeRaw: true },
+          where: { status: 'COMPLETED', studentId: { not: null } },
+          select: { gradeRaw: true, studentId: true },
         },
         _count: {
           select: {
@@ -48,11 +48,12 @@ export async function GET() {
     });
 
     const formatted = exams.map((ex) => {
-      const completedGrades = ex.submissions.map((s) => s.gradeRaw);
+      const completedGrades = ex.submissions
+        .filter((s) => !('studentId' in s) || Boolean(s.studentId))
+        .map((s) => s.gradeRaw);
+      const gradeRawSum = completedGrades.reduce((a, b) => a + b, 0);
       const averageGrade =
-        completedGrades.length > 0
-          ? (completedGrades.reduce((a, b) => a + b, 0) / completedGrades.length).toFixed(2)
-          : 'N/A';
+        completedGrades.length > 0 ? (gradeRawSum / completedGrades.length).toFixed(2) : 'N/A';
       const { metadata, cleanNotes } = parseExamMetadata(ex.gradingNotes);
 
       return {
@@ -71,7 +72,9 @@ export async function GET() {
         classId: ex.classId,
         className: ex.class.name,
         createdAt: ex.createdAt.toLocaleDateString('de-CH'),
-        submissionsCount: ex._count.submissions,
+        submissionsCount: completedGrades.length,
+        totalSubmissionsCount: ex._count.submissions,
+        gradeRawSum,
         averageGrade,
         tasks: ex.tasks.map((t) => ({
           taskId: t.taskId,

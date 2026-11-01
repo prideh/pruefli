@@ -69,8 +69,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
     }
 
-    // 1. Calculate stats across COMPLETED submissions for this exam
-    const completedSubmissions = exam.submissions.filter((s) => s.status === 'COMPLETED');
+    // 1. Calculate stats across COMPLETED submissions assigned to a student for this exam
+    const completedSubmissions = exam.submissions.filter(
+      (s) => s.status === 'COMPLETED' && (!('studentId' in s) || Boolean(s.studentId))
+    );
     const totalCompleted = completedSubmissions.length;
 
     let averageGrade = 0;

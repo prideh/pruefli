@@ -563,3 +563,89 @@ export function resolveEffectiveGradingMaxPoints(params: {
     isMaxPointsMismatch: false,
   };
 }
+
+export interface GradeAverageSubmissionInput {
+  status?: string | null;
+  studentId?: string | null;
+  assignedStudentId?: string | null;
+  studentName?: string | null;
+  isStudentMatchUncertain?: boolean | null;
+  gradeRaw?: number | null;
+  grade?: string | number | null;
+  gradeRounded?: string | number | null;
+}
+
+/**
+ * Determines whether a submission is completed and validly assigned to a class student.
+ *
+ * Single Source of Truth rule (Issue #75):
+ * - Only submissions with `status === 'COMPLETED'` AND an assigned student (`studentId` / `assignedStudentId`
+ *   non-empty and not flagged as `'Nicht zugeordnet'` or `isStudentMatchUncertain`) count towards
+ *   class, exam, subject, and dashboard grade averages.
+ * - Unassigned ("Zuordnung ausstehend") or orphaned duplicate-flow scans are strictly excluded.
+ */
+export function isAssignedCompletedSubmission(sub: GradeAverageSubmissionInput): boolean {
+  if (sub.status !== 'COMPLETED') return false;
+  if (sub.isStudentMatchUncertain === true) return false;
+  if (sub.studentName && sub.studentName.trim() === 'Nicht zugeordnet') return false;
+
+  const effectiveStudentId =
+    sub.assignedStudentId !== undefined ? sub.assignedStudentId : sub.studentId;
+  if (!effectiveStudentId || typeof effectiveStudentId !== 'string' || !effectiveStudentId.trim()) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Computes the unified Swiss grade average across completed, student-assigned submissions.
+ * Uses unrounded `gradeRaw` when available (falling back to numeric `grade` / `gradeRounded`)
+ * before formatting the final average to 2 decimal places (`X.XX` or `'N/A'`).
+ */
+export function computeAssignedGradeAverage(submissions: GradeAverageSubmissionInput[]): {
+  averageGrade: string;
+  averageNumeric: number;
+  count: number;
+  sum: number;
+} {
+  const validGrades: number[] = [];
+
+  for (const sub of submissions) {
+    if (!isAssignedCompletedSubmission(sub)) continue;
+    const rawVal =
+      typeof sub.gradeRaw === 'number' && Number.isFinite(sub.gradeRaw)
+        ? sub.gradeRaw
+        : typeof sub.grade === 'number' && Number.isFinite(sub.grade)
+          ? sub.grade
+          : typeof sub.grade === 'string'
+            ? parseFloat(sub.grade)
+            : typeof sub.gradeRounded === 'number' && Number.isFinite(sub.gradeRounded)
+              ? sub.gradeRounded
+              : typeof sub.gradeRounded === 'string'
+                ? parseFloat(sub.gradeRounded)
+                : NaN;
+
+    if (Number.isFinite(rawVal) && rawVal > 0) {
+      validGrades.push(rawVal);
+    }
+  }
+
+  if (validGrades.length === 0) {
+    return {
+      averageGrade: 'N/A',
+      averageNumeric: 0,
+      count: 0,
+      sum: 0,
+    };
+  }
+
+  const sum = validGrades.reduce((acc, g) => acc + g, 0);
+  const averageNumeric = sum / validGrades.length;
+  return {
+    averageGrade: averageNumeric.toFixed(2),
+    averageNumeric,
+    count: validGrades.length,
+    sum,
+  };
+}

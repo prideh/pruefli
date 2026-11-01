@@ -42,7 +42,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         exams: {
           include: {
             submissions: {
-              where: { status: 'COMPLETED' },
+              where: { status: 'COMPLETED', studentId: { not: null } },
             },
           },
           orderBy: { createdAt: 'desc' },
@@ -116,9 +116,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       };
     });
 
-    // 3. Format exams list with averages
+    // 3. Format exams list with averages (only completed submissions assigned to a student)
     const examsList = schoolClass.exams.map((exam) => {
-      const subs = exam.submissions;
+      const subs = exam.submissions.filter((s) => !('studentId' in s) || Boolean(s.studentId));
       let examAvg = 0;
       if (subs.length > 0) {
         const sum = subs.reduce((a, b) => a + b.gradeRaw, 0);

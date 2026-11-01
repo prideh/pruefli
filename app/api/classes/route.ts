@@ -26,8 +26,8 @@ export async function GET() {
         exams: {
           select: {
             submissions: {
-              where: { status: 'COMPLETED' },
-              select: { gradeRaw: true },
+              where: { status: 'COMPLETED', studentId: { not: null } },
+              select: { gradeRaw: true, studentId: true },
             },
           },
         },
@@ -36,11 +36,13 @@ export async function GET() {
     });
 
     const classes = rawClasses.map((cls) => {
-      const allGrades = cls.exams.flatMap((ex) => ex.submissions.map((s) => s.gradeRaw));
-      const avg =
-        allGrades.length > 0
-          ? (allGrades.reduce((sum, g) => sum + g, 0) / allGrades.length).toFixed(2)
-          : 'N/A';
+      const allGrades = cls.exams.flatMap((ex) =>
+        ex.submissions
+          .filter((s) => !('studentId' in s) || Boolean(s.studentId))
+          .map((s) => s.gradeRaw)
+      );
+      const gradeRawSum = allGrades.reduce((sum, g) => sum + g, 0);
+      const avg = allGrades.length > 0 ? (gradeRawSum / allGrades.length).toFixed(2) : 'N/A';
 
       return {
         id: cls.id,
@@ -50,6 +52,8 @@ export async function GET() {
         _count: { students: cls._count.students },
         totalExams: cls._count.exams,
         averageGrade: avg,
+        gradedSubmissionsCount: allGrades.length,
+        gradeRawSum,
       };
     });
 

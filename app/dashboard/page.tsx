@@ -70,6 +70,7 @@ import {
   SUBJECT_PROFILES,
   getSubjectSupportInfo,
   isSerializedDocumentPayload,
+  computeAssignedGradeAverage,
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
@@ -77,6 +78,9 @@ import {
 interface DashboardClass {
   id: string;
   name: string;
+  averageGrade?: string;
+  gradedSubmissionsCount?: number;
+  gradeRawSum?: number;
   _count?: {
     students: number;
   };
@@ -97,6 +101,7 @@ interface DashboardExam {
 interface DashboardSubmission {
   id: string;
   studentId?: string | null;
+  assignedStudentId?: string | null;
   studentName: string;
   extractedStudentName?: string | null;
   suggestedStudentId?: string | null;
@@ -109,6 +114,7 @@ interface DashboardSubmission {
   subject: string;
   points: string;
   grade: string;
+  gradeRaw?: number | null;
   date: string;
   status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   errorMessage?: string | null;
@@ -343,6 +349,7 @@ export default function Dashboard() {
       }
       invalidateSubmissions(subId);
       fetchRecentSubmissions();
+      fetchClasses();
     } catch (err) {
       console.error('Error canceling/deleting submission on dismiss:', err);
       setError('Fehler beim Abbrechen der Korrektur.');
@@ -799,9 +806,10 @@ export default function Dashboard() {
         });
       }
 
-      // Refresh submissions
+      // Refresh submissions and class averages
       invalidateSubmissions(submissionId, targetExamId || undefined, undefined, studentId);
       fetchRecentSubmissions(true);
+      fetchClasses();
       setAssignState((prev) => {
         const copy = { ...prev };
         delete copy[submissionId];
@@ -833,6 +841,7 @@ export default function Dashboard() {
       }
       invalidateSubmissions(submissionId);
       fetchRecentSubmissions(true);
+      fetchClasses();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Ersetzen.');
     } finally {
@@ -1017,15 +1026,16 @@ export default function Dashboard() {
   const totalClasses = classes.length;
   const totalStudents = classes.reduce((sum, cls) => sum + (cls._count?.students || 0), 0);
 
-  // Calculate dynamic overall grade average of all completed submissions
-  let overallAverage = 'N/A';
-  const completedSubmissions = recentSubmissions.filter((sub) => sub.status === 'COMPLETED');
-  if (completedSubmissions.length > 0) {
-    const sumGrades = completedSubmissions.reduce(
-      (sum, sub) => sum + parseFloat(sub.grade || '1.0'),
-      0
-    );
-    overallAverage = (sumGrades / completedSubmissions.length).toFixed(2);
+  // Calculate unified overall grade average across completed, student-assigned submissions
+  const recentAssignedAvg = computeAssignedGradeAverage(recentSubmissions);
+  let overallAverage = recentAssignedAvg.averageGrade;
+  const totalClassGradedCount = classes.reduce(
+    (sum, cls) => sum + (cls.gradedSubmissionsCount || 0),
+    0
+  );
+  if (totalClassGradedCount > recentAssignedAvg.count) {
+    const totalClassGradeSum = classes.reduce((sum, cls) => sum + (cls.gradeRawSum || 0), 0);
+    overallAverage = (totalClassGradeSum / totalClassGradedCount).toFixed(2);
   }
 
   return (

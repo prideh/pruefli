@@ -60,6 +60,7 @@ interface ExamItem {
   classId: string;
   className: string;
   submissionsCount: number;
+  gradeRawSum?: number;
   averageGrade: string;
   createdAt: string;
 }
@@ -221,12 +222,21 @@ export default function SubjectsPage() {
         stats[key] = { examsCount: 0, submissionsCount: 0, gradeSum: 0, gradeCount: 0 };
       }
       stats[key].examsCount += 1;
-      stats[key].submissionsCount += ex.submissionsCount || 0;
-      if (ex.averageGrade && ex.averageGrade !== 'N/A') {
+      const gradedCount = ex.submissionsCount || 0;
+      stats[key].submissionsCount += gradedCount;
+      if (
+        typeof ex.gradeRawSum === 'number' &&
+        Number.isFinite(ex.gradeRawSum) &&
+        gradedCount > 0
+      ) {
+        stats[key].gradeSum += ex.gradeRawSum;
+        stats[key].gradeCount += gradedCount;
+      } else if (ex.averageGrade && ex.averageGrade !== 'N/A') {
         const num = parseFloat(ex.averageGrade);
         if (!isNaN(num)) {
-          stats[key].gradeSum += num;
-          stats[key].gradeCount += 1;
+          const weight = gradedCount > 0 ? gradedCount : 1;
+          stats[key].gradeSum += num * weight;
+          stats[key].gradeCount += weight;
         }
       }
     });
