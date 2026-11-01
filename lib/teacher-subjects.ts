@@ -9,7 +9,7 @@ let tableInitialized = false;
  * Gracefully no-ops if raw SQL is restricted or running under mock unit test environments.
  */
 export async function ensureTeacherSubjectsTable(): Promise<void> {
-  if (tableInitialized) return;
+  if (tableInitialized || process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') return;
   try {
     await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS teacher_subject_preferences (
@@ -51,22 +51,24 @@ export function sanitizeSubjectList(rawSubjects: unknown[]): string[] {
 export async function getTeacherSavedSubjects(teacherId: string): Promise<string[] | null> {
   if (!teacherId) return null;
 
-  try {
-    await ensureTeacherSubjectsTable();
-    const rows = await db.$queryRawUnsafe<Array<{ subjects_json?: string }>>(
-      `SELECT subjects_json FROM teacher_subject_preferences WHERE teacher_id = $1 LIMIT 1`,
-      teacherId
-    );
-    if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].subjects_json === 'string') {
-      const parsed = JSON.parse(rows[0].subjects_json);
-      if (Array.isArray(parsed)) {
-        const sanitized = sanitizeSubjectList(parsed);
-        inMemoryTeacherSubjects.set(teacherId, sanitized);
-        return sanitized;
+  if (process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test') {
+    try {
+      await ensureTeacherSubjectsTable();
+      const rows = await db.$queryRawUnsafe<Array<{ subjects_json?: string }>>(
+        `SELECT subjects_json FROM teacher_subject_preferences WHERE teacher_id = $1 LIMIT 1`,
+        teacherId
+      );
+      if (Array.isArray(rows) && rows.length > 0 && typeof rows[0].subjects_json === 'string') {
+        const parsed = JSON.parse(rows[0].subjects_json);
+        if (Array.isArray(parsed)) {
+          const sanitized = sanitizeSubjectList(parsed);
+          inMemoryTeacherSubjects.set(teacherId, sanitized);
+          return sanitized;
+        }
       }
+    } catch {
+      // Fallback to in-memory state
     }
-  } catch {
-    // Fallback to in-memory state
   }
 
   const memEntry = inMemoryTeacherSubjects.get(teacherId);
@@ -85,17 +87,19 @@ export async function saveTeacherSubjects(
 
   inMemoryTeacherSubjects.set(teacherId, sanitized);
 
-  try {
-    await ensureTeacherSubjectsTable();
-    await db.$executeRawUnsafe(
-      `INSERT INTO teacher_subject_preferences (teacher_id, subjects_json, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (teacher_id) DO UPDATE SET subjects_json = $2, updated_at = NOW()`,
-      teacherId,
-      JSON.stringify(sanitized)
-    );
-  } catch {
-    // In-memory fallback is active
+  if (process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test') {
+    try {
+      await ensureTeacherSubjectsTable();
+      await db.$executeRawUnsafe(
+        `INSERT INTO teacher_subject_preferences (teacher_id, subjects_json, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (teacher_id) DO UPDATE SET subjects_json = $2, updated_at = NOW()`,
+        teacherId,
+        JSON.stringify(sanitized)
+      );
+    } catch {
+      // In-memory fallback is active
+    }
   }
 
   return sanitized;

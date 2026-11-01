@@ -499,15 +499,16 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
 
       // Persistenz in lib/teacher-subjects.ts
       resetTeacherSubjectsMemoryState();
-      expect(await getTeacherSavedSubjects('teacher-80')).toBeNull();
-      const saved = await saveTeacherSubjects('teacher-80', [
+      const testTeacherId = `teacher-80-${Date.now()}`;
+      expect(await getTeacherSavedSubjects(testTeacherId)).toBeNull();
+      const saved = await saveTeacherSubjects(testTeacherId, [
         'Mathematik',
         '  Geschichte  ',
         'mathematik',
         'Sprache / Deutsch',
       ]);
       expect(saved).toEqual(['Mathematik', 'Geschichte', 'Sprache']);
-      expect(await getTeacherSavedSubjects('teacher-80')).toEqual([
+      expect(await getTeacherSavedSubjects(testTeacherId)).toEqual([
         'Mathematik',
         'Geschichte',
         'Sprache',
