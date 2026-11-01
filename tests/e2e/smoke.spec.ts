@@ -63,6 +63,13 @@ test.describe('Smoke Tests — Critical Availability, Security Boundaries & Orth
     expect(apiHeaders['x-content-type-options']).toBe('nosniff');
     expect(apiHeaders['x-frame-options']).toBe('DENY');
     expect(apiHeaders['referrer-policy']).toBe('strict-origin-when-cross-origin');
+
+    const uploadRes = await request.get('/uploads/sample.pdf');
+    const uploadHeaders = uploadRes.headers();
+    expect(uploadHeaders['strict-transport-security']).toContain('max-age=63072000');
+    expect(uploadHeaders['x-content-type-options']).toBe('nosniff');
+    expect(uploadHeaders['x-frame-options']).toBe('SAMEORIGIN');
+    expect(uploadHeaders['referrer-policy']).toBe('strict-origin-when-cross-origin');
   });
 
   test('6. SEO routes /robots.txt and /sitemap.xml return 200 OK and landing page has OG & canonical meta tags', async ({

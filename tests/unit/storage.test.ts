@@ -429,7 +429,9 @@ describe('Schweizer Rechtschreibung (kein Eszett)', () => {
     const filesToCheck = [
       path.resolve(__dirname, '../../lib/storage.ts'),
       path.resolve(__dirname, '../../app/uploads/[...file]/route.ts'),
+      path.resolve(__dirname, '../../proxy.ts'),
       path.resolve(__dirname, './storage.test.ts'),
+      path.resolve(__dirname, './proxy.test.ts'),
       path.resolve(__dirname, '../../docs/RENDER_DEPLOY_STORAGE.md'),
     ];
 

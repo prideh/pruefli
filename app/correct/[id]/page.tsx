@@ -1155,12 +1155,13 @@ export default function CorrectWorkspace() {
                       position: 'relative',
                     }}
                   >
-                    {activeUrl.toLowerCase().endsWith('.pdf') ? (
+                    {activeUrl.toLowerCase().split('?')[0].endsWith('.pdf') ? (
                       <iframe
                         src={activeUrl}
                         width="100%"
                         height="100%"
                         style={{ border: 'none', borderRadius: '8px' }}
+                        title="Originaler PDF-Scan"
                       />
                     ) : (
                       <Image

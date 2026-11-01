@@ -17,6 +17,14 @@ export function applySecurityHeaders(response: NextResponse, pathname?: string):
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     response.headers.set(key, value);
   }
+
+  // Dateien aus der eigenen Upload-/Storage-Route duerfen same-origin geframed werden,
+  // damit eingebettete PDF-Vorschauen in der Korrekturansicht angezeigt werden koennen.
+  const normalizedPath = pathname?.toLowerCase() || '';
+  if (normalizedPath === '/uploads' || normalizedPath.startsWith('/uploads/')) {
+    response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  }
+
   if (pathname) {
     if (pathname === '/') {
       response.headers.set('X-Robots-Tag', 'index, follow');
