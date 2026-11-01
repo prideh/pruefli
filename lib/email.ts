@@ -85,7 +85,7 @@ export function isLiveSendingEnabled(): boolean {
 
 /**
  * Renders the de-CH Swiss German verification email text & HTML templates.
- * Strict Swiss German: uses "ss" exclusively, never "ß".
+ * Strict Swiss German: uses "ss" exclusively, never Eszett.
  */
 export function renderVerificationEmail(
   name: string,
@@ -179,7 +179,7 @@ https://pruefli.ch`;
 
 /**
  * Renders the de-CH Swiss German password reset email text & HTML templates.
- * Strict Swiss German: uses "ss" exclusively, never "ß".
+ * Strict Swiss German: uses "ss" exclusively, never Eszett.
  */
 export function renderPasswordResetEmail(
   name: string,
