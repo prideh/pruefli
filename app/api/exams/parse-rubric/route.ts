@@ -4,7 +4,11 @@ import { checkAiRateLimit, createRateLimitResponse } from '@/lib/rate-limit';
 import { validateRubricOrTemplatePayload, createPayloadErrorResponse } from '@/lib/payload-limits';
 import { validateReferenceUpload } from '@/lib/document-validation';
 import { GoogleGenAI, Type, ThinkingLevel, type Schema } from '@google/genai';
-import { DEFAULT_GEMINI_MODEL, appendReferenceMaterialToContents } from '@/lib/gemini';
+import {
+  DEFAULT_GEMINI_MODEL,
+  appendReferenceMaterialToContents,
+  sanitizeParsedRubricTasks,
+} from '@/lib/gemini';
 import {
   computeRubricParseHash,
   buildLlmCacheKey,
@@ -94,9 +98,11 @@ export async function POST(request: Request) {
     const cacheKey = buildLlmCacheKey(session.userId, 'rubric_parse', rubricHash);
 
     if (!bypassCache) {
-      const cached = await getCachedLlmResult<unknown[]>(cacheKey);
+      const cached =
+        await getCachedLlmResult<{ taskId: string; title: string; maxPoints: number }[]>(cacheKey);
       if (cached) {
-        return NextResponse.json({ success: true, tasks: cached.result, cached: true });
+        const sanitizedCached = sanitizeParsedRubricTasks(cached.result);
+        return NextResponse.json({ success: true, tasks: sanitizedCached, cached: true });
       }
     }
 
@@ -145,7 +151,8 @@ Regeln:
     });
 
     const responseText = (response.text || '').trim();
-    const parsedTasks = responseText ? JSON.parse(responseText) : [];
+    const rawParsedTasks = responseText ? JSON.parse(responseText) : [];
+    const parsedTasks = sanitizeParsedRubricTasks(rawParsedTasks);
 
     if (Array.isArray(parsedTasks) && parsedTasks.length > 0) {
       await setCachedLlmResult(cacheKey, {
