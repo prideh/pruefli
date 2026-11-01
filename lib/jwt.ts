@@ -40,7 +40,7 @@ export async function verifyJWT(
     const { payload } = await jwtVerify(token, key, {
       algorithms: ['HS256'],
     });
-    if (payload.purpose === 'mobile_relay') {
+    if (payload.purpose && payload.purpose !== 'session') {
       return null;
     }
     return payload as { userId: string; exp?: number; iat?: number };
@@ -114,6 +114,104 @@ export async function verifyMobileRelayToken(
       return null;
     }
     return payload as unknown as MobileRelayPayload;
+  } catch {
+    return null;
+  }
+}
+
+export interface EmailVerificationPayload {
+  purpose: 'email_verification';
+  teacherId: string;
+  email: string;
+  exp?: number;
+  iat?: number;
+}
+
+/**
+ * Signs a 24-hour token for email verification.
+ */
+export async function signEmailVerificationToken(
+  payload: { teacherId: string; email: string },
+  expiry = '24h'
+): Promise<string> {
+  const key = getSecretKey();
+  return new SignJWT({
+    purpose: 'email_verification',
+    teacherId: payload.teacherId,
+    email: payload.email.toLowerCase(),
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiry)
+    .sign(key);
+}
+
+/**
+ * Verifies an email verification token.
+ */
+export async function verifyEmailVerificationToken(
+  token: string | undefined | null
+): Promise<EmailVerificationPayload | null> {
+  if (!token) return null;
+  try {
+    const key = getSecretKey();
+    const { payload } = await jwtVerify(token, key, {
+      algorithms: ['HS256'],
+    });
+    if (payload.purpose !== 'email_verification' || typeof payload.teacherId !== 'string') {
+      return null;
+    }
+    return payload as unknown as EmailVerificationPayload;
+  } catch {
+    return null;
+  }
+}
+
+export interface PasswordResetPayload {
+  purpose: 'password_reset';
+  teacherId: string;
+  email: string;
+  pwdHashPrefix: string;
+  exp?: number;
+  iat?: number;
+}
+
+/**
+ * Signs a 1-hour token for password reset.
+ */
+export async function signPasswordResetToken(
+  payload: { teacherId: string; email: string; pwdHashPrefix: string },
+  expiry = '1h'
+): Promise<string> {
+  const key = getSecretKey();
+  return new SignJWT({
+    purpose: 'password_reset',
+    teacherId: payload.teacherId,
+    email: payload.email.toLowerCase(),
+    pwdHashPrefix: payload.pwdHashPrefix,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiry)
+    .sign(key);
+}
+
+/**
+ * Verifies a password reset token.
+ */
+export async function verifyPasswordResetToken(
+  token: string | undefined | null
+): Promise<PasswordResetPayload | null> {
+  if (!token) return null;
+  try {
+    const key = getSecretKey();
+    const { payload } = await jwtVerify(token, key, {
+      algorithms: ['HS256'],
+    });
+    if (payload.purpose !== 'password_reset' || typeof payload.teacherId !== 'string') {
+      return null;
+    }
+    return payload as unknown as PasswordResetPayload;
   } catch {
     return null;
   }

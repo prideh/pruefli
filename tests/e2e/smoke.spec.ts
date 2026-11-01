@@ -4,7 +4,7 @@ test.describe('Smoke Tests — Critical Availability, Security Boundaries & Orth
   test('1. Public landing, login, and register pages render 200 OK with strict Swiss German orthography (no Eszett)', async ({
     page,
   }) => {
-    for (const route of ['/', '/login', '/register']) {
+    for (const route of ['/', '/login', '/register', '/forgot-password']) {
       const response = await page.goto(route);
       expect(response?.status()).toBe(200);
       const bodyText = await page.locator('body').innerText();

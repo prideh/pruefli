@@ -21,6 +21,7 @@ import {
   Stack,
   CircularProgress,
   Button,
+  Alert,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import SchoolIcon from '@mui/icons-material/School';
@@ -42,11 +43,36 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [teacher, setTeacher] = useState<{ name: string; email: string } | null>(
-    getCachedTeacher()
-  );
+  const [teacher, setTeacher] = useState<{
+    name: string;
+    email: string;
+    isEmailVerified?: boolean;
+  } | null>(getCachedTeacher());
   const [loading, setLoading] = useState(!getCachedTeacher());
   const [authError, setAuthError] = useState<string | null>(null);
+  const [verificationDismissed, setVerificationDismissed] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [resendNotification, setResendNotification] = useState<string | null>(null);
+
+  const handleResendVerification = async () => {
+    setResendingVerification(true);
+    setResendNotification(null);
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResendNotification(data.message || 'Bestätigungs-Mail wurde erneut gesendet.');
+      } else {
+        setResendNotification(data.error || 'Fehler beim Senden.');
+      }
+    } catch {
+      setResendNotification('Fehler beim Senden der Bestätigungs-Mail.');
+    } finally {
+      setResendingVerification(false);
+    }
+  };
 
   // Proactively check auth and fetch profile with resilience against cold-starts and network glitches
   useEffect(() => {
@@ -63,8 +89,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           if (res.ok) {
             const data = await res.json();
             if (isMounted) {
-              setTeacher(data.teacher);
-              setCachedTeacher(data.teacher);
+              const teacherData = data.teacher
+                ? {
+                    ...data.teacher,
+                    isEmailVerified:
+                      typeof data.isEmailVerified === 'boolean'
+                        ? data.isEmailVerified
+                        : data.teacher.isEmailVerified,
+                  }
+                : null;
+              setTeacher(teacherData);
+              setCachedTeacher(teacherData);
               setAuthError(null);
               setLoading(false);
             }
@@ -529,6 +564,27 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           mt: { xs: 7, md: 0 },
         }}
       >
+        {teacher && teacher.isEmailVerified === false && !verificationDismissed && (
+          <Alert
+            severity="info"
+            sx={{ mb: 3, borderRadius: '10px' }}
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                onClick={handleResendVerification}
+                disabled={resendingVerification}
+                sx={{ textTransform: 'none', fontWeight: 700 }}
+              >
+                {resendingVerification ? 'Wird gesendet...' : 'Bestätigung erneut senden'}
+              </Button>
+            }
+            onClose={() => setVerificationDismissed(true)}
+          >
+            {resendNotification ||
+              `Bitte bestätige deine E-Mail-Adresse (${teacher.email}), um dein prüefli-Konto vollständig zu aktivieren.`}
+          </Alert>
+        )}
         {children}
       </Box>
     </Box>

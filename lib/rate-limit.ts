@@ -408,7 +408,9 @@ export interface AuthRateLimitConfig {
   windowMs: number;
 }
 
-export function getAuthRateLimitConfig(action: 'login' | 'register'): AuthRateLimitConfig {
+export function getAuthRateLimitConfig(
+  action: 'login' | 'register' | 'forgot-password' | 'reset-password' | 'resend-verification'
+): AuthRateLimitConfig {
   let maxRequests = 5;
   let windowSeconds = 60;
 
@@ -436,6 +438,12 @@ export function getAuthRateLimitConfig(action: 'login' | 'register'): AuthRateLi
     if (envWindow && Number.isFinite(Number(envWindow)) && Number(envWindow) > 0) {
       windowSeconds = Math.floor(Number(envWindow));
     }
+  } else if (action === 'forgot-password' || action === 'reset-password') {
+    maxRequests = 5;
+    windowSeconds = 60;
+  } else if (action === 'resend-verification') {
+    maxRequests = 3;
+    windowSeconds = 60;
   }
 
   return {
@@ -445,8 +453,15 @@ export function getAuthRateLimitConfig(action: 'login' | 'register'): AuthRateLi
   };
 }
 
+export type AuthRateLimitAction =
+  | 'login'
+  | 'register'
+  | 'forgot-password'
+  | 'reset-password'
+  | 'resend-verification';
+
 export interface CheckAuthRateLimitOptions {
-  action: 'login' | 'register';
+  action: AuthRateLimitAction;
   email?: string;
   ip?: string;
   limit?: number;
@@ -537,13 +552,32 @@ export async function checkAuthRateLimit(
 
 export function createAuthRateLimitResponse(
   result: AuthRateLimitResult,
-  action: 'login' | 'register',
+  action: AuthRateLimitAction,
   customMessage?: string
 ): NextResponse {
-  let defaultMessage =
-    action === 'login'
-      ? 'Zu viele Anmeldeversuche. Bitte warten Sie einen Moment, bevor Sie es erneut versuchen.'
-      : 'Zu viele Registrierungsversuche. Bitte warten Sie einen Moment, bevor Sie es erneut versuchen.';
+  let defaultMessage: string;
+  switch (action) {
+    case 'login':
+      defaultMessage =
+        'Zu viele Anmeldeversuche. Bitte warten Sie einen Moment, bevor Sie es erneut versuchen.';
+      break;
+    case 'register':
+      defaultMessage =
+        'Zu viele Registrierungsversuche. Bitte warten Sie einen Moment, bevor Sie es erneut versuchen.';
+      break;
+    case 'forgot-password':
+    case 'reset-password':
+      defaultMessage =
+        'Zu viele Anfragen zum Zurücksetzen des Passworts. Bitte warten Sie einen Moment.';
+      break;
+    case 'resend-verification':
+      defaultMessage =
+        'Zu viele Anfragen zum erneuten Senden der Bestätigung. Bitte warten Sie einen Moment.';
+      break;
+    default:
+      defaultMessage = 'Zu viele Anfragen. Bitte versuchen Sie es später erneut.';
+      break;
+  }
 
   if (result.failedClosed) {
     defaultMessage =

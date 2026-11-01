@@ -181,4 +181,20 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     await nextStudentBtn.click();
     await expect(page.getByText(/Sehr gut gelöst!/i).first()).toBeVisible();
   });
+
+  test('3. Password-Reset Request & Email Verification Landing Page', async ({ page }) => {
+    // 1. Forgot password request
+    await page.goto('/login');
+    await page.getByRole('link', { name: /Passwort vergessen\?/i }).click();
+    await expect(page).toHaveURL(/\/forgot-password/);
+
+    await page.getByLabel(/E-Mail-Adresse/i).fill(teacherEmail);
+    await page.getByRole('button', { name: /Link zum Zurücksetzen senden/i }).click();
+    await expect(page.getByText(/Falls ein Account mit der Adresse/i)).toBeVisible();
+
+    // 2. Verification page renders gracefully on invalid/missing token
+    await page.goto('/verify-email');
+    await expect(page.getByText(/Bestätigung fehlgeschlagen/i)).toBeVisible();
+    await expect(page.getByText(/Neuen Bestätigungs-Link anfordern/i)).toBeVisible();
+  });
 });

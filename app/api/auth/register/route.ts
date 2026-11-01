@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import { createSession } from '@/lib/session';
 import { checkAuthRateLimit, createAuthRateLimitResponse, extractClientIp } from '@/lib/rate-limit';
+import { signEmailVerificationToken } from '@/lib/jwt';
+import { sendVerificationEmail } from '@/lib/email';
 
 export async function POST(request: Request) {
   try {
@@ -59,6 +61,21 @@ export async function POST(request: Request) {
 
     // Create session cookie
     await createSession(teacher.id);
+
+    // Dispatch account verification email (uses Mock-Transport or Brevo HTTP API)
+    try {
+      const verificationToken = await signEmailVerificationToken({
+        teacherId: teacher.id,
+        email: teacher.email,
+      });
+      await sendVerificationEmail({
+        toEmail: teacher.email,
+        toName: teacher.name,
+        verificationToken,
+      });
+    } catch (mailErr) {
+      console.error('Failed to dispatch verification email on registration:', mailErr);
+    }
 
     return NextResponse.json({
       success: true,
