@@ -354,6 +354,49 @@ describe('Dokumenttyp-Erkennung & Validierungs-Gate (lib/document-validation.ts)
       expect(res.valid).toBe(true);
     });
 
+    it('lehnt base64-JSON-Payload einer Einverständniserklärung bei validateReferenceUpload ab', async () => {
+      const consentPng = createTestPng(100, 100, (x, y) => (y % 15 === 0 ? 0 : 255));
+      const payload = JSON.stringify({
+        name: 'Einverstaendniserklaerung_Klasse4.png',
+        mimeType: 'image/png',
+        data: consentPng.toString('base64'),
+      });
+
+      const res = await validateReferenceUpload(payload, 'Die Musterlösung');
+      expect(res.valid).toBe(false);
+      expect(res.status).toBe(400);
+      expect(res.reason).toBe('NON_EXAM_DOCUMENT');
+      expect(res.canOverride).toBe(true);
+      expect(res.error).toContain('Einverständniserklärung');
+      expect(res.error).not.toMatch(/\u00df/);
+    });
+
+    it('akzeptiert base64-JSON-Payload einer Einverständniserklärung bei explizitem Override', async () => {
+      const consentPng = createTestPng(100, 100, (x, y) => (y % 15 === 0 ? 0 : 255));
+      const payload = JSON.stringify({
+        name: 'Einverstaendniserklaerung_Klasse4.png',
+        mimeType: 'image/png',
+        data: consentPng.toString('base64'),
+      });
+
+      const res = await validateReferenceUpload(payload, 'Die Musterlösung', {
+        overrideDocumentType: true,
+      });
+      expect(res.valid).toBe(true);
+    });
+
+    it('akzeptiert eine gültige Musterlösung als base64-JSON-Payload ohne Regression', async () => {
+      const validPng = createTestPng(100, 100, (x, y) => (y % 15 === 0 ? 0 : 255));
+      const payload = JSON.stringify({
+        name: 'Musterloesung_Mathematik.png',
+        mimeType: 'image/png',
+        data: validPng.toString('base64'),
+      });
+
+      const res = await validateReferenceUpload(payload, 'Die Musterlösung');
+      expect(res.valid).toBe(true);
+    });
+
     it('prüft auch Unterrichtsmaterial bei validateExamMaterialInput', async () => {
       const res = await validateExamMaterialInput(
         'Datenschutzerklärung: Die Nutzung unserer Schulplattform unterliegt den Bestimmungen...',

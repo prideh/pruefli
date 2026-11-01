@@ -594,13 +594,16 @@ export async function validateDocument(
         classification &&
         (!classification.isExamRelated || classification.documentType === 'AMBIGUOUS')
       ) {
+        const defaultRejection =
+          input.expectedType === 'reference'
+            ? `${label} wurde nicht als prüfungsrelevantes Dokument oder Musterlösung erkannt. Sie können es über "Trotzdem als Musterlösung verwenden" dennoch verwenden.`
+            : `${label} wurde nicht als Prüfungsdokument erkannt. Sie können es über "Trotzdem als Prüfung behandeln" dennoch verwenden.`;
+
         return {
           valid: false,
           status: 400,
           reason: 'NON_EXAM_DOCUMENT',
-          error:
-            classification.rejectionReason ||
-            `${label} wurde nicht als Prüfungsdokument erkannt. Sie können es über "Trotzdem als Prüfung behandeln" dennoch verwenden.`,
+          error: classification.rejectionReason || defaultRejection,
           canOverride: true,
           classification,
         };
@@ -729,12 +732,12 @@ export async function validateReferenceUpload(
     'data' in payload &&
     typeof (payload as { data: unknown }).data === 'string'
   ) {
-    const item = payload as { data: string; mimeType?: string; name?: string };
+    const item = payload as { data: string; mimeType?: string; name?: string; fileName?: string };
     const buffer = Buffer.from(item.data, 'base64');
     return validateDocument(
       {
         buffer,
-        name: item.name,
+        name: item.name || item.fileName,
         mimeType: item.mimeType,
         label,
         expectedType: 'reference',

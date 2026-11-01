@@ -375,6 +375,7 @@ export default function ExamDetailsPage() {
             const base64Data = dataUrl.split(',')[1];
             setRubricText(
               JSON.stringify({
+                name: file.name,
                 mimeType: file.type,
                 data: base64Data,
               })

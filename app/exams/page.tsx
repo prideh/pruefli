@@ -324,6 +324,7 @@ export default function ExamsPage() {
     reason: string;
     summary?: string;
   } | null>(null);
+  const [rubricOverrideConfirmed, setRubricOverrideConfirmed] = useState(false);
   const [parsedTasks, setParsedTasks] = useState<
     { taskId: string; title: string; maxPoints: number }[]
   >([]);
@@ -332,7 +333,7 @@ export default function ExamsPage() {
     if (!rubricValue || rubricValue.trim() === '') return;
     setParsingRubric(true);
     setCreateError('');
-    if (!allowOverride) {
+    if (!allowOverride && !rubricOverrideConfirmed) {
       setRubricOverridePrompt(null);
     }
     try {
@@ -341,7 +342,7 @@ export default function ExamsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rubricText: rubricValue,
-          overrideDocumentType: allowOverride,
+          overrideDocumentType: allowOverride || rubricOverrideConfirmed,
         }),
       });
       const data = await res.json();
@@ -351,10 +352,14 @@ export default function ExamsPage() {
             reason: data.error || 'Nicht-Prüfungsdokument erkannt.',
             summary: data.classification?.detectedSummary,
           });
+          setRubricOverrideConfirmed(false);
         }
         throw new Error(data.error || 'Fehler beim Parsen.');
       }
       setRubricOverridePrompt(null);
+      if (allowOverride) {
+        setRubricOverrideConfirmed(true);
+      }
       setParsedTasks(data.tasks || []);
       const totalPoints = (data.tasks || []).reduce(
         (sum: number, t: { maxPoints?: number | string }) => sum + (Number(t.maxPoints) || 0),
@@ -372,10 +377,22 @@ export default function ExamsPage() {
     autoParseRubric(examRubric);
   };
 
+  const handleConfirmRubricOverride = async () => {
+    setRubricOverrideConfirmed(true);
+    setRubricOverridePrompt(null);
+    setCreateError('');
+    if (examRubric) {
+      await autoParseRubric(examRubric, true);
+    }
+  };
+
   const handleRubricFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setUploadedFileName(file.name);
+      setRubricOverrideConfirmed(false);
+      setRubricOverridePrompt(null);
+      setCreateError('');
 
       const reader = new FileReader();
       if (file.type.startsWith('image/') || file.type === 'application/pdf') {
@@ -384,6 +401,7 @@ export default function ExamsPage() {
           if (dataUrl) {
             const base64Data = dataUrl.split(',')[1];
             const rubricPayload = JSON.stringify({
+              name: file.name,
               mimeType: file.type,
               data: base64Data,
             });
@@ -411,6 +429,8 @@ export default function ExamsPage() {
     setParsedTasks([]);
     setExamMaxPoints(20);
     setRubricOverridePrompt(null);
+    setRubricOverrideConfirmed(false);
+    setCreateError('');
   };
 
   const [createLoading, setCreateLoading] = useState(false);
@@ -418,6 +438,9 @@ export default function ExamsPage() {
 
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (parsingRubric) {
+      return;
+    }
     if (!examTitle.trim() || !examSubject.trim() || !selectedClassId) {
       setCreateError('Bitte fülle alle Pflichtfelder aus.');
       return;
@@ -431,7 +454,7 @@ export default function ExamsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: examTitle,
+          title: examTitle.trim(),
           subject: examSubject,
           maxPoints: Number(examMaxPoints),
           rubricText: examRubric || 'Standard Musterlösung',
@@ -440,12 +463,24 @@ export default function ExamsPage() {
           gradeRounding: examGradeRounding,
           classId: selectedClassId,
           tasks: parsedTasks.length > 0 ? parsedTasks : undefined,
-          overrideDocumentType: Boolean(rubricOverridePrompt),
+          overrideDocumentType: rubricOverrideConfirmed,
         }),
       });
 
       if (!res.ok) {
-        const errorMsg = await getErrorMessage(res, 'Prüfung konnte nicht erstellt werden.');
+        let errorMsg = 'Prüfung konnte nicht erstellt werden.';
+        try {
+          const data = await res.json();
+          errorMsg = data.error || errorMsg;
+          if (data.canOverride) {
+            setRubricOverridePrompt({
+              reason: data.error || 'Nicht-Prüfungsdokument erkannt.',
+              summary: data.classification?.detectedSummary,
+            });
+          }
+        } catch {
+          // Fallback for non-JSON response
+        }
         setCreateError(errorMsg);
         return;
       }
@@ -457,6 +492,7 @@ export default function ExamsPage() {
       setUploadedFileName('');
       setParsedTasks([]);
       setRubricOverridePrompt(null);
+      setRubricOverrideConfirmed(false);
       setActiveTabClassId(selectedClassId); // Automatically select the tab of the class for the new exam
       invalidateExams(undefined, selectedClassId);
       await fetchData(); // Refresh list
@@ -615,6 +651,8 @@ export default function ExamsPage() {
               disabled={loading || !!error || classes.length === 0}
               onClick={() => {
                 setCreateError('');
+                setRubricOverrideConfirmed(false);
+                setRubricOverridePrompt(null);
                 setOpenCreate(true);
               }}
               sx={{
@@ -1210,8 +1248,6 @@ export default function ExamsPage() {
             </DialogTitle>
             <DialogContent>
               <Stack spacing={2.5} sx={{ mt: 1 }}>
-                {createError && <Alert severity="error">{createError}</Alert>}
-
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, sm: 8 }}>
                     <TextField
@@ -1363,7 +1399,11 @@ export default function ExamsPage() {
                       fullWidth
                       variant="outlined"
                       value={examRubric}
-                      onChange={(e) => setExamRubric(e.target.value)}
+                      onChange={(e) => {
+                        setExamRubric(e.target.value);
+                        setRubricOverrideConfirmed(false);
+                        setRubricOverridePrompt(null);
+                      }}
                       onBlur={() => autoParseRubric(examRubric)}
                       sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
                     />
@@ -1581,6 +1621,16 @@ export default function ExamsPage() {
                 gap: 1.5,
               }}
             >
+              {rubricOverrideConfirmed && (
+                <Alert
+                  severity="warning"
+                  sx={{ borderRadius: '8px' }}
+                  onClose={() => setRubricOverrideConfirmed(false)}
+                >
+                  Ausnahmegenehmigung aktiv: Dokument wird trotz Erkennungswarnung als Musterlösung
+                  verwendet.
+                </Alert>
+              )}
               {createError && (
                 <Alert
                   severity="error"
@@ -1591,7 +1641,7 @@ export default function ExamsPage() {
                         color="inherit"
                         size="small"
                         variant="outlined"
-                        onClick={() => autoParseRubric(examRubric, true)}
+                        onClick={handleConfirmRubricOverride}
                         sx={{ textTransform: 'none', fontWeight: 700 }}
                       >
                         Trotzdem als Musterlösung verwenden
@@ -1599,7 +1649,14 @@ export default function ExamsPage() {
                     ) : undefined
                   }
                 >
-                  {createError}
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {createError}
+                  </Typography>
+                  {rubricOverridePrompt?.summary && (
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.9 }}>
+                      Erkannter Dokumenttyp: {rubricOverridePrompt.summary}
+                    </Typography>
+                  )}
                 </Alert>
               )}
               <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', width: '100%' }}>
@@ -1613,7 +1670,7 @@ export default function ExamsPage() {
                 <Button
                   type="submit"
                   variant="contained"
-                  disabled={createLoading}
+                  disabled={createLoading || parsingRubric}
                   sx={{
                     textTransform: 'none',
                     fontWeight: 700,
@@ -1621,7 +1678,13 @@ export default function ExamsPage() {
                     borderRadius: '8px',
                   }}
                 >
-                  {createLoading ? <CircularProgress size={20} /> : 'Anlegen'}
+                  {createLoading ? (
+                    <CircularProgress size={20} color="inherit" />
+                  ) : parsingRubric ? (
+                    'Analyse läuft...'
+                  ) : (
+                    'Anlegen'
+                  )}
                 </Button>
               </Stack>
             </DialogActions>
@@ -2180,6 +2243,9 @@ export default function ExamsPage() {
               `Smartphone-Musterlösung (${pageCount} ${pageCount === 1 ? 'Seite' : 'Seiten'})`
             );
             setExamRubric(payload);
+            setRubricOverrideConfirmed(false);
+            setRubricOverridePrompt(null);
+            setCreateError('');
             autoParseRubric(payload);
           }}
         />
