@@ -137,6 +137,18 @@ function LinkAccountContent() {
         throw new Error(result.error || 'Fehler beim Senden der Bestätigungs-E-Mail.');
       }
 
+      if (
+        result.liveSendingEnabled === false ||
+        result.simulated === true ||
+        result.sent === false
+      ) {
+        setEmailError(
+          result.message ||
+            'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet.'
+        );
+        return;
+      }
+
       setEmailMessage(result.message || 'Bestätigungs-Link wurde gesendet.');
     } catch (err) {
       setEmailError(err instanceof Error ? err.message : 'E-Mail konnte nicht gesendet werden.');

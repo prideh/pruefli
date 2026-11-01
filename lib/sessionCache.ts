@@ -5,6 +5,7 @@ export interface TeacherSession {
   name: string;
   email: string;
   isEmailVerified?: boolean;
+  liveSendingEnabled?: boolean;
 }
 
 let cachedTeacher: TeacherSession | null = null;

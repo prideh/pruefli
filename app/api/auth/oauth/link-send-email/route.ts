@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyOAuthPendingLinkToken, signOAuthConfirmLinkEmailToken } from '@/lib/jwt';
 import { getProviderDisplayName } from '@/lib/oauth';
-import { sendOAuthLinkConfirmationEmail, redactEmail } from '@/lib/email';
+import { isLiveSendingEnabled, sendOAuthLinkConfirmationEmail, redactEmail } from '@/lib/email';
 import { checkAuthRateLimit, createAuthRateLimitResponse, extractClientIp } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
@@ -48,15 +48,45 @@ export async function POST(request: Request) {
     });
 
     const providerName = getProviderDisplayName(payload.provider);
-    await sendOAuthLinkConfirmationEmail({
+    const liveSending = isLiveSendingEnabled();
+    const result = await sendOAuthLinkConfirmationEmail({
       toEmail: teacher.email,
       toName: teacher.name,
       providerName,
       confirmToken,
     });
 
+    if (!liveSending || result.simulated) {
+      return NextResponse.json({
+        success: false,
+        sent: false,
+        simulated: true,
+        liveSendingEnabled: false,
+        status: 'email_delivery_inactive',
+        message:
+          'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet.',
+      });
+    }
+
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          sent: false,
+          simulated: false,
+          liveSendingEnabled: true,
+          error: result.error || 'Fehler beim Senden des Bestätigungs-Links.',
+        },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
+      sent: true,
+      simulated: false,
+      liveSendingEnabled: true,
+      status: 'sent',
       message: `Bestätigungs-Link wurde an ${redactEmail(teacher.email)} gesendet. Bitte prüfe deinen Posteingang.`,
     });
   } catch (err) {

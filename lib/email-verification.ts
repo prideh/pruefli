@@ -1,6 +1,6 @@
 import { db } from './db';
 
-const inMemoryVerifiedTeachers = new Set<string>();
+const inMemoryVerifiedTeachers = new Map<string, { email: string; verifiedAt: Date }>();
 let tableInitialized = false;
 
 /**
@@ -27,8 +27,12 @@ export async function ensureVerificationTable(): Promise<void> {
  * Marks a teacher account as verified.
  */
 export async function markEmailVerified(teacherId: string, email: string): Promise<boolean> {
-  if (!teacherId) return false;
-  inMemoryVerifiedTeachers.add(teacherId);
+  if (!teacherId || !email) return false;
+  const normalizedEmail = email.trim().toLowerCase();
+  inMemoryVerifiedTeachers.set(teacherId, {
+    email: normalizedEmail,
+    verifiedAt: new Date(),
+  });
 
   try {
     await ensureVerificationTable();
@@ -37,7 +41,7 @@ export async function markEmailVerified(teacherId: string, email: string): Promi
        VALUES ($1, $2, NOW())
        ON CONFLICT (teacher_id) DO UPDATE SET verified_at = NOW(), email = $2`,
       teacherId,
-      email.toLowerCase()
+      normalizedEmail
     );
   } catch {
     // In-memory fallback is active
@@ -48,28 +52,39 @@ export async function markEmailVerified(teacherId: string, email: string): Promi
 
 /**
  * Checks whether the given teacher has verified their email address.
+ * When `expectedEmail` is provided, also validates that the verified address matches the current account email.
  */
-export async function isEmailVerified(teacherId: string): Promise<boolean> {
+export async function isEmailVerified(teacherId: string, expectedEmail?: string): Promise<boolean> {
   if (!teacherId) return false;
-  if (inMemoryVerifiedTeachers.has(teacherId)) {
-    return true;
-  }
+  const normalizedExpected = expectedEmail?.trim().toLowerCase();
 
   try {
     await ensureVerificationTable();
-    const rows = await db.$queryRawUnsafe<Array<{ verified_at: Date }>>(
-      `SELECT verified_at FROM teacher_email_verifications WHERE teacher_id = $1 LIMIT 1`,
+    const rows = await db.$queryRawUnsafe<Array<{ email?: string; verified_at: Date }>>(
+      `SELECT email, verified_at FROM teacher_email_verifications WHERE teacher_id = $1 LIMIT 1`,
       teacherId
     );
-    if (rows && rows.length > 0) {
-      inMemoryVerifiedTeachers.add(teacherId);
+    if (Array.isArray(rows) && rows.length > 0) {
+      const rowEmail = rows[0].email?.trim().toLowerCase();
+      if (normalizedExpected && rowEmail && rowEmail !== normalizedExpected) {
+        return false;
+      }
+      inMemoryVerifiedTeachers.set(teacherId, {
+        email: rowEmail || normalizedExpected || '',
+        verifiedAt: rows[0].verified_at ? new Date(rows[0].verified_at) : new Date(),
+      });
       return true;
     }
   } catch {
     // Fallback to in-memory state
   }
 
-  return false;
+  const memEntry = inMemoryVerifiedTeachers.get(teacherId);
+  if (!memEntry) return false;
+  if (normalizedExpected && memEntry.email && memEntry.email !== normalizedExpected) {
+    return false;
+  }
+  return true;
 }
 
 /**

@@ -81,7 +81,14 @@ export default function RegisterPage() {
       }
 
       if (result.teacher) {
-        setCachedTeacher(result.teacher);
+        setCachedTeacher({
+          ...result.teacher,
+          isEmailVerified: false,
+          liveSendingEnabled:
+            typeof result.liveSendingEnabled === 'boolean'
+              ? result.liveSendingEnabled
+              : result.emailVerification?.liveSendingEnabled,
+        });
       }
       router.refresh();
       router.replace('/dashboard');

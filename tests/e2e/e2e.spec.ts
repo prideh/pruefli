@@ -190,7 +190,11 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
 
     await page.getByLabel(/E-Mail-Adresse/i).fill(teacherEmail);
     await page.getByRole('button', { name: /Link zum Zurücksetzen senden/i }).click();
-    await expect(page.getByText(/Falls ein Account mit der Adresse/i)).toBeVisible();
+    await expect(
+      page
+        .getByText(/E-Mail-Versand ist derzeit nicht aktiv|Falls ein (Account|Konto) mit/i)
+        .first()
+    ).toBeVisible();
 
     // 2. Verification page renders gracefully on invalid/missing token
     await page.goto('/verify-email');

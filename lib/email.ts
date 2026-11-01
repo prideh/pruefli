@@ -20,10 +20,15 @@ export interface SendEmailOptions {
 
 export interface SendEmailResult {
   success: boolean;
+  sent?: boolean;
+  liveSendingEnabled?: boolean;
   messageId?: string;
   simulated?: boolean;
   error?: string;
 }
+
+export const EMAIL_TRANSPORT_INACTIVE_MESSAGE =
+  'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine E-Mail versendet.';
 
 export interface MockSentEmail {
   id: string;
@@ -310,6 +315,8 @@ export async function sendTransactionalEmail(options: SendEmailOptions): Promise
 
     return {
       success: true,
+      sent: false,
+      liveSendingEnabled: false,
       messageId: mockId,
       simulated: true,
     };
@@ -357,6 +364,9 @@ export async function sendTransactionalEmail(options: SendEmailOptions): Promise
       );
       return {
         success: false,
+        sent: false,
+        liveSendingEnabled: true,
+        simulated: false,
         error: `E-Mail-Versand fehlgeschlagen: ${errorDetail}`,
       };
     }
@@ -364,6 +374,8 @@ export async function sendTransactionalEmail(options: SendEmailOptions): Promise
     const data = await res.json();
     return {
       success: true,
+      sent: true,
+      liveSendingEnabled: true,
       messageId: data.messageId,
       simulated: false,
     };
@@ -374,6 +386,9 @@ export async function sendTransactionalEmail(options: SendEmailOptions): Promise
     );
     return {
       success: false,
+      sent: false,
+      liveSendingEnabled: true,
+      simulated: false,
       error: `E-Mail-Versand nicht möglich: ${errorMsg}`,
     };
   }

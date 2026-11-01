@@ -47,12 +47,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     name: string;
     email: string;
     isEmailVerified?: boolean;
+    liveSendingEnabled?: boolean;
   } | null>(getCachedTeacher());
   const [loading, setLoading] = useState(!getCachedTeacher());
   const [authError, setAuthError] = useState<string | null>(null);
   const [verificationDismissed, setVerificationDismissed] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [resendNotification, setResendNotification] = useState<string | null>(null);
+  const [resendSeverity, setResendSeverity] = useState<'info' | 'success' | 'warning' | 'error'>(
+    'info'
+  );
 
   const handleResendVerification = async () => {
     setResendingVerification(true);
@@ -62,12 +66,22 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         method: 'POST',
       });
       const data = await res.json();
-      if (res.ok) {
-        setResendNotification(data.message || 'Bestätigungs-Mail wurde erneut gesendet.');
+      if (data.liveSendingEnabled === false || data.simulated === true || data.sent === false) {
+        setResendSeverity('warning');
+        setResendNotification(
+          data.message ||
+            'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet.'
+        );
+        setTeacher((prev) => (prev ? { ...prev, liveSendingEnabled: false } : prev));
+      } else if (res.ok && data.success) {
+        setResendSeverity('success');
+        setResendNotification(data.message || 'Bestätigungs-Link wurde erfolgreich gesendet.');
       } else {
-        setResendNotification(data.error || 'Fehler beim Senden.');
+        setResendSeverity('error');
+        setResendNotification(data.error || data.message || 'Fehler beim Senden.');
       }
     } catch {
+      setResendSeverity('error');
       setResendNotification('Fehler beim Senden der Bestätigungs-Mail.');
     } finally {
       setResendingVerification(false);
@@ -96,6 +110,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                       typeof data.isEmailVerified === 'boolean'
                         ? data.isEmailVerified
                         : data.teacher.isEmailVerified,
+                    liveSendingEnabled:
+                      typeof data.liveSendingEnabled === 'boolean'
+                        ? data.liveSendingEnabled
+                        : data.teacher.liveSendingEnabled,
                   }
                 : null;
               setTeacher(teacherData);
@@ -566,23 +584,33 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       >
         {teacher && teacher.isEmailVerified === false && !verificationDismissed && (
           <Alert
-            severity="info"
+            severity={
+              resendNotification
+                ? resendSeverity
+                : teacher.liveSendingEnabled === false
+                  ? 'warning'
+                  : 'info'
+            }
             sx={{ mb: 3, borderRadius: '10px' }}
             action={
-              <Button
-                color="inherit"
-                size="small"
-                onClick={handleResendVerification}
-                disabled={resendingVerification}
-                sx={{ textTransform: 'none', fontWeight: 700 }}
-              >
-                {resendingVerification ? 'Wird gesendet...' : 'Bestätigung erneut senden'}
-              </Button>
+              teacher.liveSendingEnabled !== false ? (
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification}
+                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                >
+                  {resendingVerification ? 'Wird gesendet...' : 'Bestätigung erneut senden'}
+                </Button>
+              ) : undefined
             }
             onClose={() => setVerificationDismissed(true)}
           >
             {resendNotification ||
-              `Bitte bestätige deine E-Mail-Adresse (${teacher.email}), um dein prüefli-Konto vollständig zu aktivieren.`}
+              (teacher.liveSendingEnabled === false
+                ? 'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet — du kannst dein prüefli-Konto dennoch ohne Einschränkung nutzen.'
+                : `Bitte bestätige deine E-Mail-Adresse (${teacher.email}), um dein prüefli-Konto vollständig zu aktivieren.`)}
           </Alert>
         )}
         {children}

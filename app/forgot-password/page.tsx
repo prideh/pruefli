@@ -23,7 +23,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitResult, setSubmitResult] = useState<{
+    sent: boolean;
+    liveSendingEnabled: boolean;
+    message: string;
+  } | null>(null);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -48,7 +52,17 @@ export default function ForgotPasswordPage() {
         throw new Error(data.error || 'Anfrage konnte nicht verarbeitet werden.');
       }
 
-      setSubmitted(true);
+      const liveSending =
+        data.liveSendingEnabled !== false && !data.simulated && data.sent !== false;
+      setSubmitResult({
+        sent: liveSending,
+        liveSendingEnabled: liveSending,
+        message:
+          data.message ||
+          (liveSending
+            ? 'Falls ein Konto mit dieser E-Mail-Adresse existiert, wurde eine E-Mail mit einem Link zum Zurücksetzen des Passworts versendet.'
+            : 'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine E-Mail zum Zurücksetzen des Passworts versendet.'),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ein unerwarteter Fehler ist aufgetreten.');
     } finally {
@@ -128,15 +142,24 @@ export default function ForgotPasswordPage() {
               </Alert>
             )}
 
-            {submitted ? (
+            {submitResult ? (
               <Stack spacing={3} sx={{ textAlign: 'center', py: 2 }}>
-                <Alert severity="success" sx={{ borderRadius: '10px', textAlign: 'left' }}>
-                  Falls ein Account mit der Adresse <strong>{email}</strong> existiert, haben wir
-                  dir einen Link zum Zurücksetzen deines Passworts gesendet.
+                <Alert
+                  severity={submitResult.liveSendingEnabled ? 'success' : 'warning'}
+                  sx={{ borderRadius: '10px', textAlign: 'left' }}
+                >
+                  {submitResult.message}
                 </Alert>
-                <Typography variant="body2" sx={{ color: '#64748b', lineHeight: 1.6 }}>
-                  Bitte prüfe dein E-Mail-Postfach. Der Link ist <strong>1 Stunde gültig</strong>.
-                </Typography>
+                {submitResult.liveSendingEnabled ? (
+                  <Typography variant="body2" sx={{ color: '#64748b', lineHeight: 1.6 }}>
+                    Bitte prüfe dein E-Mail-Postfach. Der Link ist <strong>1 Stunde gültig</strong>.
+                  </Typography>
+                ) : (
+                  <Typography variant="body2" sx={{ color: '#64748b', lineHeight: 1.6 }}>
+                    In dieser Umgebung ist der Live-E-Mail-Versand deaktiviert (Mock-Transport). Es
+                    können derzeit keine E-Mails zugestellt werden.
+                  </Typography>
+                )}
                 <Link href="/login" passHref style={{ textDecoration: 'none' }}>
                   <Button
                     variant="outlined"

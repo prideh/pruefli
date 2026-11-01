@@ -34,12 +34,15 @@ function VerifyEmailContent() {
   const [resendEmail, setResendEmail] = useState('');
   const [resending, setResending] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [resendSeverity, setResendSeverity] = useState<'success' | 'warning'>('success');
   const [resendError, setResendError] = useState<string | null>(null);
+  const verifyStartedRef = React.useRef(false);
 
   useEffect(() => {
-    if (!token) {
+    if (!token || verifyStartedRef.current) {
       return;
     }
+    verifyStartedRef.current = true;
 
     let isMounted = true;
 
@@ -96,10 +99,17 @@ function VerifyEmailContent() {
       });
 
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (data.liveSendingEnabled === false || data.simulated === true || data.sent === false) {
+        setResendSeverity('warning');
+        setResendMessage(
+          data.message ||
+            'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet.'
+        );
+      } else if (res.ok && data.success) {
+        setResendSeverity('success');
         setResendMessage(data.message || 'Neuer Bestätigungs-Link wurde gesendet.');
       } else {
-        setResendError(data.error || 'Link konnte nicht gesendet werden.');
+        setResendError(data.error || data.message || 'Link konnte nicht gesendet werden.');
       }
     } catch (err) {
       setResendError(err instanceof Error ? err.message : 'Verbindungsfehler.');
@@ -179,7 +189,7 @@ function VerifyEmailContent() {
             </Box>
 
             {resendMessage && (
-              <Alert severity="success" sx={{ width: '100%', borderRadius: '10px' }}>
+              <Alert severity={resendSeverity} sx={{ width: '100%', borderRadius: '10px' }}>
                 {resendMessage}
               </Alert>
             )}

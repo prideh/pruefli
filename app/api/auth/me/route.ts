@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { isEmailVerified } from '@/lib/email-verification';
+import { isLiveSendingEnabled } from '@/lib/email';
 
 export async function GET() {
   try {
@@ -30,12 +31,14 @@ export async function GET() {
       );
     }
 
-    const verified = await isEmailVerified(teacher.id);
+    const verified = await isEmailVerified(teacher.id, teacher.email);
+    const liveSending = isLiveSendingEnabled();
 
     return NextResponse.json({
       authenticated: true,
       teacher,
       isEmailVerified: verified,
+      liveSendingEnabled: liveSending,
     });
   } catch (error) {
     console.error('Error fetching current teacher session:', error);

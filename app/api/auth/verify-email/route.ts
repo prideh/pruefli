@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyEmailVerificationToken } from '@/lib/jwt';
-import { markEmailVerified } from '@/lib/email-verification';
+import { isEmailVerified, markEmailVerified } from '@/lib/email-verification';
 
 export async function POST(request: Request) {
   try {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     }
 
     const payload = await verifyEmailVerificationToken(token);
-    if (!payload || !payload.teacherId) {
+    if (!payload || !payload.teacherId || !payload.email) {
       return NextResponse.json(
         { error: 'Der Verifizierungs-Link ist ungültig oder abgelaufen.' },
         { status: 400 }
@@ -26,6 +26,25 @@ export async function POST(request: Request) {
 
     if (!teacher) {
       return NextResponse.json({ error: 'Benutzerkonto nicht gefunden.' }, { status: 404 });
+    }
+
+    // Ownership binding: verify that token email matches the teacher's current email in DB
+    if (teacher.email.toLowerCase() !== payload.email.toLowerCase()) {
+      return NextResponse.json(
+        {
+          error: 'Der Verifizierungs-Link ist ungültig oder gehört nicht zu dieser E-Mail-Adresse.',
+        },
+        { status: 400 }
+      );
+    }
+
+    // Single-use / Replay check against teacher_email_verifications
+    const alreadyVerified = await isEmailVerified(teacher.id, teacher.email);
+    if (alreadyVerified) {
+      return NextResponse.json(
+        { error: 'Dieser Verifizierungs-Link wurde bereits verwendet.' },
+        { status: 400 }
+      );
     }
 
     await markEmailVerified(teacher.id, teacher.email);

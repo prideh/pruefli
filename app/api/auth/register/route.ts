@@ -4,7 +4,7 @@ import { hashPassword } from '@/lib/auth';
 import { createSession } from '@/lib/session';
 import { checkAuthRateLimit, createAuthRateLimitResponse, extractClientIp } from '@/lib/rate-limit';
 import { signEmailVerificationToken } from '@/lib/jwt';
-import { sendVerificationEmail } from '@/lib/email';
+import { isLiveSendingEnabled, sendVerificationEmail, type SendEmailResult } from '@/lib/email';
 
 export async function POST(request: Request) {
   try {
@@ -63,12 +63,14 @@ export async function POST(request: Request) {
     await createSession(teacher.id);
 
     // Dispatch account verification email (uses Mock-Transport or Brevo HTTP API)
+    const liveSending = isLiveSendingEnabled();
+    let emailResult: SendEmailResult | null = null;
     try {
       const verificationToken = await signEmailVerificationToken({
         teacherId: teacher.id,
         email: teacher.email,
       });
-      await sendVerificationEmail({
+      emailResult = await sendVerificationEmail({
         toEmail: teacher.email,
         toName: teacher.name,
         verificationToken,
@@ -77,12 +79,26 @@ export async function POST(request: Request) {
       console.error('Failed to dispatch verification email on registration:', mailErr);
     }
 
+    const verificationEmailSent = Boolean(
+      liveSending && emailResult?.success && !emailResult?.simulated
+    );
+
     return NextResponse.json({
       success: true,
       teacher: {
         id: teacher.id,
         name: teacher.name,
         email: teacher.email,
+      },
+      liveSendingEnabled: liveSending,
+      emailVerification: {
+        sent: verificationEmailSent,
+        simulated: Boolean(emailResult?.simulated ?? !liveSending),
+        liveSendingEnabled: liveSending,
+        status: verificationEmailSent ? 'sent' : 'email_delivery_inactive',
+        message: verificationEmailSent
+          ? 'Bestätigungs-E-Mail wurde versendet.'
+          : 'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet.',
       },
     });
   } catch (error) {

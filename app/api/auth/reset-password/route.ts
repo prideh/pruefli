@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     }
 
     const payload = await verifyPasswordResetToken(token);
-    if (!payload || !payload.teacherId || !payload.pwdHashPrefix) {
+    if (!payload || !payload.teacherId || !payload.pwdHashPrefix || !payload.email) {
       return NextResponse.json(
         { error: 'Der Link zum Zurücksetzen des Passworts ist ungültig oder abgelaufen.' },
         { status: 400 }
@@ -48,6 +48,14 @@ export async function POST(request: Request) {
 
     if (!teacher) {
       return NextResponse.json({ error: 'Benutzerkonto nicht gefunden.' }, { status: 404 });
+    }
+
+    // Ownership binding: verify that token email matches the teacher's current email in DB
+    if (teacher.email.toLowerCase() !== payload.email.toLowerCase()) {
+      return NextResponse.json(
+        { error: 'Der Link zum Zurücksetzen des Passworts ist ungültig oder abgelaufen.' },
+        { status: 400 }
+      );
     }
 
     // Replay check: verify current password hash still matches the prefix stored in token
