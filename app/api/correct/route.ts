@@ -11,6 +11,7 @@ import {
   calculateRawSwissGrade,
   calculateSwissGrade,
   matchStudentByNameWithConfidence,
+  resolveEffectiveGradingMaxPoints,
 } from '@/lib/grading';
 import { getStorageAdapter } from '@/lib/storage';
 import { invalidateSubmissionCache, invalidateLogsCache } from '@/lib/cache';
@@ -601,29 +602,25 @@ export async function POST(request: Request) {
         }
 
         // Update Exam maxPoints based on the resolved points of the first finished grading
-        // ONLY if the exam has NO predefined tasks yet!
-        const hasPredefinedTasks = examRecord && examRecord.tasks && examRecord.tasks.length > 0;
+        // ONLY if the exam has NO predefined tasks yet and NO explicit teacher maxPoints (>0)!
+        const hasPredefinedTasks = Boolean(
+          examRecord && examRecord.tasks && examRecord.tasks.length > 0
+        );
         const resolvedMaxPoints =
           serverTotalMaxPoints > 0 ? serverTotalMaxPoints : result.gesamtmaximalPunkte;
 
-        if (
-          examRecord &&
-          !hasPredefinedTasks &&
-          resolvedMaxPoints > 0 &&
-          (examRecord.maxPoints === 0 || examRecord.maxPoints !== resolvedMaxPoints)
-        ) {
+        const { effectiveMaxPoints, shouldUpdateExamMaxPoints } = resolveEffectiveGradingMaxPoints({
+          teacherMaxPoints: examRecord?.maxPoints,
+          resolvedMaxPoints,
+          hasPredefinedTasks,
+        });
+
+        if (examRecord && shouldUpdateExamMaxPoints && effectiveMaxPoints > 0) {
           await db.exam.update({
             where: { id: finalExamId },
-            data: { maxPoints: resolvedMaxPoints },
+            data: { maxPoints: effectiveMaxPoints },
           });
         }
-
-        const effectiveMaxPoints =
-          hasPredefinedTasks && examRecord.maxPoints > 0
-            ? examRecord.maxPoints
-            : resolvedMaxPoints > 0
-              ? resolvedMaxPoints
-              : examRecord?.maxPoints || 0;
 
         const rawGrade = calculateRawSwissGrade(
           serverTotalEarnedPoints,

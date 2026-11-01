@@ -13,6 +13,7 @@ import {
   calculateSwissGrade,
   matchStudentByNameWithConfidence,
   parseStudentExamUrls,
+  resolveEffectiveGradingMaxPoints,
 } from '@/lib/grading';
 import { saveScannedRelayDocument } from '@/lib/relay-store';
 import { getStorageAdapter } from '@/lib/storage';
@@ -939,19 +940,19 @@ export async function POST(request: Request) {
         const resolvedMaxPoints =
           serverTotalMaxPoints > 0 ? serverTotalMaxPoints : result.gesamtmaximalPunkte;
 
-        if (!hasPredefinedTasks && resolvedMaxPoints > 0 && activeExam.maxPoints === 0) {
+        const { effectiveMaxPoints, shouldUpdateExamMaxPoints } = resolveEffectiveGradingMaxPoints({
+          teacherMaxPoints: activeExam.maxPoints,
+          resolvedMaxPoints,
+          hasPredefinedTasks,
+        });
+
+        if (shouldUpdateExamMaxPoints && effectiveMaxPoints > 0) {
           await db.exam.update({
             where: { id: activeExam.id },
-            data: { maxPoints: resolvedMaxPoints },
+            data: { maxPoints: effectiveMaxPoints },
           });
+          activeExam.maxPoints = effectiveMaxPoints;
         }
-
-        const effectiveMaxPoints =
-          hasPredefinedTasks && activeExam.maxPoints > 0
-            ? activeExam.maxPoints
-            : resolvedMaxPoints > 0
-              ? resolvedMaxPoints
-              : activeExam.maxPoints || 0;
 
         const rawGrade = calculateRawSwissGrade(
           serverTotalEarnedPoints,

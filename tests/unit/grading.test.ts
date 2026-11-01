@@ -4,6 +4,7 @@ import {
   calculateSwissGrade,
   matchStudentByNameWithConfidence,
   parseStudentExamUrls,
+  resolveEffectiveGradingMaxPoints,
   SUBJECT_PROFILES,
   getSubjectSupportInfo,
 } from '@/lib/grading';
@@ -189,5 +190,84 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
     expect(fallbackMaxPoints(-10)).toBe(20);
     expect(fallbackMaxPoints(30)).toBe(30);
     expect(fallbackMaxPoints(25.5)).toBe(25.5);
+  });
+
+  describe('Single Source of Truth Grading MaxPoints (resolveEffectiveGradingMaxPoints)', () => {
+    it('nutzt das vom Lehrer vorgegebene Maximum verbindlich und ueberschreibt es nicht', () => {
+      // Repro aus Issue #64: Lehrer vergibt 20 P., Modell liefert Aufgaben-Summe 6 P.
+      const res = resolveEffectiveGradingMaxPoints({
+        teacherMaxPoints: 20,
+        resolvedMaxPoints: 6,
+        hasPredefinedTasks: false,
+      });
+
+      expect(res.effectiveMaxPoints).toBe(20);
+      expect(res.shouldUpdateExamMaxPoints).toBe(false);
+      expect(res.isMaxPointsMismatch).toBe(true);
+
+      // Note fuer 5.0 erreichte Punkte muss rechnerisch zum 20er Maximum passen: 1 + 5 * (5/20) = 2.25 ≈ 2.3
+      const grade = calculateSwissGrade(5.0, res.effectiveMaxPoints, 'LINEAR_60', '0.1');
+      expect(grade).toBe('2.3');
+    });
+
+    it('liefert fuer Korrektur-Dialog und QR-Upload bei identischen Eingaben identische Noten', () => {
+      const input = {
+        teacherMaxPoints: 20,
+        resolvedMaxPoints: 6,
+        hasPredefinedTasks: false,
+      };
+
+      const correctRouteResult = resolveEffectiveGradingMaxPoints(input);
+      const qrRouteResult = resolveEffectiveGradingMaxPoints(input);
+
+      expect(correctRouteResult.effectiveMaxPoints).toBe(qrRouteResult.effectiveMaxPoints);
+      expect(correctRouteResult.shouldUpdateExamMaxPoints).toBe(
+        qrRouteResult.shouldUpdateExamMaxPoints
+      );
+
+      const gradeCorrect = calculateSwissGrade(
+        5.0,
+        correctRouteResult.effectiveMaxPoints,
+        'LINEAR_60',
+        '0.1'
+      );
+      const gradeQr = calculateSwissGrade(
+        5.0,
+        qrRouteResult.effectiveMaxPoints,
+        'LINEAR_60',
+        '0.1'
+      );
+
+      expect(gradeCorrect).toBe('2.3');
+      expect(gradeQr).toBe('2.3');
+    });
+
+    it('faellt bei fehlendem Lehrer-Maximum (0) auf die Aufgaben-Summe zurueck und initialisiert das Exam', () => {
+      const res = resolveEffectiveGradingMaxPoints({
+        teacherMaxPoints: 0,
+        resolvedMaxPoints: 12,
+        hasPredefinedTasks: false,
+      });
+
+      expect(res.effectiveMaxPoints).toBe(12);
+      expect(res.shouldUpdateExamMaxPoints).toBe(true);
+      expect(res.isMaxPointsMismatch).toBe(false);
+
+      const grade = calculateSwissGrade(6.0, res.effectiveMaxPoints, 'LINEAR_60', '0.1');
+      // 1 + 5 * (6/12) = 3.5
+      expect(grade).toBe('3.5');
+    });
+
+    it('erkennt Uebereinstimmung ohne Mismatch wenn Aufgaben-Summe dem Lehrer-Maximum entspricht', () => {
+      const res = resolveEffectiveGradingMaxPoints({
+        teacherMaxPoints: 20,
+        resolvedMaxPoints: 20,
+        hasPredefinedTasks: true,
+      });
+
+      expect(res.effectiveMaxPoints).toBe(20);
+      expect(res.shouldUpdateExamMaxPoints).toBe(false);
+      expect(res.isMaxPointsMismatch).toBe(false);
+    });
   });
 });

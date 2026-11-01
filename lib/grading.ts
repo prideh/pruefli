@@ -453,3 +453,50 @@ export function parseStudentExamUrls(rawUrl?: string | null): string[] {
   }
   return [trimmed];
 }
+
+/**
+ * Resolves the effective maximum points for grading an exam submission.
+ *
+ * Single Source of Truth rule:
+ * - If the teacher configured an exam maximum (> 0), that value is authoritative and MUST be used.
+ * - The model's resolved task sum (resolvedMaxPoints) only serves as fallback when the teacher's
+ *   configured maximum is 0 (or undefined).
+ * - Neither route may silently override or overwrite the teacher's maximum.
+ */
+export function resolveEffectiveGradingMaxPoints(params: {
+  teacherMaxPoints?: number | null;
+  resolvedMaxPoints?: number | null;
+  hasPredefinedTasks?: boolean;
+}): {
+  effectiveMaxPoints: number;
+  shouldUpdateExamMaxPoints: boolean;
+  isMaxPointsMismatch: boolean;
+} {
+  const teacherMax = Math.max(0, Number(params.teacherMaxPoints || 0));
+  const resolvedMax = Math.max(0, Number(params.resolvedMaxPoints || 0));
+
+  // If teacher provided a positive maximum (either explicitly in form or via predefined tasks):
+  if (teacherMax > 0) {
+    const isMismatch = resolvedMax > 0 && Math.abs(resolvedMax - teacherMax) > 0.05;
+    return {
+      effectiveMaxPoints: teacherMax,
+      shouldUpdateExamMaxPoints: false,
+      isMaxPointsMismatch: isMismatch,
+    };
+  }
+
+  // Teacher maximum was not set (<= 0)
+  if (resolvedMax > 0) {
+    return {
+      effectiveMaxPoints: resolvedMax,
+      shouldUpdateExamMaxPoints: !params.hasPredefinedTasks,
+      isMaxPointsMismatch: false,
+    };
+  }
+
+  return {
+    effectiveMaxPoints: 0,
+    shouldUpdateExamMaxPoints: false,
+    isMaxPointsMismatch: false,
+  };
+}

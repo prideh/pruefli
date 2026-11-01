@@ -918,17 +918,38 @@ export default function CorrectWorkspace() {
               >
                 Gesamtpunkte:
               </Typography>
-              <Chip
-                label={`${data.gesamterzieltePunkte.toFixed(1)} / ${data.gesamtmaximalPunkte}`}
-                sx={{
-                  fontWeight: 'bold',
-                  borderRadius: '8px',
-                  backgroundColor: '#e6f4ea',
-                  borderColor: '#a3cfbb',
-                  color: '#137333',
-                  border: '1px solid #a3cfbb',
-                }}
-              />
+              {(() => {
+                const taskMaxSum =
+                  Math.round(
+                    data.aufgaben.reduce((acc, t) => acc + (t.maximalPunkte || 0), 0) * 10
+                  ) / 10;
+                const hasMismatch =
+                  Boolean(data.gesamtmaximalPunkte) &&
+                  taskMaxSum > 0 &&
+                  Math.abs(taskMaxSum - data.gesamtmaximalPunkte) > 0.05;
+
+                return (
+                  <Tooltip
+                    title={
+                      hasMismatch
+                        ? `Prüfungs-Maximum (Noten-Basis): ${data.gesamtmaximalPunkte} P. · Summe der erkannten Aufgaben: ${taskMaxSum.toFixed(1)} P.`
+                        : `Gesamtpunkte: ${data.gesamterzieltePunkte.toFixed(1)} / ${data.gesamtmaximalPunkte}`
+                    }
+                  >
+                    <Chip
+                      label={`${data.gesamterzieltePunkte.toFixed(1)} / ${data.gesamtmaximalPunkte}${hasMismatch ? ' *' : ''}`}
+                      sx={{
+                        fontWeight: 'bold',
+                        borderRadius: '8px',
+                        backgroundColor: '#e6f4ea',
+                        borderColor: '#a3cfbb',
+                        color: '#137333',
+                        border: '1px solid #a3cfbb',
+                      }}
+                    />
+                  </Tooltip>
+                );
+              })()}
             </Stack>
 
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -1535,6 +1556,38 @@ export default function CorrectWorkspace() {
                       : `${uncertainStepCount} Teilschritten`}{' '}
                     unsicher (z. B. schwer lesbare Handschrift oder alternativer Lösungsweg) und hat
                     eine vorläufige Bewertung vorgeschlagen. Bitte vor Abschluss kurz prüfen.
+                  </Alert>
+                );
+              })()}
+
+              {/* Point Maximum Mismatch Notice */}
+              {(() => {
+                const taskMaxSum =
+                  Math.round(
+                    data.aufgaben.reduce((acc, t) => acc + (t.maximalPunkte || 0), 0) * 10
+                  ) / 10;
+                if (
+                  !data.gesamtmaximalPunkte ||
+                  taskMaxSum <= 0 ||
+                  Math.abs(taskMaxSum - data.gesamtmaximalPunkte) <= 0.05
+                ) {
+                  return null;
+                }
+                return (
+                  <Alert
+                    severity="info"
+                    sx={{
+                      borderRadius: '10px',
+                      border: '1px solid #93c5fd',
+                      backgroundColor: '#eff6ff',
+                      color: '#1e40af',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <strong>Hinweis zur Maximalpunktzahl:</strong> Die Summe der erkannten Aufgaben
+                    ({taskMaxSum.toFixed(1)} P.) weicht vom Prüfungs-Maximum (
+                    {data.gesamtmaximalPunkte.toFixed(1)} P.) ab. Die Note ({data.note}) basiert
+                    verbindlich auf deinem vorgegebenen Prüfungs-Maximum.
                   </Alert>
                 );
               })()}
