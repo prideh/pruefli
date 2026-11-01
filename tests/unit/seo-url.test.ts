@@ -74,4 +74,19 @@ describe('getBaseUrl (lib/seo-url.ts)', () => {
     process.env.APP_URL = 'http://:not-a-valid-url';
     expect(getBaseUrl()).toBeUndefined();
   });
+
+  it('provides a German branded 404 NotFound page with link back to /dashboard (Issue #77)', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const notFoundPath = path.resolve(process.cwd(), 'app/not-found.tsx');
+    expect(fs.existsSync(notFoundPath)).toBe(true);
+
+    const content = fs.readFileSync(notFoundPath, 'utf8');
+    expect(content).toContain('prüefli');
+    expect(content).toContain('Seite nicht gefunden');
+    expect(content).toContain('Zur Übersicht');
+    expect(content).toContain('href="/dashboard"');
+    expect(content).not.toContain('This page could not be found');
+    expect(content).not.toContain('\u00df');
+  });
 });
