@@ -423,7 +423,7 @@ describe('Eingabe-Validierung vor jeder Modell-Nutzung (Issue #56)', () => {
   describe('2. POST /api/correct: Upload-Validierung vor Gemini-Aufruf', () => {
     it('lehnt hochgeladene Einverständniserklärung (PNG) mit HTTP 400 ab — OHNE LLM-Call', async () => {
       const consentPng = createTestPng({ width: 100, height: 100, blank: false });
-      const consentFile = new File([consentPng], 'Einverstaendnisformular.png', {
+      const consentFile = new File([new Uint8Array(consentPng)], 'Einverstaendnisformular.png', {
         type: 'image/png',
       });
 
@@ -453,7 +453,7 @@ describe('Eingabe-Validierung vor jeder Modell-Nutzung (Issue #56)', () => {
         'Declaration of Consent. I hereby give my consent.',
         'Declaration of Consent'
       );
-      const consentFile = new File([consentPdf], 'Declaration_of_Consent.pdf', {
+      const consentFile = new File([new Uint8Array(consentPdf)], 'Declaration_of_Consent.pdf', {
         type: 'application/pdf',
       });
 
@@ -478,7 +478,7 @@ describe('Eingabe-Validierung vor jeder Modell-Nutzung (Issue #56)', () => {
 
     it('lehnt leeren/weissen Scan mit HTTP 400 ab — OHNE LLM-Call', async () => {
       const blankPng = createTestPng({ width: 100, height: 100, blank: true });
-      const blankFile = new File([blankPng], 'scan.png', { type: 'image/png' });
+      const blankFile = new File([new Uint8Array(blankPng)], 'scan.png', { type: 'image/png' });
 
       const formData = new FormData();
       formData.append('classId', 'class-1');
@@ -501,12 +501,18 @@ describe('Eingabe-Validierung vor jeder Modell-Nutzung (Issue #56)', () => {
 
     it('QA-Ergänzung 01.11.2026: lehnt Einverständnisformular als Rubrik-Datei ab — OHNE LLM-Call', async () => {
       const validExamPng = createTestPng({ width: 100, height: 100, blank: false });
-      const studentFile = new File([validExamPng], 'schuelerarbeit.png', { type: 'image/png' });
-
-      const consentRubricPng = createTestPng({ width: 100, height: 100, blank: false });
-      const rubricFile = new File([consentRubricPng], 'Einverstaendnisformular.png', {
+      const studentFile = new File([new Uint8Array(validExamPng)], 'schuelerarbeit.png', {
         type: 'image/png',
       });
+
+      const consentRubricPng = createTestPng({ width: 100, height: 100, blank: false });
+      const rubricFile = new File(
+        [new Uint8Array(consentRubricPng)],
+        'Einverstaendnisformular.png',
+        {
+          type: 'image/png',
+        }
+      );
 
       const formData = new FormData();
       formData.append('classId', 'class-1');
@@ -644,7 +650,9 @@ describe('Eingabe-Validierung vor jeder Modell-Nutzung (Issue #56)', () => {
 
     it('lehnt Einverständnis-Scan beim Smartphone-Upload ab — OHNE LLM-Call', async () => {
       const consentPng = createTestPng({ width: 100, height: 100, blank: false });
-      const file = new File([consentPng], 'Einverstaendniserklaerung.png', { type: 'image/png' });
+      const file = new File([new Uint8Array(consentPng)], 'Einverstaendniserklaerung.png', {
+        type: 'image/png',
+      });
 
       const formData = new FormData();
       formData.append('token', 'valid-token');
@@ -666,7 +674,7 @@ describe('Eingabe-Validierung vor jeder Modell-Nutzung (Issue #56)', () => {
 
     it('lehnt Blank-Scan beim Smartphone-Upload ab — OHNE LLM-Call', async () => {
       const blankPng = createTestPng({ width: 100, height: 100, blank: true });
-      const file = new File([blankPng], 'scan_p1.png', { type: 'image/png' });
+      const file = new File([new Uint8Array(blankPng)], 'scan_p1.png', { type: 'image/png' });
 
       const formData = new FormData();
       formData.append('token', 'valid-token');
@@ -695,7 +703,9 @@ describe('Eingabe-Validierung vor jeder Modell-Nutzung (Issue #56)', () => {
       });
 
       const consentPng = createTestPng({ width: 100, height: 100, blank: false });
-      const file = new File([consentPng], 'consent_form.png', { type: 'image/png' });
+      const file = new File([new Uint8Array(consentPng)], 'consent_form.png', {
+        type: 'image/png',
+      });
 
       const formData = new FormData();
       formData.append('token', 'valid-token');
