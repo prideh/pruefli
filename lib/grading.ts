@@ -239,12 +239,7 @@ export function getSubjectSupportInfo(subjectName?: string | null): SubjectSuppo
       profileFocus: p.profileFocus,
     };
   }
-  if (
-    norm.includes('sprache') ||
-    norm.includes('deutsch') ||
-    norm.includes('englisch') ||
-    norm.includes('franz')
-  ) {
+  if (norm.includes('sprache') || norm.includes('deutsch')) {
     const p = SUBJECT_PROFILES.find((x) => x.value === 'Sprache')!;
     return {
       subjectName: raw,

@@ -406,5 +406,58 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       expect(layoutSource).toContain('.MuiDialog-root');
       expect(layoutSource).toContain("querySelector('.MuiMenu-list, .MuiAutocomplete-popper')");
     });
+
+    it('erlaubt freie Facheingabe per Combobox in allen drei Pruefungsdialogen mit Status Basis-Korrektur und korrekter Faecher-Filterung (Issue #79)', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const examsPageSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/exams/page.tsx'),
+        'utf8'
+      );
+      const subjectsPageSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/subjects/page.tsx'),
+        'utf8'
+      );
+      const examDetailPageSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/exams/[id]/page.tsx'),
+        'utf8'
+      );
+
+      // 1. Alle 3 Dialoge (Manuell, Duplizieren, Generieren) nutzen SubjectCombobox mit Autocomplete freeSolo
+      expect(examsPageSource).toContain('function SubjectCombobox');
+      expect(examsPageSource).toContain('freeSolo');
+      expect(examsPageSource).toContain('id="subject-combobox"');
+      expect(examsPageSource).toContain('id="copy-subject-combobox"');
+      expect(examsPageSource).toContain('id="gen-subject-combobox"');
+
+      // 2. Freie Faecher werden getrimmt und unveraendert uebergeben
+      expect(examsPageSource).toContain('subject: examSubject.trim()');
+      expect(examsPageSource).toContain('subject: copySubject.trim()');
+      expect(examsPageSource).toContain('subject: genSubject.trim()');
+
+      // 3. Frei erfasste Faecher wie "Geschichte" oder "Franzoesisch" erhalten "Basis-Korrektur" (GENERIC_FALLBACK)
+      for (const customSubject of ['Geschichte', 'Französisch', 'Geografie', 'Musik']) {
+        const info = getSubjectSupportInfo(customSubject);
+        expect(info.supportLevel).toBe('GENERIC_FALLBACK');
+        expect(info.supportBadge).toBe('Basis-Korrektur');
+        expect(info.matchedProfile).toBeNull();
+      }
+
+      // Bestehende 8 Katalog-Profile behalten ihren Status unveraendert
+      expect(getSubjectSupportInfo('Mathematik').supportBadge).toBe('Verifizierte Modalität');
+      expect(getSubjectSupportInfo('Sprache').supportBadge).toBe('Fokus-Profil');
+      expect(getSubjectSupportInfo('Sprache / Deutsch').supportBadge).toBe('Fokus-Profil');
+
+      // Pruefungsdetail zeigt den Support-Status ebenfalls an
+      expect(examDetailPageSource).toContain('getSubjectSupportInfo(exam?.subject).supportBadge');
+
+      // 4. & 5. Faecher-Seite (/subjects) und Pruefungsliste (/exams) listen und filtern freie Faecher sauber
+      expect(subjectsPageSource).toContain('canonicalOrTrimmed');
+      expect(subjectsPageSource).toContain(
+        "const key = matched ? matched.value : exSubTrimmed || 'Mathematik'"
+      );
+      expect(subjectsPageSource).not.toContain('ß');
+      expect(examDetailPageSource).not.toContain('ß');
+    });
   });
 });

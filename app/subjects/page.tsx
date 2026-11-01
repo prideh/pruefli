@@ -163,7 +163,9 @@ export default function SubjectsPage() {
 
   // Combine fixed subject profiles with any custom subjects found in existing exams
   const allSubjects = useMemo(() => {
-    const knownValues = new Set(SUBJECT_PROFILES.map((p) => p.value.toLowerCase()));
+    const knownValues = new Set(
+      SUBJECT_PROFILES.flatMap((p) => [p.value.toLowerCase(), p.label.toLowerCase()])
+    );
     const customSubjects: {
       value: string;
       label: string;
@@ -172,12 +174,14 @@ export default function SubjectsPage() {
 
     exams.forEach((ex) => {
       const subjectTrimmed = (ex.subject || '').trim();
-      if (subjectTrimmed && !knownValues.has(subjectTrimmed.toLowerCase())) {
-        knownValues.add(subjectTrimmed.toLowerCase());
+      const support = getSubjectSupportInfo(subjectTrimmed);
+      const canonicalOrTrimmed = support.matchedProfile?.value || subjectTrimmed;
+      if (canonicalOrTrimmed && !knownValues.has(canonicalOrTrimmed.toLowerCase())) {
+        knownValues.add(canonicalOrTrimmed.toLowerCase());
         customSubjects.push({
           value: subjectTrimmed,
           label: subjectTrimmed,
-          supportInfo: getSubjectSupportInfo(subjectTrimmed),
+          supportInfo: support,
         });
       }
     });
@@ -210,14 +214,16 @@ export default function SubjectsPage() {
     exams.forEach((ex) => {
       if (selectedClassId !== 'ALL' && ex.classId !== selectedClassId) return;
 
-      const matched =
-        allSubjects.find(
-          (s) =>
-            s.value.toLowerCase() === ex.subject.toLowerCase() ||
-            s.label.toLowerCase() === ex.subject.toLowerCase()
-        ) || allSubjects.find((s) => s.value === 'Mathematik');
+      const exSubTrimmed = (ex.subject || '').trim();
+      const support = getSubjectSupportInfo(exSubTrimmed);
+      const matched = allSubjects.find(
+        (s) =>
+          s.value.toLowerCase() === exSubTrimmed.toLowerCase() ||
+          s.label.toLowerCase() === exSubTrimmed.toLowerCase() ||
+          (support.matchedProfile && s.value === support.matchedProfile.value)
+      );
 
-      const key = matched ? matched.value : ex.subject;
+      const key = matched ? matched.value : exSubTrimmed || 'Mathematik';
       if (!stats[key]) {
         stats[key] = { examsCount: 0, submissionsCount: 0, gradeSum: 0, gradeCount: 0 };
       }
@@ -249,11 +255,13 @@ export default function SubjectsPage() {
     return exams.filter((ex) => {
       if (selectedClassId !== 'ALL' && ex.classId !== selectedClassId) return false;
       if (selectedSubject !== 'ALL') {
-        const support = getSubjectSupportInfo(ex.subject);
-        const selectedSupport = getSubjectSupportInfo(selectedSubject);
+        const exSubTrimmed = (ex.subject || '').trim();
+        const selectedSubTrimmed = selectedSubject.trim();
+        const support = getSubjectSupportInfo(exSubTrimmed);
+        const selectedSupport = getSubjectSupportInfo(selectedSubTrimmed);
         const matchesSubject =
-          ex.subject.toLowerCase() === selectedSubject.toLowerCase() ||
-          support.matchedProfile?.value.toLowerCase() === selectedSubject.toLowerCase() ||
+          exSubTrimmed.toLowerCase() === selectedSubTrimmed.toLowerCase() ||
+          support.matchedProfile?.value.toLowerCase() === selectedSubTrimmed.toLowerCase() ||
           (selectedSupport.matchedProfile &&
             support.matchedProfile?.value === selectedSupport.matchedProfile.value);
         if (!matchesSubject) return false;
@@ -262,7 +270,7 @@ export default function SubjectsPage() {
         const query = searchQuery.toLowerCase().trim();
         const matchesTitle = ex.title.toLowerCase().includes(query);
         const matchesClass = ex.className.toLowerCase().includes(query);
-        const matchesSubject = ex.subject.toLowerCase().includes(query);
+        const matchesSubject = (ex.subject || '').toLowerCase().includes(query);
         if (!matchesTitle && !matchesClass && !matchesSubject) return false;
       }
       return true;

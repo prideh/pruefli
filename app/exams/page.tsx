@@ -29,6 +29,7 @@ import {
   IconButton,
   Tooltip,
   FormHelperText,
+  Autocomplete,
 } from '@mui/material';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import AddIcon from '@mui/icons-material/Add';
@@ -84,6 +85,114 @@ interface PrismaExamItem {
 
 interface ExamListItem extends PrismaExamItem {
   averageGrade: string;
+}
+
+interface SubjectComboboxProps {
+  id?: string;
+  value: string;
+  onChange: (newValue: string) => void;
+  label?: string;
+  placeholder?: string;
+}
+
+function SubjectCombobox({
+  id,
+  value,
+  onChange,
+  label = 'Fach (KI-Profil)',
+  placeholder = 'z.B. Mathematik, Geschichte, Französisch',
+}: SubjectComboboxProps) {
+  const supportInfo = getSubjectSupportInfo(value);
+  const isVerified = supportInfo.supportLevel === 'VERIFIED_MODALITY';
+  const isFallback = supportInfo.supportLevel === 'GENERIC_FALLBACK';
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <Autocomplete
+        id={id}
+        freeSolo
+        fullWidth
+        disablePortal
+        options={SUBJECT_PROFILES.map((s) => s.value)}
+        value={value}
+        inputValue={value}
+        onInputChange={(_e, newInputValue) => {
+          onChange(newInputValue);
+        }}
+        onChange={(_e, newValue) => {
+          onChange(typeof newValue === 'string' ? newValue : '');
+        }}
+        filterOptions={(options, state) => {
+          const input = state.inputValue.trim().toLowerCase();
+          if (
+            !input ||
+            SUBJECT_PROFILES.some(
+              (p) => p.value.toLowerCase() === input || p.label.toLowerCase() === input
+            )
+          ) {
+            return options;
+          }
+          const filtered = options.filter((opt) => {
+            const profile = SUBJECT_PROFILES.find((p) => p.value === opt);
+            const display = profile ? `${profile.label} (${profile.supportBadge})` : opt;
+            return opt.toLowerCase().includes(input) || display.toLowerCase().includes(input);
+          });
+          return filtered.length > 0 ? filtered : options;
+        }}
+        renderOption={(props, option) => {
+          const { key, ...optionProps } = props as React.HTMLAttributes<HTMLLIElement> & {
+            key?: React.Key;
+          };
+          const profile = SUBJECT_PROFILES.find((p) => p.value === option);
+          return (
+            <Box component="li" key={key ?? option} {...optionProps}>
+              {profile ? `${profile.label} (${profile.supportBadge})` : option}
+            </Box>
+          );
+        }}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label={label}
+            placeholder={placeholder}
+            required
+            variant="outlined"
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+          />
+        )}
+      />
+      <FormHelperText
+        component="div"
+        sx={{
+          fontSize: '0.73rem',
+          color: 'text.secondary',
+          mt: 0.5,
+          mx: 1.75,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Chip
+          label={supportInfo.supportBadge}
+          size="small"
+          variant="outlined"
+          sx={{
+            height: 20,
+            fontSize: '0.68rem',
+            fontWeight: 700,
+            borderColor: isVerified ? '#86efac' : isFallback ? '#cbd5e1' : '#93c5fd',
+            backgroundColor: isVerified ? '#f0fdf4' : isFallback ? '#f8fafc' : '#eff6ff',
+            color: isVerified ? '#15803d' : isFallback ? '#475569' : '#1d4ed8',
+          }}
+        />
+        <span>
+          {supportInfo.supportBadge}: {supportInfo.profileFocus}
+        </span>
+      </FormHelperText>
+    </Box>
+  );
 }
 
 export default function ExamsPage() {
@@ -273,6 +382,11 @@ export default function ExamsPage() {
       return;
     }
 
+    if (!genSubject.trim()) {
+      setGenError('Bitte gib ein Fach an.');
+      return;
+    }
+
     setGenLoading(true);
     setGenError('');
 
@@ -284,7 +398,7 @@ export default function ExamsPage() {
           material: effectiveMaterial,
           classId: targetClass,
           title: genTitle.trim() || undefined,
-          subject: genSubject,
+          subject: genSubject.trim(),
           topic: genTopic.trim() || undefined,
           stufe: genStufe,
           difficulty: genDifficulty,
@@ -478,7 +592,7 @@ export default function ExamsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: examTitle.trim(),
-          subject: examSubject,
+          subject: examSubject.trim(),
           maxPoints: Number(examMaxPoints),
           rubricText: examRubric || 'Standard Musterlösung',
           gradingNotes: examGradingNotes || null,
@@ -601,7 +715,7 @@ export default function ExamsPage() {
   const availableSubjects = React.useMemo(() => {
     const counts: Record<string, number> = {};
     classExams.forEach((ex) => {
-      const s = ex.subject || 'Allgemein';
+      const s = (ex.subject || 'Allgemein').trim() || 'Allgemein';
       counts[s] = (counts[s] || 0) + 1;
     });
     return Object.entries(counts).map(([name, count]) => ({ name, count }));
@@ -615,7 +729,8 @@ export default function ExamsPage() {
 
   const filteredExams = React.useMemo(() => {
     return classExams.filter((ex) => {
-      if (effectiveSubjectFilter !== 'ALL' && ex.subject !== effectiveSubjectFilter) {
+      const exSubject = (ex.subject || 'Allgemein').trim() || 'Allgemein';
+      if (effectiveSubjectFilter !== 'ALL' && exSubject !== effectiveSubjectFilter) {
         return false;
       }
       return true;
@@ -1316,26 +1431,12 @@ export default function ExamsPage() {
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 4 }}>
-                    <FormControl fullWidth>
-                      <InputLabel id="subject-label">Fach (KI-Profil)</InputLabel>
-                      <Select
-                        labelId="subject-label"
-                        value={examSubject}
-                        label="Fach (KI-Profil)"
-                        onChange={(e) => setExamSubject(e.target.value)}
-                        sx={{ borderRadius: '8px' }}
-                      >
-                        {SUBJECT_PROFILES.map((s) => (
-                          <MenuItem key={s.value} value={s.value}>
-                            {s.label} ({s.supportBadge})
-                          </MenuItem>
-                        ))}
-                      </Select>
-                      <FormHelperText sx={{ fontSize: '0.73rem', color: 'text.secondary' }}>
-                        {getSubjectSupportInfo(examSubject).supportBadge}:{' '}
-                        {getSubjectSupportInfo(examSubject).profileFocus}
-                      </FormHelperText>
-                    </FormControl>
+                    <SubjectCombobox
+                      id="subject-combobox"
+                      value={examSubject}
+                      onChange={setExamSubject}
+                      label="Fach (KI-Profil)"
+                    />
                   </Grid>
                 </Grid>
 
@@ -1775,27 +1876,12 @@ export default function ExamsPage() {
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 4 }}>
-                    <FormControl fullWidth>
-                      <InputLabel id="copy-subject-label">Fach (KI-Profil)</InputLabel>
-                      <Select
-                        labelId="copy-subject-label"
-                        value={copySubject}
-                        label="Fach (KI-Profil)"
-                        onChange={(e) => setCopySubject(e.target.value)}
-                        sx={{ borderRadius: '8px' }}
-                        MenuProps={{ disablePortal: true }}
-                      >
-                        {SUBJECT_PROFILES.map((s) => (
-                          <MenuItem key={s.value} value={s.value}>
-                            {s.label} ({s.supportBadge})
-                          </MenuItem>
-                        ))}
-                      </Select>
-                      <FormHelperText sx={{ fontSize: '0.73rem', color: 'text.secondary' }}>
-                        {getSubjectSupportInfo(copySubject).supportBadge}:{' '}
-                        {getSubjectSupportInfo(copySubject).profileFocus}
-                      </FormHelperText>
-                    </FormControl>
+                    <SubjectCombobox
+                      id="copy-subject-combobox"
+                      value={copySubject}
+                      onChange={setCopySubject}
+                      label="Fach (KI-Profil)"
+                    />
                   </Grid>
                 </Grid>
 
@@ -2135,26 +2221,12 @@ export default function ExamsPage() {
 
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl fullWidth>
-                      <InputLabel id="gen-subject-label">Fach (KI-Profil)</InputLabel>
-                      <Select
-                        labelId="gen-subject-label"
-                        value={genSubject}
-                        label="Fach (KI-Profil)"
-                        onChange={(e) => setGenSubject(e.target.value)}
-                        sx={{ borderRadius: '8px' }}
-                      >
-                        {SUBJECT_PROFILES.map((s) => (
-                          <MenuItem key={s.value} value={s.value}>
-                            {s.label} ({s.supportBadge})
-                          </MenuItem>
-                        ))}
-                      </Select>
-                      <FormHelperText sx={{ fontSize: '0.73rem', color: 'text.secondary' }}>
-                        {getSubjectSupportInfo(genSubject).supportBadge}:{' '}
-                        {getSubjectSupportInfo(genSubject).profileFocus}
-                      </FormHelperText>
-                    </FormControl>
+                    <SubjectCombobox
+                      id="gen-subject-combobox"
+                      value={genSubject}
+                      onChange={setGenSubject}
+                      label="Fach (KI-Profil)"
+                    />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField

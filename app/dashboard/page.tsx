@@ -34,6 +34,7 @@ import {
   IconButton,
   Tooltip,
   FormHelperText,
+  Autocomplete,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -903,7 +904,7 @@ export default function Dashboard() {
           formData.append('examId', resolvedExamId);
         } else if (selectedExamId === 'NEW') {
           formData.append('examTitle', examTitle.trim());
-          formData.append('examSubject', examSubject);
+          formData.append('examSubject', examSubject.trim());
           formData.append(
             'maxPoints',
             String(Number(examMaxPoints) > 0 ? Number(examMaxPoints) : 20)
@@ -1869,19 +1870,67 @@ export default function Dashboard() {
                             </Grid>
                             <Grid size={{ xs: 12, sm: 3 }}>
                               <FormControl fullWidth size="small">
-                                <InputLabel id="subject-select-label">Fach (KI-Profil)</InputLabel>
-                                <Select
-                                  labelId="subject-select-label"
+                                <Autocomplete
+                                  id="subject-select-combobox"
+                                  freeSolo
+                                  fullWidth
+                                  disablePortal
+                                  size="small"
+                                  options={SUBJECT_PROFILES.map((sp) => sp.value)}
                                   value={examSubject}
-                                  label="Fach (KI-Profil)"
-                                  onChange={(e) => setExamSubject(e.target.value)}
-                                >
-                                  {SUBJECT_PROFILES.map((sp) => (
-                                    <MenuItem key={sp.value} value={sp.value}>
-                                      {sp.label} ({sp.supportBadge})
-                                    </MenuItem>
-                                  ))}
-                                </Select>
+                                  inputValue={examSubject}
+                                  onInputChange={(_e, newInputValue) =>
+                                    setExamSubject(newInputValue)
+                                  }
+                                  onChange={(_e, newValue) =>
+                                    setExamSubject(typeof newValue === 'string' ? newValue : '')
+                                  }
+                                  filterOptions={(options, state) => {
+                                    const input = state.inputValue.trim().toLowerCase();
+                                    if (
+                                      !input ||
+                                      SUBJECT_PROFILES.some(
+                                        (p) =>
+                                          p.value.toLowerCase() === input ||
+                                          p.label.toLowerCase() === input
+                                      )
+                                    ) {
+                                      return options;
+                                    }
+                                    const filtered = options.filter((opt) => {
+                                      const profile = SUBJECT_PROFILES.find((p) => p.value === opt);
+                                      const display = profile
+                                        ? `${profile.label} (${profile.supportBadge})`
+                                        : opt;
+                                      return (
+                                        opt.toLowerCase().includes(input) ||
+                                        display.toLowerCase().includes(input)
+                                      );
+                                    });
+                                    return filtered.length > 0 ? filtered : options;
+                                  }}
+                                  renderOption={(props, option) => {
+                                    const { key, ...optionProps } =
+                                      props as React.HTMLAttributes<HTMLLIElement> & {
+                                        key?: React.Key;
+                                      };
+                                    const sp = SUBJECT_PROFILES.find((p) => p.value === option);
+                                    return (
+                                      <Box component="li" key={key ?? option} {...optionProps}>
+                                        {sp ? `${sp.label} (${sp.supportBadge})` : option}
+                                      </Box>
+                                    );
+                                  }}
+                                  renderInput={(params) => (
+                                    <TextField
+                                      {...params}
+                                      label="Fach (KI-Profil)"
+                                      placeholder="z.B. Mathematik, Geschichte"
+                                      required
+                                      size="small"
+                                    />
+                                  )}
+                                />
                                 <FormHelperText
                                   sx={{ fontSize: '0.73rem', color: 'text.secondary' }}
                                 >

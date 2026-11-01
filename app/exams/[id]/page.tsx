@@ -71,6 +71,7 @@ import {
 import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
+  getSubjectSupportInfo,
   isSerializedDocumentPayload,
   parseSerializedDocumentPayload,
   type GradingFormula,
@@ -602,8 +603,8 @@ export default function ExamDetailsPage() {
                 >
                   {exam?.className}
                 </Link>{' '}
-                • Fach: {exam?.subject} • Max. Punkte: {exam?.maxPoints} P. • Formel: {formulaLabel}{' '}
-                • Rundung: {roundingLabel}
+                • Fach: {exam?.subject} ({getSubjectSupportInfo(exam?.subject).supportBadge}) • Max.
+                Punkte: {exam?.maxPoints} P. • Formel: {formulaLabel} • Rundung: {roundingLabel}
               </Typography>
             </Box>
 
