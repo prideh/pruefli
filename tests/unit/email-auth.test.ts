@@ -257,11 +257,12 @@ describe('Transaktions-E-Mails via Brevo & Auth Workflows (Issue #59)', () => {
 
   describe('Verifizierungs-Status-Verwaltung', () => {
     it('markiert und erkennt verifizierte Konten korrekt', async () => {
-      expect(await isEmailVerified('teacher-new')).toBe(false);
+      const testTeacherId = `teacher-new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      expect(await isEmailVerified(testTeacherId)).toBe(false);
 
-      await markEmailVerified('teacher-new', 'neu@schule.ch');
+      await markEmailVerified(testTeacherId, 'neu@schule.ch');
 
-      expect(await isEmailVerified('teacher-new')).toBe(true);
+      expect(await isEmailVerified(testTeacherId)).toBe(true);
     });
   });
 
