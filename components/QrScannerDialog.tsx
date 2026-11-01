@@ -45,6 +45,7 @@ interface QrScannerDialogProps {
   studentId?: string | null;
   studentName?: string | null;
   submissionId?: string | null;
+  showDevOptions?: boolean;
   onRefreshSubmissions?: () => void;
   onDocumentScanned?: (
     payload: string,
@@ -64,9 +65,15 @@ export default function QrScannerDialog({
   studentId,
   studentName,
   submissionId,
+  showDevOptions,
   onRefreshSubmissions,
   onDocumentScanned,
 }: QrScannerDialogProps) {
+  const isDevMode =
+    typeof showDevOptions === 'boolean'
+      ? showDevOptions
+      : process.env.NODE_ENV === 'development' ||
+        process.env.NEXT_PUBLIC_ENABLE_QR_DEV_OPTIONS === 'true';
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [token, setToken] = useState('');
@@ -333,7 +340,20 @@ export default function QrScannerDialog({
           )}
 
           {error && (
-            <Alert severity="error" sx={{ borderRadius: '10px' }}>
+            <Alert
+              severity="error"
+              sx={{ borderRadius: '10px' }}
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={() => generateQrSession()}
+                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                >
+                  Erneut versuchen
+                </Button>
+              }
+            >
               {error}
             </Alert>
           )}
@@ -441,7 +461,7 @@ export default function QrScannerDialog({
             </>
           )}
 
-          {scanUrl && (
+          {isDevMode && scanUrl && (
             <Stack spacing={1}>
               <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
                 Direktlink für Smartphone (gültig für 2 Stunden):
