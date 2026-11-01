@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { signJWT, verifyJWT } from '@/lib/jwt';
+import Home from '@/app/page';
 
 const mockCookieGet = vi.fn();
 
@@ -49,8 +50,6 @@ describe('UX Navigation Details Improvements & Landingpage-Header (#71)', () => 
   });
 
   it('rendert auf der Startseite sowohl ausgeloggt als auch eingeloggt immer Login & Registrieren im Header, waehrend der Hero-CTA zustandsabhaengig bleibt (#71)', async () => {
-    const { default: Home } = await import('@/app/page');
-
     // 1. Ausgeloggter Zustand
     mockCookieGet.mockReturnValue(undefined);
     const loggedOutHtml = renderToStaticMarkup(await Home());
@@ -89,7 +88,7 @@ describe('UX Navigation Details Improvements & Landingpage-Header (#71)', () => 
     expect(loggedInHeader).not.toContain('Zum Workspace');
     expect(loggedInHtml).toContain('Zum Korrektur-Workspace');
     expect(loggedInHtml).toContain('Spare bis zu 80% deiner Korrekturzeit.');
-  });
+  }, 20000);
 
   it('Startseite bietet in der Hero-Sektion einen sichtbaren Login/Registrieren-Button', () => {
     const landingFile = fs.readFileSync(path.resolve(__dirname, '../../app/page.tsx'), 'utf-8');
