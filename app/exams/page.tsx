@@ -50,6 +50,7 @@ import {
   GRADE_ROUNDING_OPTIONS,
   SUBJECT_PROFILES,
   getSubjectSupportInfo,
+  isSerializedDocumentPayload,
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
@@ -407,9 +408,9 @@ export default function ExamsPage() {
           if (dataUrl) {
             const base64Data = dataUrl.split(',')[1];
             const rubricPayload = JSON.stringify({
-              name: file.name,
               mimeType: file.type,
               data: base64Data,
+              name: file.name,
             });
             setExamRubric(rubricPayload);
             autoParseRubric(rubricPayload);
@@ -1368,9 +1369,7 @@ export default function ExamsPage() {
                   </Grid>
                 </Grid>
 
-                {uploadedFileName ||
-                examRubric.startsWith('{"mimeType":') ||
-                examRubric.startsWith('[{"mimeType":') ? (
+                {uploadedFileName || isSerializedDocumentPayload(examRubric) ? (
                   <Box
                     sx={{
                       border: '1px solid #cbd5e1',

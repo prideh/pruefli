@@ -456,8 +456,8 @@ export interface PredefinedTask {
 
 export type ReferenceMaterialInput =
   | string
-  | { mimeType: string; data: string }
-  | { mimeType: string; data: string }[];
+  | { mimeType: string; data: string; name?: string }
+  | { mimeType: string; data: string; name?: string }[];
 
 export interface CorrectionMaterialOptions {
   examTemplate?: ReferenceMaterialInput | null;
@@ -465,33 +465,90 @@ export interface CorrectionMaterialOptions {
   additionalStudentPages?: { mimeType: string; data: string }[];
 }
 
+function cleanBase64Data(raw: string): string {
+  const trimmed = raw.trim();
+  const commaIdx = trimmed.indexOf(',');
+  if (trimmed.startsWith('data:') && commaIdx !== -1) {
+    return trimmed.slice(commaIdx + 1).trim();
+  }
+  return trimmed;
+}
+
+/**
+ * Parses a JSON-serialized single or multi-page reference document (e.g. Musterloesung or Vorlage)
+ * regardless of JSON key ordering (such as `{"name":"...","mimeType":"...","data":"..."}` or `{"mimeType":"...","data":"..."}`).
+ * Returns null if the input is plain text or not a valid document payload.
+ */
+export function parseSerializedReferenceMaterial(
+  raw?: string | null
+):
+  | { mimeType: string; data: string; name?: string }
+  | { mimeType: string; data: string; name?: string }[]
+  | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (
+    !(trimmed.startsWith('{') && trimmed.endsWith('}')) &&
+    !(trimmed.startsWith('[') && trimmed.endsWith(']'))
+  ) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      const validPages = parsed
+        .filter((item): item is { mimeType: string; data: string; name?: string } =>
+          Boolean(
+            item &&
+            typeof item === 'object' &&
+            typeof (item as { mimeType?: unknown }).mimeType === 'string' &&
+            typeof (item as { data?: unknown }).data === 'string'
+          )
+        )
+        .map((item) => ({
+          ...item,
+          data: cleanBase64Data(item.data),
+        }));
+      return validPages.length > 0 ? validPages : null;
+    }
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as { mimeType?: unknown }).mimeType === 'string' &&
+      typeof (parsed as { data?: unknown }).data === 'string'
+    ) {
+      const doc = parsed as { mimeType: string; data: string; name?: string };
+      return {
+        ...doc,
+        data: cleanBase64Data(doc.data),
+      };
+    }
+  } catch {
+    // Plain text or invalid JSON
+  }
+
+  return null;
+}
+
 export function appendReferenceMaterialToContents(
   contents: (string | { inlineData: { mimeType: string; data: string } })[],
   material: ReferenceMaterialInput
 ): void {
   if (typeof material === 'string') {
-    const trimmed = material.trim();
-    if (trimmed.startsWith('[{"mimeType":') || trimmed.startsWith('{"mimeType":')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((item, idx) => {
-            if (item && typeof item.mimeType === 'string' && typeof item.data === 'string') {
-              if (parsed.length > 1) {
-                contents.push(`--- Referenzdokument Seite ${idx + 1} ---`);
-              }
-              contents.push({ inlineData: { mimeType: item.mimeType, data: item.data } });
-            }
-          });
-          return;
+    const parsed = parseSerializedReferenceMaterial(material);
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item, idx) => {
+        if (parsed.length > 1) {
+          contents.push(`--- Referenzdokument Seite ${idx + 1} ---`);
         }
-        if (parsed && typeof parsed.mimeType === 'string' && typeof parsed.data === 'string') {
-          contents.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.data } });
-          return;
-        }
-      } catch {
-        // Fall through to plain text
-      }
+        contents.push({ inlineData: { mimeType: item.mimeType, data: item.data } });
+      });
+      return;
+    }
+    if (parsed) {
+      contents.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.data } });
+      return;
     }
     contents.push(material);
   } else if (Array.isArray(material)) {
@@ -499,13 +556,15 @@ export function appendReferenceMaterialToContents(
       if (material.length > 1) {
         contents.push(`--- Referenzdokument Seite ${idx + 1} ---`);
       }
-      contents.push({ inlineData: { mimeType: item.mimeType, data: item.data } });
+      contents.push({
+        inlineData: { mimeType: item.mimeType, data: cleanBase64Data(item.data) },
+      });
     });
   } else {
     contents.push({
       inlineData: {
         mimeType: material.mimeType,
-        data: material.data,
+        data: cleanBase64Data(material.data),
       },
     });
   }

@@ -22,7 +22,7 @@ export interface LlmCacheEntry<T> {
 
 export const LLM_PROMPT_VERSIONS = {
   grading: '2026-11-01-grading-v2-prompt-injection',
-  rubricParse: '2026-10-30-rubric-v1',
+  rubricParse: '2026-11-01-rubric-v2',
   scanIdentification: '2026-10-30-scan-v1',
   examGeneration: '2026-10-30-generation-v1',
   taskRegeneration: '2026-10-30-task-regen-v1',
@@ -58,6 +58,63 @@ export function computeSha256(content: string): string {
 }
 
 /**
+ * Normalisiert Referenzdokumente (Musterloesung / Vorlage) fuer deterministisches Content-Hashing,
+ * sodass serialisierte JSON-Strings (z. B. `{"name":"...","mimeType":"...","data":"..."}`) und
+ * bereits geparste `{ mimeType, data }`-Objekte denselben Hash ueber den Dokumentinhalt erzeugen.
+ */
+export function normalizeMaterialForHash(material: unknown): unknown {
+  if (!material) return null;
+  if (typeof material === 'string') {
+    const trimmed = material.trim();
+    if (
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    ) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return normalizeMaterialForHash(parsed);
+      } catch {
+        return material;
+      }
+    }
+    return material;
+  }
+  if (Array.isArray(material)) {
+    const isDocArray =
+      material.length > 0 &&
+      material.every(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          typeof (item as { mimeType?: unknown }).mimeType === 'string' &&
+          typeof (item as { data?: unknown }).data === 'string'
+      );
+    if (isDocArray) {
+      return material.map((item) => {
+        const doc = item as { mimeType: string; data: string };
+        return {
+          mimeType: doc.mimeType,
+          dataHash: computeSha256(doc.data.trim()),
+        };
+      });
+    }
+    return material;
+  }
+  if (
+    typeof material === 'object' &&
+    typeof (material as { mimeType?: unknown }).mimeType === 'string' &&
+    typeof (material as { data?: unknown }).data === 'string'
+  ) {
+    const doc = material as { mimeType: string; data: string };
+    return {
+      mimeType: doc.mimeType,
+      dataHash: computeSha256(doc.data.trim()),
+    };
+  }
+  return material;
+}
+
+/**
  * Berechnet den Content-Hash fuer einen Grading-Aufruf.
  * Beruecksichtigt saemtliche Eingaben, die das Modell-Ergebnis beeinflussen:
  * - Mandanten-ID (teacherId zur strikten Mandantentrennung)
@@ -89,8 +146,8 @@ export function computeGradingHash(params: {
       mimeType: p.mimeType,
       dataHash: computeSha256(p.data),
     })),
-    rubric: params.rubric,
-    examTemplate: params.examTemplate || null,
+    rubric: normalizeMaterialForHash(params.rubric),
+    examTemplate: normalizeMaterialForHash(params.examTemplate) || null,
     gradingNotes: params.gradingNotes?.trim() || null,
     predefinedTasks: params.predefinedTasks || null,
     subject: params.subject?.trim().toLowerCase() || null,
@@ -111,7 +168,7 @@ export function computeRubricParseHash(params: {
     teacherId: params.teacherId,
     modelName: params.modelName,
     promptVersion: params.promptVersion || LLM_PROMPT_VERSIONS.rubricParse,
-    rubricText: params.rubricText,
+    rubricText: normalizeMaterialForHash(params.rubricText),
   });
   return computeSha256(canonical);
 }

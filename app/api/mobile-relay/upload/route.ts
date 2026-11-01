@@ -6,7 +6,9 @@ import {
   identifyExamAndStudentFromScan,
   runLiveGeminiCorrection,
   categorizeGeminiError,
+  parseSerializedReferenceMaterial,
   type ExamCorrectionResult,
+  type ReferenceMaterialInput,
 } from '@/lib/gemini';
 import {
   calculateRawSwissGrade,
@@ -32,18 +34,9 @@ import { validateRelayPages, createPayloadErrorResponse } from '@/lib/payload-li
 import { deduplicatePayloadsByHash } from '@/lib/relay-dedup';
 import { validateDocument } from '@/lib/document-validation';
 
-function parseStoredMaterial(
-  rawText?: string | null
-): string | { mimeType: string; data: string } | null {
+function parseStoredMaterial(rawText?: string | null): ReferenceMaterialInput | null {
   if (!rawText) return null;
-  if (rawText.startsWith('{"mimeType":')) {
-    try {
-      return JSON.parse(rawText);
-    } catch {
-      return rawText;
-    }
-  }
-  return rawText;
+  return parseSerializedReferenceMaterial(rawText) || rawText;
 }
 
 const ALLOWED_MIME_TO_EXT: Record<string, string> = {

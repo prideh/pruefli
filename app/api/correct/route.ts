@@ -5,7 +5,9 @@ import {
   DEFAULT_GEMINI_MODEL,
   runLiveGeminiCorrection,
   categorizeGeminiError,
+  parseSerializedReferenceMaterial,
   type ExamCorrectionResult,
+  type ReferenceMaterialInput,
 } from '@/lib/gemini';
 import {
   calculateRawSwissGrade,
@@ -54,18 +56,9 @@ function resolveSafeFileFormat(file: File): { mimeType: string; ext: string } | 
   return null;
 }
 
-function parseStoredMaterial(
-  rawText?: string | null
-): string | { mimeType: string; data: string } | null {
+function parseStoredMaterial(rawText?: string | null): ReferenceMaterialInput | null {
   if (!rawText) return null;
-  if (rawText.startsWith('{"mimeType":')) {
-    try {
-      return JSON.parse(rawText);
-    } catch {
-      return rawText;
-    }
-  }
-  return rawText;
+  return parseSerializedReferenceMaterial(rawText) || rawText;
 }
 
 export async function POST(request: Request) {
@@ -302,7 +295,7 @@ export async function POST(request: Request) {
     }
 
     // 2. Fetch/resolve the rubric data from DB or parameters
-    let rubricParam: string | { mimeType: string; data: string } = '';
+    let rubricParam: ReferenceMaterialInput = '';
     let rubricTextString = '';
 
     let finalExamId = examId;
@@ -327,18 +320,13 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
-      if (existingExam.rubricText.startsWith('{"mimeType":')) {
-        try {
-          const parsed = JSON.parse(existingExam.rubricText);
-          rubricParam = parsed;
-          const isPdf = typeof parsed !== 'string' && parsed.mimeType === 'application/pdf';
-          rubricTextString = isPdf
-            ? 'Musterlösung als PDF hinterlegt'
-            : 'Musterlösung als Bild hinterlegt';
-        } catch {
-          rubricParam = existingExam.rubricText;
-          rubricTextString = existingExam.rubricText;
-        }
+      const parsedRubric = parseSerializedReferenceMaterial(existingExam.rubricText);
+      if (parsedRubric) {
+        rubricParam = parsedRubric;
+        const isPdf = !Array.isArray(parsedRubric) && parsedRubric.mimeType === 'application/pdf';
+        rubricTextString = isPdf
+          ? 'Musterlösung als PDF hinterlegt'
+          : 'Musterlösung als Bild hinterlegt';
       } else {
         rubricParam = existingExam.rubricText;
         rubricTextString = existingExam.rubricText;
@@ -356,7 +344,7 @@ export async function POST(request: Request) {
       }
 
       if (typeof rubric === 'string') {
-        rubricParam = rubric;
+        rubricParam = parseSerializedReferenceMaterial(rubric) || rubric;
         rubricTextString = rubric;
       } else {
         const mimeType = rubric.type || '';

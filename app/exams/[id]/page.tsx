@@ -71,6 +71,8 @@ import {
 import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
+  isSerializedDocumentPayload,
+  parseSerializedDocumentPayload,
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
@@ -375,9 +377,9 @@ export default function ExamDetailsPage() {
             const base64Data = dataUrl.split(',')[1];
             setRubricText(
               JSON.stringify({
-                name: file.name,
                 mimeType: file.type,
                 data: base64Data,
+                name: file.name,
               })
             );
           }
@@ -1202,9 +1204,7 @@ export default function ExamDetailsPage() {
                       />
                     ) : (
                       <>
-                        {uploadedFileName ||
-                        rubricText.startsWith('{"mimeType":') ||
-                        rubricText.startsWith('[{"mimeType":') ? (
+                        {uploadedFileName || isSerializedDocumentPayload(rubricText) ? (
                           <Box
                             sx={{
                               border: '1px solid #cbd5e1',
@@ -1375,189 +1375,180 @@ export default function ExamDetailsPage() {
                     </Box>
                   </Box>
                 ) : (
-                  <Box
-                    sx={{
-                      p: 2.5,
-                      borderRadius: '8px',
-                      backgroundColor: '#f8fafc',
-                      border: '1px solid #e2e8f0',
-                      fontFamily: exam?.rubricText?.startsWith('{"mimeType":')
-                        ? 'inherit'
-                        : 'monospace',
-                      fontSize: '0.85rem',
-                      whiteSpace: exam?.rubricText?.startsWith('{"mimeType":')
-                        ? 'normal'
-                        : 'pre-wrap',
-                      color: '#334155',
-                      flexGrow: 1,
-                      overflowY: exam?.rubricText?.startsWith('{"mimeType":"application/pdf"')
-                        ? 'hidden'
-                        : 'auto',
-                      maxHeight: exam?.rubricText?.startsWith('{"mimeType":"application/pdf"')
-                        ? '500px'
-                        : '220px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    {(() => {
-                      if (exam?.rubricText?.startsWith('{"mimeType":')) {
-                        try {
-                          const parsed = JSON.parse(exam.rubricText);
-                          if (parsed.mimeType === 'application/pdf') {
-                            return (
-                              <Stack spacing={2} sx={{ width: '100%' }}>
-                                <Stack
-                                  direction="row"
-                                  sx={{ justifyContent: 'space-between', alignItems: 'center' }}
-                                >
+                  (() => {
+                    const parsedDoc = parseSerializedDocumentPayload(exam?.rubricText);
+                    const isPdfDoc =
+                      parsedDoc?.kind === 'single' && parsedDoc.page.mimeType === 'application/pdf';
+                    return (
+                      <Box
+                        sx={{
+                          p: 2.5,
+                          borderRadius: '8px',
+                          backgroundColor: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          fontFamily: parsedDoc ? 'inherit' : 'monospace',
+                          fontSize: '0.85rem',
+                          whiteSpace: parsedDoc ? 'normal' : 'pre-wrap',
+                          color: '#334155',
+                          flexGrow: 1,
+                          overflowY: isPdfDoc ? 'hidden' : 'auto',
+                          maxHeight: isPdfDoc ? '500px' : '220px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                        }}
+                      >
+                        {(() => {
+                          if (parsedDoc?.kind === 'single') {
+                            const parsed = parsedDoc.page;
+                            if (parsed.mimeType === 'application/pdf') {
+                              return (
+                                <Stack spacing={2} sx={{ width: '100%' }}>
                                   <Stack
                                     direction="row"
-                                    spacing={1.5}
-                                    sx={{ alignItems: 'center', p: 0.5 }}
+                                    sx={{ justifyContent: 'space-between', alignItems: 'center' }}
                                   >
-                                    <StarsIcon sx={{ color: 'primary.main', fontSize: '1.5rem' }} />
-                                    <Box>
-                                      <Typography
-                                        variant="subtitle2"
-                                        sx={{ fontWeight: 700, color: 'text.primary' }}
-                                      >
-                                        PDF-Musterlösung hinterlegt
-                                      </Typography>
-                                      <Typography
-                                        variant="caption"
-                                        sx={{ color: 'text.secondary' }}
-                                      >
-                                        Die KI liest dieses Dokument zur Korrektur.
-                                      </Typography>
-                                    </Box>
+                                    <Stack
+                                      direction="row"
+                                      spacing={1.5}
+                                      sx={{ alignItems: 'center', p: 0.5 }}
+                                    >
+                                      <StarsIcon
+                                        sx={{ color: 'primary.main', fontSize: '1.5rem' }}
+                                      />
+                                      <Box>
+                                        <Typography
+                                          variant="subtitle2"
+                                          sx={{ fontWeight: 700, color: 'text.primary' }}
+                                        >
+                                          PDF-Musterlösung hinterlegt
+                                        </Typography>
+                                        <Typography
+                                          variant="caption"
+                                          sx={{ color: 'text.secondary' }}
+                                        >
+                                          Die KI liest dieses Dokument zur Korrektur.
+                                        </Typography>
+                                      </Box>
+                                    </Stack>
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      onClick={() => {
+                                        const newTab = window.open();
+                                        if (newTab) {
+                                          newTab.document.write(
+                                            `<title>PDF Musterlösung</title><body style="margin:0"><iframe width="100%" height="100%" style="border:none" src="data:application/pdf;base64,${parsed.data}"></iframe></body>`
+                                          );
+                                        }
+                                      }}
+                                      sx={{ textTransform: 'none', borderRadius: '6px' }}
+                                    >
+                                      In neuem Tab öffnen
+                                    </Button>
                                   </Stack>
-                                  <Button
-                                    size="small"
-                                    variant="outlined"
-                                    onClick={() => {
-                                      const newTab = window.open();
-                                      if (newTab) {
-                                        newTab.document.write(
-                                          `<title>PDF Musterlösung</title><body style="margin:0"><iframe width="100%" height="100%" style="border:none" src="data:application/pdf;base64,${parsed.data}"></iframe></body>`
-                                        );
-                                      }
+                                  <Box
+                                    sx={{
+                                      border: '1px solid #cbd5e1',
+                                      borderRadius: '8px',
+                                      overflow: 'hidden',
+                                      height: '350px',
+                                      backgroundColor: '#f8fafc',
                                     }}
-                                    sx={{ textTransform: 'none', borderRadius: '6px' }}
                                   >
-                                    In neuem Tab öffnen
-                                  </Button>
+                                    <iframe
+                                      src={`data:${parsed.mimeType};base64,${parsed.data}`}
+                                      title="PDF Musterlösung Vorschau"
+                                      width="100%"
+                                      height="100%"
+                                      style={{ border: 'none' }}
+                                    />
+                                  </Box>
                                 </Stack>
-                                <Box
-                                  sx={{
-                                    border: '1px solid #cbd5e1',
-                                    borderRadius: '8px',
-                                    overflow: 'hidden',
-                                    height: '350px',
-                                    backgroundColor: '#f8fafc',
+                              );
+                            }
+                            return (
+                              <Box
+                                sx={{
+                                  maxWidth: '100%',
+                                  maxHeight: '180px',
+                                  display: 'flex',
+                                  justifySelf: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={`data:${parsed.mimeType};base64,${parsed.data}`}
+                                  alt="Musterlösung"
+                                  style={{
+                                    maxWidth: '100%',
+                                    maxHeight: '180px',
+                                    objectFit: 'contain',
+                                    borderRadius: '4px',
                                   }}
+                                />
+                              </Box>
+                            );
+                          }
+                          if (parsedDoc?.kind === 'multi') {
+                            const pages = parsedDoc.pages;
+                            return (
+                              <Stack spacing={1.5}>
+                                <Typography
+                                  variant="caption"
+                                  sx={{ fontWeight: 700, color: '#0f172a' }}
                                 >
-                                  <iframe
-                                    src={`data:${parsed.mimeType};base64,${parsed.data}`}
-                                    title="PDF Musterlösung Vorschau"
-                                    width="100%"
-                                    height="100%"
-                                    style={{ border: 'none' }}
-                                  />
-                                </Box>
+                                  Mehrseitige Bild-Musterlösung ({pages.length} Seiten)
+                                </Typography>
+                                <Stack
+                                  direction="row"
+                                  spacing={1.5}
+                                  sx={{ overflowX: 'auto', pb: 1 }}
+                                >
+                                  {pages.map((p, idx) => (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      key={idx}
+                                      src={`data:${p.mimeType};base64,${p.data}`}
+                                      alt={`Musterlösung Seite ${idx + 1}`}
+                                      style={{
+                                        height: '160px',
+                                        objectFit: 'contain',
+                                        borderRadius: '6px',
+                                        border: '1px solid #cbd5e1',
+                                      }}
+                                    />
+                                  ))}
+                                </Stack>
                               </Stack>
                             );
                           }
-                          return (
-                            <Box
-                              sx={{
-                                maxWidth: '100%',
-                                maxHeight: '180px',
-                                display: 'flex',
-                                justifySelf: 'center',
-                                justifyContent: 'center',
-                              }}
+                          return exam?.rubricText || 'Keine Musterlösung hinterlegt.';
+                        })()}
+                        {exam?.gradingNotes && (
+                          <Box
+                            sx={{
+                              mt: 2,
+                              pt: 1.5,
+                              borderTop: '1px dashed #cbd5e1',
+                              fontFamily: 'inherit',
+                              fontSize: '0.8rem',
+                              color: '#475569',
+                            }}
+                          >
+                            <Typography
+                              variant="caption"
+                              sx={{ fontWeight: 700, color: '#0f172a', display: 'block', mb: 0.5 }}
                             >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={`data:${parsed.mimeType};base64,${parsed.data}`}
-                                alt="Musterlösung"
-                                style={{
-                                  maxWidth: '100%',
-                                  maxHeight: '180px',
-                                  objectFit: 'contain',
-                                  borderRadius: '4px',
-                                }}
-                              />
-                            </Box>
-                          );
-                        } catch {
-                          return 'Ungültige Musterlösung';
-                        }
-                      }
-                      if (exam?.rubricText?.startsWith('[{"mimeType":')) {
-                        try {
-                          const pages = JSON.parse(exam.rubricText) as {
-                            mimeType: string;
-                            data: string;
-                          }[];
-                          return (
-                            <Stack spacing={1.5}>
-                              <Typography
-                                variant="caption"
-                                sx={{ fontWeight: 700, color: '#0f172a' }}
-                              >
-                                Mehrseitige Bild-Musterlösung ({pages.length} Seiten)
-                              </Typography>
-                              <Stack
-                                direction="row"
-                                spacing={1.5}
-                                sx={{ overflowX: 'auto', pb: 1 }}
-                              >
-                                {pages.map((p, idx) => (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    key={idx}
-                                    src={`data:${p.mimeType};base64,${p.data}`}
-                                    alt={`Musterlösung Seite ${idx + 1}`}
-                                    style={{
-                                      height: '160px',
-                                      objectFit: 'contain',
-                                      borderRadius: '6px',
-                                      border: '1px solid #cbd5e1',
-                                    }}
-                                  />
-                                ))}
-                              </Stack>
-                            </Stack>
-                          );
-                        } catch {
-                          return 'Ungültige Musterlösung';
-                        }
-                      }
-                      return exam?.rubricText || 'Keine Musterlösung hinterlegt.';
-                    })()}
-                    {exam?.gradingNotes && (
-                      <Box
-                        sx={{
-                          mt: 2,
-                          pt: 1.5,
-                          borderTop: '1px dashed #cbd5e1',
-                          fontFamily: 'inherit',
-                          fontSize: '0.8rem',
-                          color: '#475569',
-                        }}
-                      >
-                        <Typography
-                          variant="caption"
-                          sx={{ fontWeight: 700, color: '#0f172a', display: 'block', mb: 0.5 }}
-                        >
-                          Zusätzliche Bewertungshinweise (Stufe 3: Individueller Korrekturkontext):
-                        </Typography>
-                        {exam.gradingNotes}
+                              Zusätzliche Bewertungshinweise (Stufe 3: Individueller
+                              Korrekturkontext):
+                            </Typography>
+                            {exam.gradingNotes}
+                          </Box>
+                        )}
                       </Box>
-                    )}
-                  </Box>
+                    );
+                  })()
                 )}
               </CardContent>
             </Card>

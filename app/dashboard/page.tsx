@@ -69,6 +69,7 @@ import {
   GRADE_ROUNDING_OPTIONS,
   SUBJECT_PROFILES,
   getSubjectSupportInfo,
+  isSerializedDocumentPayload,
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
@@ -1656,9 +1657,7 @@ export default function Dashboard() {
                               oder Datei). Die Schülerarbeiten werden anschliessend in Schritt ③
                               hochgeladen.
                             </Typography>
-                            {rubricFile ||
-                            rubricText.startsWith('{"mimeType":') ||
-                            rubricText.startsWith('[{"mimeType":') ? (
+                            {rubricFile || isSerializedDocumentPayload(rubricText) ? (
                               <Box
                                 sx={{
                                   border: '1px solid #e2e8f0',

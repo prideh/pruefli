@@ -454,6 +454,69 @@ export function parseStudentExamUrls(rawUrl?: string | null): string[] {
   return [trimmed];
 }
 
+export interface SerializedDocumentPage {
+  mimeType: string;
+  data: string;
+  name?: string;
+}
+
+/**
+ * Parses a JSON-serialized single-page or multi-page document payload
+ * (e.g. `{"mimeType":"image/png","data":"..."}` or `{"name":"file.png","mimeType":"image/png","data":"..."}`
+ * or `[{"mimeType":"image/jpeg","data":"..."}]`), regardless of JSON property order.
+ * Returns null if the input is plain text or not a valid document payload.
+ */
+export function parseSerializedDocumentPayload(
+  raw?: string | null
+):
+  | { kind: 'single'; page: SerializedDocumentPage }
+  | { kind: 'multi'; pages: SerializedDocumentPage[] }
+  | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (
+    !(trimmed.startsWith('{') && trimmed.endsWith('}')) &&
+    !(trimmed.startsWith('[') && trimmed.endsWith(']'))
+  ) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      const pages = parsed.filter((item): item is SerializedDocumentPage =>
+        Boolean(
+          item &&
+          typeof item === 'object' &&
+          typeof (item as { mimeType?: unknown }).mimeType === 'string' &&
+          typeof (item as { data?: unknown }).data === 'string'
+        )
+      );
+      return pages.length > 0 ? { kind: 'multi', pages } : null;
+    }
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as { mimeType?: unknown }).mimeType === 'string' &&
+      typeof (parsed as { data?: unknown }).data === 'string'
+    ) {
+      return {
+        kind: 'single',
+        page: parsed as SerializedDocumentPage,
+      };
+    }
+  } catch {
+    // Plain text or invalid JSON
+  }
+  return null;
+}
+
+/**
+ * Checks whether a string contains a JSON-serialized single or multi-page document payload.
+ */
+export function isSerializedDocumentPayload(raw?: string | null): boolean {
+  return parseSerializedDocumentPayload(raw) !== null;
+}
+
 /**
  * Resolves the effective maximum points for grading an exam submission.
  *

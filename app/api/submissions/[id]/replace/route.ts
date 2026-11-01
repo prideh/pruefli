@@ -6,7 +6,9 @@ import {
   DEFAULT_GEMINI_MODEL,
   runLiveGeminiCorrection,
   categorizeGeminiError,
+  parseSerializedReferenceMaterial,
   type ExamCorrectionResult,
+  type ReferenceMaterialInput,
 } from '@/lib/gemini';
 import {
   calculateRawSwissGrade,
@@ -26,18 +28,9 @@ import {
 } from '@/lib/llm-cache';
 import crypto from 'crypto';
 
-function parseStoredMaterial(
-  rawText?: string | null
-): string | { mimeType: string; data: string } | null {
+function parseStoredMaterial(rawText?: string | null): ReferenceMaterialInput | null {
   if (!rawText) return null;
-  if (rawText.startsWith('{"mimeType":')) {
-    try {
-      return JSON.parse(rawText);
-    } catch {
-      return rawText;
-    }
-  }
-  return rawText;
+  return parseSerializedReferenceMaterial(rawText) || rawText;
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
