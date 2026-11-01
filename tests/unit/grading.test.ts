@@ -385,5 +385,26 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       expect(workspaceSource).toContain("{' · '}");
       expect(workspaceSource).toContain("{'Gesamtpunkte: '}");
     });
+
+    it('synchronisiert die Klassenauswahl in der Pruefungsverwaltung und zeigt klaren Hinweis bzw. Disabled-Status bei fehlender Klasse (Issue #78)', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const examsPageSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/exams/page.tsx'),
+        'utf8'
+      );
+      const layoutSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'components/DashboardLayout.tsx'),
+        'utf8'
+      );
+
+      expect(examsPageSource).toContain('handleOpenCreateExam');
+      expect(examsPageSource).toContain('Zuerst eine Klasse wählen');
+      expect(examsPageSource).toContain('disabled={!activeClassId}');
+      expect(examsPageSource).toContain('label="Ausgewählt"');
+      expect(examsPageSource).not.toContain('ß');
+      expect(layoutSource).toContain('.MuiDialog-root');
+      expect(layoutSource).toContain("querySelector('.MuiMenu-list, .MuiAutocomplete-popper')");
+    });
   });
 });

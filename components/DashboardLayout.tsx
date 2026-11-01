@@ -187,14 +187,21 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   // Auto-dismiss any active dropdown/menu/popover when scrolling the page
   useEffect(() => {
     const handleScroll = (event: Event) => {
-      const target = event.target as HTMLElement;
-      // Do not close if scrolling inside the dropdown list itself
+      const target = event.target as HTMLElement | null;
+      // Do not close if scrolling inside the dropdown list, popover, or modal dialog itself
       if (
         target &&
         (target.closest?.('.MuiMenu-list') ||
           target.closest?.('.MuiPopover-root') ||
+          target.closest?.('.MuiDialog-root') ||
           target.closest?.('.MuiAutocomplete-popper'))
       ) {
+        return;
+      }
+
+      // Only dismiss when an actual select menu or autocomplete popper is open
+      const openMenu = document.querySelector('.MuiMenu-list, .MuiAutocomplete-popper');
+      if (!openMenu) {
         return;
       }
 

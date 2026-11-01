@@ -185,6 +185,8 @@ export default function ExamsPage() {
     return activeClassId || (classes[0]?.id ?? '');
   }, [classes, dialogClassId, activeClassId]);
 
+  const [classSelectionPrompt, setClassSelectionPrompt] = useState<string>('');
+
   const [defaultClassId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return (
@@ -443,6 +445,23 @@ export default function ExamsPage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
 
+  const handleOpenCreateExam = React.useCallback(() => {
+    const targetClassId = activeClassId || selectedClassId || classes[0]?.id || '';
+    if (!targetClassId) {
+      setClassSelectionPrompt(
+        'Zuerst eine Klasse wählen: Bitte wähle oben eine Klasse aus, um eine Prüfung anzulegen.'
+      );
+      return;
+    }
+    setClassSelectionPrompt('');
+    setActiveTabClassId(targetClassId);
+    setDialogClassId(targetClassId);
+    setCreateError('');
+    setRubricOverrideConfirmed(false);
+    setRubricOverridePrompt(null);
+    setOpenCreate(true);
+  }, [activeClassId, selectedClassId, classes]);
+
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!examTitle.trim() || !examSubject.trim() || !selectedClassId) {
@@ -653,12 +672,7 @@ export default function ExamsPage() {
               variant="outlined"
               startIcon={<AddIcon />}
               disabled={loading || !!error || classes.length === 0}
-              onClick={() => {
-                setCreateError('');
-                setRubricOverrideConfirmed(false);
-                setRubricOverridePrompt(null);
-                setOpenCreate(true);
-              }}
+              onClick={handleOpenCreateExam}
               sx={{
                 padding: '10px 20px',
                 borderRadius: '8px',
@@ -717,6 +731,7 @@ export default function ExamsPage() {
                         onClick={() => {
                           setActiveTabClassId(cls.id);
                           setDialogClassId(cls.id);
+                          setClassSelectionPrompt('');
                           setSelectedSubjectFilter('ALL');
                         }}
                         sx={{
@@ -756,6 +771,21 @@ export default function ExamsPage() {
                               {cls.id === defaultClassId && (
                                 <StarIcon
                                   sx={{ color: '#eab308', fontSize: '1rem', flexShrink: 0 }}
+                                />
+                              )}
+                              {isActive && (
+                                <Chip
+                                  label="Ausgewählt"
+                                  size="small"
+                                  sx={{
+                                    height: '18px',
+                                    fontSize: '0.65rem',
+                                    fontWeight: 700,
+                                    backgroundColor: '#dbeafe',
+                                    color: '#1b77d1',
+                                    borderRadius: '4px',
+                                    ml: 'auto',
+                                  }}
                                 />
                               )}
                             </Stack>
@@ -864,21 +894,41 @@ export default function ExamsPage() {
                   variant="body2"
                   sx={{ color: 'text.secondary', maxWidth: '400px', mx: 'auto', mb: 3 }}
                 >
-                  Erstelle deine erste Prüfung für{' '}
-                  {classes.find((c) => c.id === activeClassId)?.name || 'diese Klasse'}, um einen
-                  Erwartungshorizont für die automatische Folgefehler-Korrektur zu hinterlegen.
+                  {activeClassId
+                    ? `Erstelle deine erste Prüfung für ${
+                        classes.find((c) => c.id === activeClassId)?.name || 'diese Klasse'
+                      }, um einen Erwartungshorizont für die automatische Folgefehler-Korrektur zu hinterlegen.`
+                    : 'Zuerst eine Klasse wählen: Bitte wähle oben eine Klasse aus, um deren Prüfungen anzuzeigen oder eine neue Prüfung anzulegen.'}
                 </Typography>
-                <Button
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  onClick={() => {
-                    setCreateError('');
-                    setOpenCreate(true);
-                  }}
-                  sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 650 }}
-                >
-                  Erste Prüfung anlegen
-                </Button>
+                {classSelectionPrompt && (
+                  <Alert
+                    severity="info"
+                    sx={{ maxWidth: '420px', mx: 'auto', mb: 2, borderRadius: '8px' }}
+                  >
+                    {classSelectionPrompt}
+                  </Alert>
+                )}
+                <Tooltip title={!activeClassId ? 'Zuerst eine Klasse wählen' : ''}>
+                  <span>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      disabled={!activeClassId}
+                      onClick={handleOpenCreateExam}
+                      sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 650 }}
+                    >
+                      Erste Prüfung anlegen
+                    </Button>
+                  </span>
+                </Tooltip>
+                {!activeClassId && (
+                  <Typography
+                    variant="caption"
+                    sx={{ display: 'block', mt: 1, color: 'text.secondary', fontWeight: 600 }}
+                  >
+                    Zuerst eine Klasse wählen
+                  </Typography>
+                )}
               </Card>
             ) : (
               <Stack spacing={2.5}>
