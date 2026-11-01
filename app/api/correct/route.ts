@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session';
 import {
   DEFAULT_GEMINI_MODEL,
   runLiveGeminiCorrection,
+  auditAndEnforceCorrectionSecurity,
   categorizeGeminiError,
   parseSerializedReferenceMaterial,
   type ExamCorrectionResult,
@@ -544,7 +545,13 @@ export async function POST(request: Request) {
 
         const cached = !overwrite ? await getCachedLlmResult<ExamCorrectionResult>(cacheKey) : null;
         if (cached) {
-          result = cached.result;
+          result = auditAndEnforceCorrectionSecurity(cached.result, {
+            studentText: cached.result.aufgaben?.map((t) => t.schuelerAntwort).join('\n'),
+            rubricText: rubricParam,
+            examTemplateText: examTemplateParam || undefined,
+            gradingNotes: examRecord?.gradingNotes || undefined,
+            referenzTranskript: cached.result.referenzTranskript || undefined,
+          });
           isReused = true;
           modelUsedForLog = cached.model;
         } else {

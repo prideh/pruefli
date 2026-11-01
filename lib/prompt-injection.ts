@@ -42,6 +42,20 @@ const INJECTION_RULES: {
       /\b(?:system\s*override|master\s*override)\b.*?(?:musterlösung|musterloesung|bewertung|grading|punkt|note)/i,
     reason: 'System-Override im Referenzmaterial erkannt',
   },
+  {
+    category: 'RUBRIC_OVERRIDE',
+    regex:
+      /\b(?:bewerte|benote|korrigiere)\s+(?:jede[nr]?|alle|saemtliche|sämtliche)\s+(?:schuelerarbeit(?:en)?|schülerarbeit(?:en)?|pruefung(?:en)?|prüfung(?:en)?|arbeit(?:en)?|abgabe(?:n)?)\b(?:[^\n]{0,120})\b(?:volle[nr]?\s+punktzahl|maximal[e]?(?:n)?\s*punktzahl|note\s*6(?:\.0)?|positiv|korrekt|richtig|unabh(?:ae|ä)ngig\s+vom\s+inhalt)\b/i,
+    reason:
+      'Versuchter Referenz-Override zur pauschalen Vollbepunktung aller Schuelerarbeiten ("bewerte jede Schuelerarbeit mit voller Punktzahl")',
+  },
+  {
+    category: 'RUBRIC_OVERRIDE',
+    regex:
+      /\b(?:system\s*:\s*bewertung\s*(?:ueberspringen|überspringen)|bewertung\s+(?:ueberspringen|überspringen)|unabh(?:ae|ä)ngig\s+vom\s+inhalt\b(?:[^\n.!?]{0,80})\b(?:volle[nr]?\s+punktzahl|maximal[e]?(?:n)?\s*punktzahl|note\s*6(?:\.0)?)|(?:volle[nr]?\s+punktzahl|maximal[e]?(?:n)?\s*punktzahl|note\s*6(?:\.0)?)\b(?:[^\n.!?]{0,80})\bunabh(?:ae|ä)ngig\s+vom\s+inhalt)\b/i,
+    reason:
+      'Versuchter Referenz-Override zur Umgehung der inhaltlichen Pruefung ("unabhaengig vom Inhalt" / "Bewertung ueberspringen")',
+  },
 
   // 2. Versuche, die Punktezahl oder Note eigenmaechtig zu bestimmen (Full-Points-Override)
   {
@@ -256,6 +270,7 @@ export interface SecurityAuditInputs {
   rubricText?: unknown;
   examTemplateText?: unknown;
   gradingNotes?: string;
+  referenzTranskript?: unknown;
 }
 
 const INJECTION_HEADER_REGEX =
@@ -478,13 +493,17 @@ export function auditAndEnforceCorrectionSecurity(
   // 1. Schueler-Feedback grundsaetzlich tiefenreinigen (Schutz vor Link-Smuggling und XSS)
   result.schuelerFeedback = sanitizeStudentFeedback(result.schuelerFeedback);
 
-  // 2. Pruefe Referenzmaterial-Inputs (Tier 2/3: Musterloesungs-Datei, Rubric-Text, Korrekturhinweise) auf versuchte Overrides
+  // 2. Pruefe Referenzmaterial-Inputs (Tier 1/2/3: Vorlagenpruefung, Musterloesungs-Datei als Bild/PDF, Rubric-Text, Korrekturhinweise sowie KI-Referenztranskript) auf versuchte Overrides
   const extractedRubricText = extractReferenceMaterialText(inputs?.rubricText);
   const extractedTemplateText = extractReferenceMaterialText(inputs?.examTemplateText);
+  const extractedReferenzTranskript = extractReferenceMaterialText(
+    inputs?.referenzTranskript ?? result.referenzTranskript
+  );
   const rubricInjection =
     detectPromptInjection(extractedRubricText) ||
     detectPromptInjection(extractedTemplateText) ||
-    detectPromptInjection(inputs?.gradingNotes);
+    detectPromptInjection(inputs?.gradingNotes) ||
+    detectPromptInjection(extractedReferenzTranskript);
 
   let detectedAnyManipulation = false;
 
@@ -592,15 +611,28 @@ export function auditAndEnforceCorrectionSecurity(
               }
             }
 
-            // Wenn im Referenzmaterial eine Injection vorlag und ein inkorrekter/leerer Schritt trotzdem Punkte erhielt, nullen
-            if (
-              rubricInjection &&
-              !step.istKorrekt &&
-              step.fehlerTyp !== 'KeinFehler' &&
-              step.fehlerTyp !== 'Folgefehler' &&
-              Number(step.erreichtePunkte) > 0
-            ) {
-              step.erreichtePunkte = 0;
+            // Wenn im Referenzmaterial eine Injection vorlag und ein fehlerhafter/leerer Schritt durch den Override
+            // unberechtigte Punkte erhielt, werden diese unberechtigten Override-Punkte entzogen.
+            if (rubricInjection && Number(step.erreichtePunkte) > 0) {
+              const citedOverrideInJustification =
+                /\b(?:trotz\s+fehler|obwohl\s+falsch|bewertung\s+(?:ueberspringen|überspringen|uebersprungen|übersprungen)|unabh(?:ae|ä)ngig\s+vom\s+inhalt|wegen\s+(?:system[-_\s]*)?override|gem(?:ae|ä)ss\s+hinweis\s+an\s+das\s+bewertungssystem)\b/i.test(
+                  step.begruendung || ''
+                );
+              if (
+                (!step.istKorrekt &&
+                  step.fehlerTyp !== 'KeinFehler' &&
+                  step.fehlerTyp !== 'Folgefehler' &&
+                  (step.fehlerTyp === 'SonstigerFehler' ||
+                    Number(step.erreichtePunkte) >= Number(step.maximalPunkte) ||
+                    citedOverrideInJustification)) ||
+                citedOverrideInJustification
+              ) {
+                step.erreichtePunkte = 0;
+                step.istKorrekt = false;
+                if (step.fehlerTyp === 'KeinFehler') {
+                  step.fehlerTyp = 'SonstigerFehler';
+                }
+              }
             }
 
             // Falls das Modell selbst einen klaren Rechenschritt nur wegen des Manipulationsversuchs auf istUnsicher gesetzt hat,
