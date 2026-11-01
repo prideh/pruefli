@@ -7,6 +7,7 @@ import { invalidateExamCache } from '@/lib/cache';
 import { getStorageAdapter } from '@/lib/storage';
 import { checkAiRateLimit, createRateLimitResponse } from '@/lib/rate-limit';
 import { validateMaterialPayload, createPayloadErrorResponse } from '@/lib/payload-limits';
+import { validateExamMaterialInput } from '@/lib/document-validation';
 
 export async function POST(request: Request) {
   try {
@@ -76,6 +77,15 @@ export async function POST(request: Request) {
     const materialValidation = validateMaterialPayload(material);
     if (!materialValidation.valid) {
       return createPayloadErrorResponse(materialValidation);
+    }
+
+    // Content and document type check (reject invalid/empty/consent form before model calls)
+    const docValidation = await validateExamMaterialInput(material);
+    if (!docValidation.valid) {
+      return NextResponse.json(
+        { error: docValidation.error },
+        { status: docValidation.status || 400 }
+      );
     }
 
     if (!classId || typeof classId !== 'string') {

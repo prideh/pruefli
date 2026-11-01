@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { checkAiRateLimit, createRateLimitResponse } from '@/lib/rate-limit';
 import { validateRubricOrTemplatePayload, createPayloadErrorResponse } from '@/lib/payload-limits';
+import { validateReferenceUpload } from '@/lib/document-validation';
 import { GoogleGenAI, Type, ThinkingLevel, type Schema } from '@google/genai';
 import { DEFAULT_GEMINI_MODEL, appendReferenceMaterialToContents } from '@/lib/gemini';
 import {
@@ -64,6 +65,15 @@ export async function POST(request: Request) {
     const validation = validateRubricOrTemplatePayload(rubricText, 'Die Musterlösung');
     if (!validation.valid) {
       return createPayloadErrorResponse(validation);
+    }
+
+    // Content and document type check (reject invalid/empty/consent form before cache/LLM)
+    const docValidation = await validateReferenceUpload(rubricText, 'Die Musterlösung');
+    if (!docValidation.valid) {
+      return NextResponse.json(
+        { error: docValidation.error },
+        { status: docValidation.status || 400 }
+      );
     }
 
     const rubricHash = computeRubricParseHash({

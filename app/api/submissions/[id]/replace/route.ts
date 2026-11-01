@@ -16,6 +16,7 @@ import {
 } from '@/lib/grading';
 import { getStorageAdapter } from '@/lib/storage';
 import { invalidateSubmissionCache, invalidateLogsCache } from '@/lib/cache';
+import { validateDocument } from '@/lib/document-validation';
 import {
   computeGradingHash,
   buildLlmCacheKey,
@@ -150,6 +151,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       await invalidateLogsCache(session.userId);
 
       return NextResponse.json({ error: missingMsg, missingFile: true }, { status: 400 });
+    }
+
+    // Validate stored scan files before scheduling background AI task
+    for (let idx = 0; idx < pageUrls.length; idx++) {
+      const relUrl = pageUrls[idx];
+      const fileData = await storage.read(relUrl);
+      if (fileData) {
+        const pageLabel = pageUrls.length === 1 ? 'Die Schülerarbeit' : `Seite ${idx + 1}`;
+        const docValidation = await validateDocument({
+          buffer: fileData.buffer,
+          name: relUrl,
+          mimeType: fileData.contentType,
+          label: pageLabel,
+          expectedType: 'student_exam',
+        });
+        if (!docValidation.valid) {
+          return NextResponse.json(
+            { error: docValidation.error },
+            { status: docValidation.status || 400 }
+          );
+        }
+      }
     }
 
     // Reset status to PROCESSING to display active loading spinner

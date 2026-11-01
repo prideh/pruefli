@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { serverCache, CacheTags, invalidateExamCache } from '@/lib/cache';
 import { parseExamMetadata } from '@/lib/exam-meta';
+import { validateReferenceUpload } from '@/lib/document-validation';
 
 // GET: Fetch all exams created by the teacher across all their classes
 export async function GET() {
@@ -133,6 +134,29 @@ export async function POST(request: Request) {
 
     if (!schoolClass) {
       return NextResponse.json({ error: 'Klasse nicht gefunden.' }, { status: 404 });
+    }
+
+    if (rubricText) {
+      const rubricDocValidation = await validateReferenceUpload(rubricText, 'Die Musterlösung');
+      if (!rubricDocValidation.valid) {
+        return NextResponse.json(
+          { error: rubricDocValidation.error },
+          { status: rubricDocValidation.status || 400 }
+        );
+      }
+    }
+
+    if (examTemplateText) {
+      const templateDocValidation = await validateReferenceUpload(
+        examTemplateText,
+        'Die Prüfungsvorlage'
+      );
+      if (!templateDocValidation.valid) {
+        return NextResponse.json(
+          { error: templateDocValidation.error },
+          { status: templateDocValidation.status || 400 }
+        );
+      }
     }
 
     // Determine final max points

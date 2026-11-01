@@ -29,6 +29,7 @@ import {
   validateRubricOrTemplatePayload,
   createPayloadErrorResponse,
 } from '@/lib/payload-limits';
+import { validateStudentExamUpload, validateReferenceUpload } from '@/lib/document-validation';
 import crypto from 'crypto';
 
 // Allowed student exam MIME types and safe file extensions
@@ -155,6 +156,38 @@ export async function POST(request: Request) {
         { error: 'Ungültiges Dateiformat. Erlaubt sind PDF, JPG, PNG und WebP.' },
         { status: 400 }
       );
+    }
+
+    // Content and document type validations (reject invalid/empty/non-exam before storage and model calls)
+    const studentDocValidation = await validateStudentExamUpload(studentExam);
+    if (!studentDocValidation.valid) {
+      return NextResponse.json(
+        { error: studentDocValidation.error },
+        { status: studentDocValidation.status || 400 }
+      );
+    }
+
+    if (rubric) {
+      const rubricDocValidation = await validateReferenceUpload(rubric, 'Die Musterlösung');
+      if (!rubricDocValidation.valid) {
+        return NextResponse.json(
+          { error: rubricDocValidation.error },
+          { status: rubricDocValidation.status || 400 }
+        );
+      }
+    }
+
+    if (examTemplate) {
+      const templateDocValidation = await validateReferenceUpload(
+        examTemplate,
+        'Die Prüfungsvorlage'
+      );
+      if (!templateDocValidation.valid) {
+        return NextResponse.json(
+          { error: templateDocValidation.error },
+          { status: templateDocValidation.status || 400 }
+        );
+      }
     }
 
     // Verify class exists and belongs to the authenticated teacher

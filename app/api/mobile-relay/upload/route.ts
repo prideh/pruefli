@@ -30,6 +30,7 @@ import { isExamApproved } from '@/lib/exam-meta';
 import { checkAiRateLimit, createRateLimitResponse } from '@/lib/rate-limit';
 import { validateRelayPages, createPayloadErrorResponse } from '@/lib/payload-limits';
 import { deduplicatePayloadsByHash } from '@/lib/relay-dedup';
+import { validateDocument } from '@/lib/document-validation';
 
 function parseStoredMaterial(
   rawText?: string | null
@@ -140,6 +141,35 @@ export async function POST(request: Request) {
         { error: 'Bitte mindestens eine gültige Seite fotografieren.' },
         { status: 400 }
       );
+    }
+
+    // Document type and content validation (reject empty/blank/consent form before storage and LLM calls)
+    const isReferenceScan =
+      effectiveTargetMode === 'RUBRIC' || effectiveTargetMode === 'EXAM_TEMPLATE';
+
+    for (let idx = 0; idx < pagePayloads.length; idx++) {
+      const p = pagePayloads[idx];
+      const origFile = rawPages[idx];
+      const pageLabel = isReferenceScan
+        ? 'Die Musterlösung'
+        : pagePayloads.length === 1
+          ? 'Die Schülerarbeit'
+          : `Seite ${idx + 1}`;
+
+      const docValidation = await validateDocument({
+        buffer: p.buffer,
+        name: origFile?.name,
+        mimeType: p.mimeType,
+        label: pageLabel,
+        expectedType: isReferenceScan ? 'reference' : 'student_exam',
+      });
+
+      if (!docValidation.valid) {
+        return NextResponse.json(
+          { error: docValidation.error },
+          { status: docValidation.status || 400 }
+        );
+      }
     }
 
     // =========================================================================

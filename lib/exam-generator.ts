@@ -12,6 +12,7 @@ import {
   setCachedLlmResult,
   LLM_PROMPT_VERSIONS,
 } from '@/lib/llm-cache';
+import { validateExamMaterialInput } from '@/lib/document-validation';
 
 export interface GeneratedTask {
   taskId: string;
@@ -158,6 +159,11 @@ export async function generateExamFromMaterial(
   }
   if (Array.isArray(options.material) && options.material.length === 0) {
     throw new Error('Unterrichtsmaterial ist erforderlich. Bitte lade mindestens eine Datei hoch.');
+  }
+
+  const materialValidation = await validateExamMaterialInput(options.material);
+  if (!materialValidation.valid) {
+    throw new Error(materialValidation.error || 'Ungültiges Unterrichtsmaterial.');
   }
 
   const modelName = options.modelName || DEFAULT_GEMINI_MODEL;
