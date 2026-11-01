@@ -357,18 +357,11 @@ export function detectBlankOrEmptyImage(buffer: Buffer): { isBlank: boolean; rea
       offset = dataEnd + 4;
     }
 
-    if (width > 0 && height > 0 && (width < 30 || height < 30)) {
-      return {
-        isBlank: true,
-        reason: `Die Bildauflösung ist mit ${width}x${height} Pixeln zu gering für ein lesbares Dokument. Bitte laden Sie einen Scan in normaler Auflösung hoch.`,
-      };
-    }
-
-    if (idatBuffers.length > 0) {
+    if (width >= 50 && height >= 50 && idatBuffers.length > 0) {
       try {
         const compressed = Buffer.concat(idatBuffers);
         const decompressed = zlib.inflateSync(compressed);
-        if (decompressed.length > 0) {
+        if (decompressed.length > 500) {
           // Check pixel bytes across scanlines.
           // In PNG, if all pixel bytes are identical or white (>98% pure white / black):
           let whiteOrBlackCount = 0;
@@ -388,7 +381,7 @@ export function detectBlankOrEmptyImage(buffer: Buffer): { isBlank: boolean; rea
             }
           }
 
-          if (totalPixelBytes > 0 && whiteOrBlackCount / totalPixelBytes >= 0.98) {
+          if (totalPixelBytes > 500 && whiteOrBlackCount / totalPixelBytes >= 0.98) {
             return {
               isBlank: true,
               reason:
@@ -404,27 +397,7 @@ export function detectBlankOrEmptyImage(buffer: Buffer): { isBlank: boolean; rea
 
   // 2. JPEG Image analysis
   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-    let offset = 2;
-    while (offset < buffer.length - 8) {
-      if (buffer[offset] !== 0xff) {
-        offset++;
-        continue;
-      }
-      const marker = buffer[offset + 1];
-      if (marker === 0xc0 || marker === 0xc2) {
-        const height = buffer.readUInt16BE(offset + 5);
-        const width = buffer.readUInt16BE(offset + 7);
-        if (width > 0 && height > 0 && (width < 30 || height < 30)) {
-          return {
-            isBlank: true,
-            reason: `Die Bildauflösung ist mit ${width}x${height} Pixeln zu gering. Bitte laden Sie einen Scan in normaler Auflösung hoch.`,
-          };
-        }
-        break;
-      }
-      const length = buffer.readUInt16BE(offset + 2);
-      offset += 2 + length;
-    }
+    // Valid JPEG format detected
   }
 
   return { isBlank: false };
