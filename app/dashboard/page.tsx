@@ -34,7 +34,6 @@ import {
   IconButton,
   Tooltip,
   FormHelperText,
-  Autocomplete,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -61,6 +60,7 @@ import QrScannerDialog from '@/components/QrScannerDialog';
 import { getCachedTeacher, setCachedTeacher } from '@/lib/sessionCache';
 import {
   fetchWithCache,
+  useDataCache,
   invalidateSubmissions,
   invalidateExams,
   invalidateClasses,
@@ -68,8 +68,8 @@ import {
 import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
-  SUBJECT_PROFILES,
   getSubjectSupportInfo,
+  resolveTeacherSubjects,
   isSerializedDocumentPayload,
   computeAssignedGradeAverage,
   type GradingFormula,
@@ -432,6 +432,18 @@ export default function Dashboard() {
     useState<DuplicateAssignConflict | null>(null);
   const [globalExamsCount, setGlobalExamsCount] = useState<number>(0);
   const [initialDataLoading, setInitialDataLoading] = useState<boolean>(true);
+
+  const { data: cachedSubjectsData } = useDataCache<{ savedSubjects?: string[] | null }>(
+    '/api/subjects'
+  );
+  const mySubjects = React.useMemo(
+    () =>
+      resolveTeacherSubjects(
+        cachedSubjectsData?.savedSubjects ?? null,
+        exams.map((ex) => ex.subject)
+      ),
+    [cachedSubjectsData?.savedSubjects, exams]
+  );
 
   // 4. Handle Class Change (Fetch Students & Exams for selected class)
   const handleClassChange = React.useCallback(
@@ -1870,67 +1882,25 @@ export default function Dashboard() {
                             </Grid>
                             <Grid size={{ xs: 12, sm: 3 }}>
                               <FormControl fullWidth size="small">
-                                <Autocomplete
-                                  id="subject-select-combobox"
-                                  freeSolo
-                                  fullWidth
-                                  disablePortal
-                                  size="small"
-                                  options={SUBJECT_PROFILES.map((sp) => sp.value)}
-                                  value={examSubject}
-                                  inputValue={examSubject}
-                                  onInputChange={(_e, newInputValue) =>
-                                    setExamSubject(newInputValue)
+                                <InputLabel id="subject-select-label">Fach (KI-Profil)</InputLabel>
+                                <Select
+                                  labelId="subject-select-label"
+                                  value={
+                                    mySubjects.some(
+                                      (sp) => sp.value.toLowerCase() === examSubject.toLowerCase()
+                                    )
+                                      ? examSubject
+                                      : (mySubjects[0]?.value ?? examSubject)
                                   }
-                                  onChange={(_e, newValue) =>
-                                    setExamSubject(typeof newValue === 'string' ? newValue : '')
-                                  }
-                                  filterOptions={(options, state) => {
-                                    const input = state.inputValue.trim().toLowerCase();
-                                    if (
-                                      !input ||
-                                      SUBJECT_PROFILES.some(
-                                        (p) =>
-                                          p.value.toLowerCase() === input ||
-                                          p.label.toLowerCase() === input
-                                      )
-                                    ) {
-                                      return options;
-                                    }
-                                    const filtered = options.filter((opt) => {
-                                      const profile = SUBJECT_PROFILES.find((p) => p.value === opt);
-                                      const display = profile
-                                        ? `${profile.label} (${profile.supportBadge})`
-                                        : opt;
-                                      return (
-                                        opt.toLowerCase().includes(input) ||
-                                        display.toLowerCase().includes(input)
-                                      );
-                                    });
-                                    return filtered.length > 0 ? filtered : options;
-                                  }}
-                                  renderOption={(props, option) => {
-                                    const { key, ...optionProps } =
-                                      props as React.HTMLAttributes<HTMLLIElement> & {
-                                        key?: React.Key;
-                                      };
-                                    const sp = SUBJECT_PROFILES.find((p) => p.value === option);
-                                    return (
-                                      <Box component="li" key={key ?? option} {...optionProps}>
-                                        {sp ? `${sp.label} (${sp.supportBadge})` : option}
-                                      </Box>
-                                    );
-                                  }}
-                                  renderInput={(params) => (
-                                    <TextField
-                                      {...params}
-                                      label="Fach (KI-Profil)"
-                                      placeholder="z.B. Mathematik, Geschichte"
-                                      required
-                                      size="small"
-                                    />
-                                  )}
-                                />
+                                  label="Fach (KI-Profil)"
+                                  onChange={(e) => setExamSubject(e.target.value)}
+                                >
+                                  {mySubjects.map((sp) => (
+                                    <MenuItem key={sp.value} value={sp.value}>
+                                      {sp.label} ({sp.supportInfo.supportBadge})
+                                    </MenuItem>
+                                  ))}
+                                </Select>
                                 <FormHelperText
                                   sx={{ fontSize: '0.73rem', color: 'text.secondary' }}
                                 >

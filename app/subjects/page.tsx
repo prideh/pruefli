@@ -24,6 +24,12 @@ import {
   InputAdornment,
   Divider,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Checkbox,
+  Collapse,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CalculateIcon from '@mui/icons-material/Calculate';
@@ -41,10 +47,19 @@ import AddIcon from '@mui/icons-material/Add';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import TuneIcon from '@mui/icons-material/Tune';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import DashboardLayout from '@/components/DashboardLayout';
 import ErrorState from '@/components/ErrorState';
-import { useDataCache } from '@/lib/dataCache';
-import { SUBJECT_PROFILES, getSubjectSupportInfo, type SubjectSupportInfo } from '@/lib/grading';
+import { useDataCache, invalidateSubjects } from '@/lib/dataCache';
+import {
+  SUBJECT_PROFILES,
+  getSubjectSupportInfo,
+  normalizeSubjectValue,
+  resolveTeacherSubjects,
+  resolveFilterAndViewSubjects,
+  type TeacherSubjectItem,
+} from '@/lib/grading';
 
 interface SimpleClass {
   id: string;
@@ -63,6 +78,14 @@ interface ExamItem {
   gradeRawSum?: number;
   averageGrade: string;
   createdAt: string;
+}
+
+interface TeacherSubjectsResponse {
+  hasConfigured?: boolean;
+  savedSubjects?: string[] | null;
+  existingExamSubjects?: string[];
+  mySubjects?: TeacherSubjectItem[];
+  filterAndViewSubjects?: TeacherSubjectItem[];
 }
 
 function getSubjectIcon(subjectName: string) {
@@ -103,6 +126,13 @@ export default function SubjectsPage() {
   const [selectedClassId, setSelectedClassId] = useState<string>('ALL');
   const [selectedSubject, setSelectedSubject] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [openManageSubjects, setOpenManageSubjects] = useState<boolean>(false);
+  const [selectedCatalogValues, setSelectedCatalogValues] = useState<string[]>([]);
+  const [customSubjectNames, setCustomSubjectNames] = useState<string[]>([]);
+  const [newCustomSubject, setNewCustomSubject] = useState<string>('');
+  const [savingSubjects, setSavingSubjects] = useState<boolean>(false);
+  const [subjectsSaveError, setSubjectsSaveError] = useState<string>('');
+  const [showMoreSubjects, setShowMoreSubjects] = useState<boolean>(false);
 
   const fetchExamsApi = React.useCallback(async () => {
     const res = await fetch('/api/exams');
@@ -127,6 +157,12 @@ export default function SubjectsPage() {
     );
   }, []);
 
+  const fetchSubjectsApi = React.useCallback(async (): Promise<TeacherSubjectsResponse> => {
+    const res = await fetch('/api/subjects');
+    if (!res.ok) throw new Error('Fehler beim Laden der Fächerliste.');
+    return res.json();
+  }, []);
+
   const {
     data: cachedExams,
     loading: examsLoading,
@@ -140,6 +176,12 @@ export default function SubjectsPage() {
     error: classesError,
     revalidate: revalidateClasses,
   } = useDataCache<SimpleClass[] | { classes?: SimpleClass[] }>('/api/classes', fetchClassesApi);
+
+  const {
+    data: cachedSubjectsData,
+    revalidate: revalidateSubjects,
+    mutate: mutateSubjects,
+  } = useDataCache<TeacherSubjectsResponse>('/api/subjects', fetchSubjectsApi);
 
   const exams: ExamItem[] = useMemo(() => {
     const raw = Array.isArray(cachedExams) ? cachedExams : cachedExams?.exams || [];
@@ -158,42 +200,132 @@ export default function SubjectsPage() {
   const error = examsError || classesError || '';
 
   const handleRetry = async () => {
-    await Promise.all([revalidateExams(), revalidateClasses()]);
+    await Promise.all([revalidateExams(), revalidateClasses(), revalidateSubjects()]);
   };
 
-  // Combine fixed subject profiles with any custom subjects found in existing exams
-  const allSubjects = useMemo(() => {
-    const knownValues = new Set(
-      SUBJECT_PROFILES.flatMap((p) => [p.value.toLowerCase(), p.label.toLowerCase()])
+  const savedSubjects = cachedSubjectsData?.savedSubjects ?? null;
+
+  // Massgebliche Fächerliste der Lehrperson ("Meine Fächer") mit Erstbefüllung aus bestehenden Prüfungen
+  const mySubjects = useMemo(() => {
+    return resolveTeacherSubjects(
+      savedSubjects,
+      exams.map((ex) => ex.subject)
     );
-    const customSubjects: {
-      value: string;
-      label: string;
-      supportInfo: SubjectSupportInfo;
-    }[] = [];
+  }, [savedSubjects, exams]);
 
-    exams.forEach((ex) => {
-      const subjectTrimmed = (ex.subject || '').trim();
-      const support = getSubjectSupportInfo(subjectTrimmed);
-      const canonicalOrTrimmed = support.matchedProfile?.value || subjectTrimmed;
-      if (canonicalOrTrimmed && !knownValues.has(canonicalOrTrimmed.toLowerCase())) {
-        knownValues.add(canonicalOrTrimmed.toLowerCase());
-        customSubjects.push({
-          value: subjectTrimmed,
-          label: subjectTrimmed,
-          supportInfo: support,
-        });
-      }
-    });
+  // Fächer für Anzeige und Filter auf der Fächer-Seite: "Meine Fächer" + tatsächlich in Prüfungen vorkommende Fächer
+  const allSubjects = useMemo(() => {
+    return resolveFilterAndViewSubjects(
+      savedSubjects,
+      exams.map((ex) => ex.subject)
+    );
+  }, [savedSubjects, exams]);
 
-    const standardProfiles = SUBJECT_PROFILES.map((p) => ({
+  // Nicht ausgewählte Katalog-Presets (erscheinen nicht als leere 0-Prüfungen-Karten im Hauptbereich, sondern unter "Weitere Fächer hinzufügen")
+  const unselectedCatalogProfiles = useMemo(() => {
+    return SUBJECT_PROFILES.filter(
+      (p) => !allSubjects.some((s) => s.value.toLowerCase() === p.value.toLowerCase())
+    ).map((p) => ({
       value: p.value,
       label: p.label,
+      isCatalog: true,
       supportInfo: getSubjectSupportInfo(p.value),
     }));
+  }, [allSubjects]);
 
-    return [...standardProfiles, ...customSubjects];
-  }, [exams]);
+  const handleOpenManageSubjects = () => {
+    const catalogVals = mySubjects.filter((s) => s.isCatalog).map((s) => s.value);
+    const customVals = mySubjects.filter((s) => !s.isCatalog).map((s) => s.value);
+    setSelectedCatalogValues(catalogVals);
+    setCustomSubjectNames(customVals);
+    setNewCustomSubject('');
+    setSubjectsSaveError('');
+    setOpenManageSubjects(true);
+  };
+
+  const handleToggleCatalogSubject = (catalogValue: string) => {
+    setSelectedCatalogValues((prev) =>
+      prev.includes(catalogValue) ? prev.filter((v) => v !== catalogValue) : [...prev, catalogValue]
+    );
+  };
+
+  const handleAddCustomSubject = () => {
+    const normalized = normalizeSubjectValue(newCustomSubject);
+    if (!normalized) return;
+
+    const matchingCatalog = SUBJECT_PROFILES.find(
+      (p) => p.value.toLowerCase() === normalized.toLowerCase()
+    );
+    if (matchingCatalog) {
+      if (!selectedCatalogValues.includes(matchingCatalog.value)) {
+        setSelectedCatalogValues((prev) => [...prev, matchingCatalog.value]);
+      }
+      setNewCustomSubject('');
+      return;
+    }
+
+    if (!customSubjectNames.some((c) => c.toLowerCase() === normalized.toLowerCase())) {
+      setCustomSubjectNames((prev) => [...prev, normalized]);
+    }
+    setNewCustomSubject('');
+  };
+
+  const handleRemoveCustomSubject = (customValue: string) => {
+    setCustomSubjectNames((prev) => prev.filter((c) => c !== customValue));
+  };
+
+  const persistTeacherSubjects = async (nextSubjectsList: string[]) => {
+    setSavingSubjects(true);
+    setSubjectsSaveError('');
+    try {
+      const res = await fetch('/api/subjects', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subjects: nextSubjectsList }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Fehler beim Speichern der Fächerliste.');
+      }
+      await mutateSubjects(data, false);
+      invalidateSubjects();
+      setOpenManageSubjects(false);
+    } catch (err) {
+      setSubjectsSaveError(
+        err instanceof Error ? err.message : 'Fehler beim Speichern der Fächerliste.'
+      );
+    } finally {
+      setSavingSubjects(false);
+    }
+  };
+
+  const handleSaveManagedSubjects = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const pendingCustom = normalizeSubjectValue(newCustomSubject);
+    let nextCatalog = [...selectedCatalogValues];
+    let nextCustom = [...customSubjectNames];
+
+    if (pendingCustom) {
+      const matchingCatalog = SUBJECT_PROFILES.find(
+        (p) => p.value.toLowerCase() === pendingCustom.toLowerCase()
+      );
+      if (matchingCatalog) {
+        if (!nextCatalog.includes(matchingCatalog.value)) {
+          nextCatalog = [...nextCatalog, matchingCatalog.value];
+        }
+      } else if (!nextCustom.some((c) => c.toLowerCase() === pendingCustom.toLowerCase())) {
+        nextCustom = [...nextCustom, pendingCustom];
+      }
+    }
+
+    await persistTeacherSubjects([...nextCatalog, ...nextCustom]);
+  };
+
+  const handleQuickAddSubject = async (subjectValue: string) => {
+    const currentValues = mySubjects.map((s) => s.value);
+    if (currentValues.some((v) => v.toLowerCase() === subjectValue.toLowerCase())) return;
+    await persistTeacherSubjects([...currentValues, subjectValue]);
+  };
 
   // Aggregate stats per subject (respecting class filter if chosen)
   const subjectStats = useMemo(() => {
@@ -302,7 +434,23 @@ export default function SubjectsPage() {
               aller Korrekturprofile.
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1.5}>
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            <Button
+              variant="outlined"
+              startIcon={<TuneIcon />}
+              onClick={handleOpenManageSubjects}
+              sx={{
+                padding: '10px 20px',
+                borderRadius: '8px',
+                fontWeight: 750,
+                textTransform: 'none',
+                borderColor: '#cbd5e1',
+                color: '#0f172a',
+                '&:hover': { backgroundColor: '#f8fafc', borderColor: '#94a3b8' },
+              }}
+            >
+              Meine Fächer verwalten
+            </Button>
             <Link href="/exams" passHref style={{ textDecoration: 'none' }}>
               <Button
                 variant="contained"
@@ -441,12 +589,32 @@ export default function SubjectsPage() {
 
             {/* Subject Profile Cards Deck */}
             <Box>
-              <Typography
-                variant="h6"
-                sx={{ fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em', mb: 2 }}
+              <Stack
+                direction="row"
+                sx={{
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  mb: 2,
+                  flexWrap: 'wrap',
+                  gap: 1.5,
+                }}
               >
-                Fächer & KI-Profile ({allSubjects.length})
-              </Typography>
+                <Typography
+                  variant="h6"
+                  sx={{ fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}
+                >
+                  Meine Fächer ({allSubjects.length})
+                </Typography>
+                <Button
+                  size="small"
+                  variant="text"
+                  startIcon={<TuneIcon sx={{ fontSize: '1rem' }} />}
+                  onClick={handleOpenManageSubjects}
+                  sx={{ textTransform: 'none', fontWeight: 700, color: '#1b77d1' }}
+                >
+                  Fächerliste anpassen
+                </Button>
+              </Stack>
 
               <Grid container spacing={2.5}>
                 {allSubjects.map((item) => {
@@ -648,6 +816,112 @@ export default function SubjectsPage() {
                   );
                 })}
               </Grid>
+
+              {/* Collapsible section: Weitere Fächer hinzufügen */}
+              <Box sx={{ mt: 2.5 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setShowMoreSubjects((prev) => !prev)}
+                  endIcon={showMoreSubjects ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                  sx={{
+                    borderRadius: '8px',
+                    textTransform: 'none',
+                    fontWeight: 700,
+                    borderColor: '#cbd5e1',
+                    color: '#334155',
+                    '&:hover': { backgroundColor: '#f8fafc', borderColor: '#94a3b8' },
+                  }}
+                >
+                  Weitere Fächer hinzufügen
+                  {unselectedCatalogProfiles.length > 0
+                    ? ` (${unselectedCatalogProfiles.length} Katalog-Profile ausgeblendet)`
+                    : ' (Katalog & eigene Fächer)'}
+                </Button>
+
+                <Collapse in={showMoreSubjects}>
+                  <Card
+                    sx={{
+                      mt: 2,
+                      p: 2.5,
+                      borderRadius: '12px',
+                      border: '1px dashed #cbd5e1',
+                      backgroundColor: '#f8fafc',
+                      boxShadow: 'none',
+                    }}
+                  >
+                    <Stack spacing={2}>
+                      <Stack
+                        direction="row"
+                        sx={{
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 1.5,
+                        }}
+                      >
+                        <Box>
+                          <Typography
+                            variant="subtitle2"
+                            sx={{ fontWeight: 800, color: '#0f172a' }}
+                          >
+                            Nicht ausgewählte Katalog-Profile & eigene Fächer
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                            Füge weitere Katalog-Profile mit einem Klick zu &quot;Meine Fächer&quot;
+                            hinzu oder erfasse eigene Fächer mit freiem Namen.
+                          </Typography>
+                        </Box>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<TuneIcon />}
+                          onClick={handleOpenManageSubjects}
+                          sx={{
+                            borderRadius: '8px',
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            backgroundColor: '#0f172a',
+                            '&:hover': { backgroundColor: '#1e293b' },
+                          }}
+                        >
+                          Meine Fächer verwalten
+                        </Button>
+                      </Stack>
+
+                      {unselectedCatalogProfiles.length > 0 ? (
+                        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                          {unselectedCatalogProfiles.map((preset) => (
+                            <Chip
+                              key={preset.value}
+                              icon={<AddIcon />}
+                              label={`${preset.label} (${preset.supportInfo.supportBadge})`}
+                              onClick={() => handleQuickAddSubject(preset.value)}
+                              disabled={savingSubjects}
+                              sx={{
+                                fontWeight: 700,
+                                backgroundColor: '#ffffff',
+                                border: '1px solid #cbd5e1',
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  backgroundColor: '#eff6ff',
+                                  borderColor: '#1b77d1',
+                                },
+                              }}
+                            />
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                          Alle 8 Katalog-Profile sind bereits in &quot;Meine Fächer&quot; aktiv.
+                          Über &quot;Meine Fächer verwalten&quot; kannst du Katalog-Profile abwählen
+                          oder eigene Fächer (Basis-Korrektur) hinzufügen.
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Card>
+                </Collapse>
+              </Box>
             </Box>
 
             {/* Organized Exams List */}
@@ -925,6 +1199,262 @@ export default function SubjectsPage() {
             </Box>
           </>
         )}
+
+        {/* Dialog: Meine Fächer verwalten (Katalog-Auswahl + eigene Fächer) */}
+        <Dialog
+          open={openManageSubjects}
+          onClose={() => {
+            if (!savingSubjects) setOpenManageSubjects(false);
+          }}
+          maxWidth="md"
+          fullWidth
+        >
+          <form onSubmit={handleSaveManagedSubjects}>
+            <DialogTitle sx={{ fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>
+              Meine Fächer verwalten
+            </DialogTitle>
+            <DialogContent dividers>
+              <Stack spacing={3}>
+                {subjectsSaveError && <Alert severity="error">{subjectsSaveError}</Alert>}
+
+                <Alert
+                  severity="info"
+                  icon={<InfoOutlinedIcon sx={{ color: '#1b77d1' }} />}
+                  sx={{
+                    borderRadius: '10px',
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    color: '#334155',
+                  }}
+                >
+                  <Typography variant="body2" sx={{ lineHeight: 1.55 }}>
+                    Wähle die Fächer aus, die du unterrichtest. Deine Auswahl bestimmt die
+                    verfügbaren Fächer in den Prüfungs-Anlegedialogen, den Fächer-Filtern und auf
+                    der Fächer-Seite. Der KI-Qualifikationsstatus (
+                    <strong>Verifizierte Modalität</strong>, <strong>Fokus-Profil</strong> oder{' '}
+                    <strong>Basis-Korrektur</strong>) bleibt unverändert — eigene Fächer nutzen
+                    immer die <strong>Basis-Korrektur</strong>.
+                  </Typography>
+                </Alert>
+
+                {/* 1. Katalog-Profile auswählen */}
+                <Box>
+                  <Stack
+                    direction="row"
+                    sx={{
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      mb: 1.5,
+                      flexWrap: 'wrap',
+                      gap: 1,
+                    }}
+                  >
+                    <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#0f172a' }}>
+                      1. Katalog-Profile auswählen ({selectedCatalogValues.length} /{' '}
+                      {SUBJECT_PROFILES.length})
+                    </Typography>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() =>
+                          setSelectedCatalogValues(SUBJECT_PROFILES.map((p) => p.value))
+                        }
+                        sx={{ textTransform: 'none', fontWeight: 700 }}
+                      >
+                        Alle auswählen
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="inherit"
+                        onClick={() => setSelectedCatalogValues([])}
+                        sx={{ textTransform: 'none', fontWeight: 600, color: 'text.secondary' }}
+                      >
+                        Auswahl leeren
+                      </Button>
+                    </Stack>
+                  </Stack>
+
+                  <Grid container spacing={1.5}>
+                    {SUBJECT_PROFILES.map((profile) => {
+                      const checked = selectedCatalogValues.includes(profile.value);
+                      const isVerified = profile.supportLevel === 'VERIFIED_MODALITY';
+
+                      return (
+                        <Grid size={{ xs: 12, sm: 6 }} key={profile.value}>
+                          <Card
+                            onClick={() => handleToggleCatalogSubject(profile.value)}
+                            sx={{
+                              p: 1.5,
+                              borderRadius: '10px',
+                              border: '2px solid',
+                              borderColor: checked ? '#1b77d1' : '#e2e8f0',
+                              backgroundColor: checked ? '#f0f7ff' : '#ffffff',
+                              boxShadow: 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              '&:hover': {
+                                borderColor: '#1b77d1',
+                              },
+                            }}
+                          >
+                            <Stack direction="row" spacing={1.25} sx={{ alignItems: 'flex-start' }}>
+                              <Checkbox
+                                checked={checked}
+                                onChange={() => handleToggleCatalogSubject(profile.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                size="small"
+                                sx={{ p: 0.25, mt: 0.25 }}
+                              />
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    flexWrap: 'wrap',
+                                    mb: 0.5,
+                                  }}
+                                >
+                                  <Typography
+                                    variant="subtitle2"
+                                    sx={{ fontWeight: 800, color: '#0f172a' }}
+                                  >
+                                    {profile.label}
+                                  </Typography>
+                                  <Chip
+                                    label={profile.supportBadge}
+                                    size="small"
+                                    sx={{
+                                      height: '20px',
+                                      fontSize: '0.68rem',
+                                      fontWeight: 700,
+                                      backgroundColor: isVerified ? '#dcfce7' : '#e0f2fe',
+                                      color: isVerified ? '#15803d' : '#0369a1',
+                                    }}
+                                  />
+                                </Stack>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    color: 'text.secondary',
+                                    display: 'block',
+                                    lineHeight: 1.35,
+                                  }}
+                                >
+                                  {profile.profileFocus}
+                                </Typography>
+                              </Box>
+                            </Stack>
+                          </Card>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                </Box>
+
+                <Divider />
+
+                {/* 2. Eigene Fächer hinzufügen & entfernen */}
+                <Box>
+                  <Typography
+                    variant="subtitle1"
+                    sx={{ fontWeight: 800, color: '#0f172a', mb: 0.5 }}
+                  >
+                    2. Eigene Fächer (Basis-Korrektur)
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5 }}>
+                    Füge eigene Fächer ausserhalb des Katalogs mit freiem Namen hinzu (z. B.
+                    Geschichte, Französisch, Geografie, Musik).
+                  </Typography>
+
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
+                    <TextField
+                      label="Eigenes Fach hinzufügen"
+                      placeholder="z. B. Geschichte, Französisch, Musik"
+                      size="small"
+                      fullWidth
+                      value={newCustomSubject}
+                      onChange={(e) => setNewCustomSubject(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomSubject();
+                        }
+                      }}
+                      sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={handleAddCustomSubject}
+                      disabled={!newCustomSubject.trim()}
+                      sx={{
+                        borderRadius: '8px',
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap',
+                        px: 2.5,
+                      }}
+                    >
+                      Hinzufügen
+                    </Button>
+                  </Stack>
+
+                  {customSubjectNames.length === 0 ? (
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                      Noch keine eigenen Fächer erfasst.
+                    </Typography>
+                  ) : (
+                    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                      {customSubjectNames.map((customName) => (
+                        <Chip
+                          key={customName}
+                          label={`${customName} (Basis-Korrektur)`}
+                          onDelete={() => handleRemoveCustomSubject(customName)}
+                          sx={{
+                            fontWeight: 700,
+                            backgroundColor: '#f1f5f9',
+                            color: '#0f172a',
+                            border: '1px solid #cbd5e1',
+                          }}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+              </Stack>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, py: 2 }}>
+              <Button
+                type="button"
+                onClick={() => setOpenManageSubjects(false)}
+                disabled={savingSubjects}
+                sx={{ textTransform: 'none', fontWeight: 600, color: 'text.secondary' }}
+              >
+                Abbrechen
+              </Button>
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={savingSubjects}
+                sx={{
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  fontWeight: 750,
+                  backgroundColor: '#1b77d1',
+                  px: 3,
+                  '&:hover': { backgroundColor: '#1565c0' },
+                }}
+              >
+                {savingSubjects ? 'Speichert...' : 'Meine Fächer speichern'}
+              </Button>
+            </DialogActions>
+          </form>
+        </Dialog>
       </Box>
     </DashboardLayout>
   );

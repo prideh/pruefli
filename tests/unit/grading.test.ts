@@ -9,7 +9,15 @@ import {
   computeAssignedGradeAverage,
   SUBJECT_PROFILES,
   getSubjectSupportInfo,
+  normalizeSubjectValue,
+  resolveTeacherSubjects,
+  resolveFilterAndViewSubjects,
 } from '@/lib/grading';
+import {
+  getTeacherSavedSubjects,
+  saveTeacherSubjects,
+  resetTeacherSubjectsMemoryState,
+} from '@/lib/teacher-subjects';
 import { getSubjectFocusInstruction } from '@/lib/gemini';
 
 describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
@@ -407,7 +415,7 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       expect(layoutSource).toContain("querySelector('.MuiMenu-list, .MuiAutocomplete-popper')");
     });
 
-    it('erlaubt freie Facheingabe per Combobox in allen drei Pruefungsdialogen mit Status Basis-Korrektur und korrekter Faecher-Filterung (Issue #79)', async () => {
+    it('nutzt "Meine Faecher" (Katalog-Auswahl + eigene Faecher) als massgebliche Quelle in Anlegedialogen, Filtern und auf der Faecher-Seite (Issue #79 & #80)', async () => {
       const fs = await import('node:fs');
       const path = await import('node:path');
       const examsPageSource = fs.readFileSync(
@@ -423,9 +431,9 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
         'utf8'
       );
 
-      // 1. Alle 3 Dialoge (Manuell, Duplizieren, Generieren) nutzen SubjectCombobox mit Autocomplete freeSolo
+      // 1. Alle 3 Dialoge (Manuell, Duplizieren, Generieren) bieten die Faecher aus "Meine Faecher" (options={mySubjects}) an
       expect(examsPageSource).toContain('function SubjectCombobox');
-      expect(examsPageSource).toContain('freeSolo');
+      expect(examsPageSource).toContain('options={mySubjects}');
       expect(examsPageSource).toContain('id="subject-combobox"');
       expect(examsPageSource).toContain('id="copy-subject-combobox"');
       expect(examsPageSource).toContain('id="gen-subject-combobox"');
@@ -451,8 +459,66 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       // Pruefungsdetail zeigt den Support-Status ebenfalls an
       expect(examDetailPageSource).toContain('getSubjectSupportInfo(exam?.subject).supportBadge');
 
-      // 4. & 5. Faecher-Seite (/subjects) und Pruefungsliste (/exams) listen und filtern freie Faecher sauber
-      expect(subjectsPageSource).toContain('canonicalOrTrimmed');
+      // 4. Erstbefuellung & Aufloesung von "Meine Faecher"
+      // Ohne gespeicherte Liste und ohne bestehende Pruefungen -> alle 8 Katalog-Presets
+      const fallbackAll = resolveTeacherSubjects(null, []);
+      expect(fallbackAll).toHaveLength(8);
+      expect(fallbackAll.map((s) => s.value)).toEqual(SUBJECT_PROFILES.map((p) => p.value));
+
+      // Erstbefuellung aus bestehenden Pruefungen der Lehrperson (ohne explizite Konfiguration)
+      const initialFromExams = resolveTeacherSubjects(null, [
+        'Mathematik',
+        'Geschichte',
+        'Mathematik',
+      ]);
+      expect(initialFromExams.map((s) => s.value)).toEqual(['Mathematik', 'Geschichte']);
+      expect(initialFromExams[0].supportInfo.supportBadge).toBe('Verifizierte Modalität');
+      expect(initialFromExams[1].supportInfo.supportBadge).toBe('Basis-Korrektur');
+
+      // Explizite Auswahl der Lehrperson ("Meine Faecher"): Katalog-Auswahl + eigene Faecher
+      const customConfigured = resolveTeacherSubjects(
+        ['Physik', 'Mathematik', 'Französisch'],
+        ['Biologie']
+      );
+      // Katalog-Reihenfolge (Mathematik vor Physik) + eigene Faecher (Franzoesisch)
+      expect(customConfigured.map((s) => s.value)).toEqual(['Mathematik', 'Physik', 'Französisch']);
+      expect(customConfigured[2].isCatalog).toBe(false);
+      expect(customConfigured[2].supportInfo.supportBadge).toBe('Basis-Korrektur');
+
+      // Filter- & Ansichts-Faecher kombinieren "Meine Faecher" mit tatsaechlich in Pruefungen vorkommenden Faechern
+      const filterAndView = resolveFilterAndViewSubjects(
+        ['Mathematik', 'Französisch'],
+        ['Biologie', 'Geschichte']
+      );
+      expect(filterAndView.map((s) => s.value)).toEqual([
+        'Mathematik',
+        'Französisch',
+        'Biologie',
+        'Geschichte',
+      ]);
+
+      // Persistenz in lib/teacher-subjects.ts
+      resetTeacherSubjectsMemoryState();
+      expect(await getTeacherSavedSubjects('teacher-80')).toBeNull();
+      const saved = await saveTeacherSubjects('teacher-80', [
+        'Mathematik',
+        '  Geschichte  ',
+        'mathematik',
+        'Sprache / Deutsch',
+      ]);
+      expect(saved).toEqual(['Mathematik', 'Geschichte', 'Sprache']);
+      expect(await getTeacherSavedSubjects('teacher-80')).toEqual([
+        'Mathematik',
+        'Geschichte',
+        'Sprache',
+      ]);
+      expect(normalizeSubjectValue('Sprache / Deutsch')).toBe('Sprache');
+      expect(normalizeSubjectValue('  Geschichte ')).toBe('Geschichte');
+
+      // 5. Faecher-Seite (/subjects) enthaelt Verwaltungsansicht "Meine Faecher verwalten" und "Weitere Faecher hinzufuegen"
+      expect(subjectsPageSource).toContain('Meine Fächer verwalten');
+      expect(subjectsPageSource).toContain('Weitere Fächer hinzufügen');
+      expect(subjectsPageSource).toContain('resolveFilterAndViewSubjects');
       expect(subjectsPageSource).toContain(
         "const key = matched ? matched.value : exSubTrimmed || 'Mathematik'"
       );

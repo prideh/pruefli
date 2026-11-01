@@ -264,6 +264,130 @@ export function getSubjectSupportInfo(subjectName?: string | null): SubjectSuppo
   };
 }
 
+export interface TeacherSubjectItem {
+  value: string;
+  label: string;
+  isCatalog: boolean;
+  supportInfo: SubjectSupportInfo;
+}
+
+/**
+ * Resolves the canonical subject value for a given input string if it matches one of the 8 catalog profiles
+ * by exact value or label (case-insensitive), or returns the trimmed custom subject string.
+ */
+export function normalizeSubjectValue(rawSubject: string): string {
+  const trimmed = (rawSubject || '').trim();
+  if (!trimmed) return '';
+  const catalogMatch = SUBJECT_PROFILES.find(
+    (p) =>
+      p.value.toLowerCase() === trimmed.toLowerCase() ||
+      p.label.toLowerCase() === trimmed.toLowerCase()
+  );
+  return catalogMatch ? catalogMatch.value : trimmed;
+}
+
+/**
+ * Builds a TeacherSubjectItem with full support info for a subject name.
+ */
+export function toTeacherSubjectItem(rawSubject: string): TeacherSubjectItem {
+  const canonicalValue = normalizeSubjectValue(rawSubject);
+  const catalogMatch = SUBJECT_PROFILES.find(
+    (p) => p.value.toLowerCase() === canonicalValue.toLowerCase()
+  );
+  if (catalogMatch) {
+    return {
+      value: catalogMatch.value,
+      label: catalogMatch.label,
+      isCatalog: true,
+      supportInfo: getSubjectSupportInfo(catalogMatch.value),
+    };
+  }
+  return {
+    value: canonicalValue,
+    label: canonicalValue,
+    isCatalog: false,
+    supportInfo: getSubjectSupportInfo(canonicalValue),
+  };
+}
+
+/**
+ * Resolves the teacher's "Meine Fächer" list ("Massgebliche Fächer-Quelle"):
+ * - If the teacher has explicitly configured a non-empty list (`savedSubjects`), returns those items
+ *   (deduplicated, preserving catalog order first then custom subjects).
+ * - Otherwise ("Erstbefüllung"): derives subjects from `existingExamSubjects`; if that is also empty,
+ *   falls back to all 8 `SUBJECT_PROFILES` ("ist die Liste leer, Verhalten wie heute (alle 8 Presets) bis zur ersten Auswahl").
+ */
+export function resolveTeacherSubjects(
+  savedSubjects?: string[] | null,
+  existingExamSubjects: string[] = []
+): TeacherSubjectItem[] {
+  const sourceList =
+    Array.isArray(savedSubjects) && savedSubjects.some((s) => (s || '').trim().length > 0)
+      ? savedSubjects
+      : existingExamSubjects;
+
+  const seen = new Set<string>();
+  const catalogSelected: TeacherSubjectItem[] = [];
+  const customSelected: TeacherSubjectItem[] = [];
+
+  for (const raw of sourceList) {
+    const normalized = normalizeSubjectValue(raw);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const item = toTeacherSubjectItem(normalized);
+    if (item.isCatalog) {
+      catalogSelected.push(item);
+    } else {
+      customSelected.push(item);
+    }
+  }
+
+  catalogSelected.sort(
+    (a, b) =>
+      SUBJECT_PROFILES.findIndex((p) => p.value === a.value) -
+      SUBJECT_PROFILES.findIndex((p) => p.value === b.value)
+  );
+
+  const combined = [...catalogSelected, ...customSelected];
+  if (combined.length > 0) {
+    return combined;
+  }
+
+  return SUBJECT_PROFILES.map((p) => ({
+    value: p.value,
+    label: p.label,
+    isCatalog: true,
+    supportInfo: getSubjectSupportInfo(p.value),
+  }));
+}
+
+/**
+ * Merges the teacher's "Meine Fächer" list with subjects actually occurring in existing exams
+ * (for subject filters on `/exams` and `/subjects` so existing exams are always filterable and visible).
+ */
+export function resolveFilterAndViewSubjects(
+  savedSubjects?: string[] | null,
+  existingExamSubjects: string[] = []
+): TeacherSubjectItem[] {
+  const baseList = resolveTeacherSubjects(savedSubjects, existingExamSubjects);
+  const seen = new Set(baseList.map((item) => item.value.toLowerCase()));
+  const extraFromExams: TeacherSubjectItem[] = [];
+
+  for (const raw of existingExamSubjects) {
+    const normalized = normalizeSubjectValue(raw);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    extraFromExams.push(toTeacherSubjectItem(normalized));
+  }
+
+  return [...baseList, ...extraFromExams];
+}
+
 /**
  * Calculates the unrounded raw Swiss school grade (1.0 to 6.0) using the configured formula.
  */

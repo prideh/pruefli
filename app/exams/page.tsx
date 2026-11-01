@@ -29,7 +29,6 @@ import {
   IconButton,
   Tooltip,
   FormHelperText,
-  Autocomplete,
 } from '@mui/material';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import AddIcon from '@mui/icons-material/Add';
@@ -49,11 +48,15 @@ import { useDataCache, invalidateExams } from '@/lib/dataCache';
 import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
-  SUBJECT_PROFILES,
   getSubjectSupportInfo,
+  normalizeSubjectValue,
+  toTeacherSubjectItem,
+  resolveTeacherSubjects,
+  resolveFilterAndViewSubjects,
   isSerializedDocumentPayload,
   type GradingFormula,
   type GradeRounding,
+  type TeacherSubjectItem,
 } from '@/lib/grading';
 
 interface SimpleClass {
@@ -87,80 +90,68 @@ interface ExamListItem extends PrismaExamItem {
   averageGrade: string;
 }
 
+interface TeacherSubjectsResponse {
+  hasConfigured?: boolean;
+  savedSubjects?: string[] | null;
+  existingExamSubjects?: string[];
+  mySubjects?: TeacherSubjectItem[];
+  filterAndViewSubjects?: TeacherSubjectItem[];
+}
+
 interface SubjectComboboxProps {
   id?: string;
   value: string;
+  options: TeacherSubjectItem[];
   onChange: (newValue: string) => void;
   label?: string;
-  placeholder?: string;
 }
 
 function SubjectCombobox({
   id,
   value,
+  options,
   onChange,
   label = 'Fach (KI-Profil)',
-  placeholder = 'z.B. Mathematik, Geschichte, Französisch',
 }: SubjectComboboxProps) {
-  const supportInfo = getSubjectSupportInfo(value);
+  const effectiveOptions = React.useMemo(() => {
+    const trimmed = (value || '').trim();
+    if (!trimmed) return options;
+    const exists = options.some((opt) => opt.value.toLowerCase() === trimmed.toLowerCase());
+    if (exists) return options;
+    return [...options, toTeacherSubjectItem(trimmed)];
+  }, [options, value]);
+
+  const effectiveValue = React.useMemo(() => {
+    const trimmed = (value || '').trim();
+    const matched = effectiveOptions.find(
+      (opt) => opt.value.toLowerCase() === trimmed.toLowerCase()
+    );
+    return matched ? matched.value : (effectiveOptions[0]?.value ?? '');
+  }, [effectiveOptions, value]);
+
+  const supportInfo = getSubjectSupportInfo(effectiveValue);
   const isVerified = supportInfo.supportLevel === 'VERIFIED_MODALITY';
   const isFallback = supportInfo.supportLevel === 'GENERIC_FALLBACK';
+  const labelId = id ? `${id}-label` : 'subject-select-label';
 
   return (
-    <Box sx={{ width: '100%' }}>
-      <Autocomplete
+    <FormControl fullWidth>
+      <InputLabel id={labelId}>{label}</InputLabel>
+      <Select
         id={id}
-        freeSolo
-        fullWidth
-        disablePortal
-        options={SUBJECT_PROFILES.map((s) => s.value)}
-        value={value}
-        inputValue={value}
-        onInputChange={(_e, newInputValue) => {
-          onChange(newInputValue);
-        }}
-        onChange={(_e, newValue) => {
-          onChange(typeof newValue === 'string' ? newValue : '');
-        }}
-        filterOptions={(options, state) => {
-          const input = state.inputValue.trim().toLowerCase();
-          if (
-            !input ||
-            SUBJECT_PROFILES.some(
-              (p) => p.value.toLowerCase() === input || p.label.toLowerCase() === input
-            )
-          ) {
-            return options;
-          }
-          const filtered = options.filter((opt) => {
-            const profile = SUBJECT_PROFILES.find((p) => p.value === opt);
-            const display = profile ? `${profile.label} (${profile.supportBadge})` : opt;
-            return opt.toLowerCase().includes(input) || display.toLowerCase().includes(input);
-          });
-          return filtered.length > 0 ? filtered : options;
-        }}
-        renderOption={(props, option) => {
-          const { key, ...optionProps } = props as React.HTMLAttributes<HTMLLIElement> & {
-            key?: React.Key;
-          };
-          const profile = SUBJECT_PROFILES.find((p) => p.value === option);
-          return (
-            <Box component="li" key={key ?? option} {...optionProps}>
-              {profile ? `${profile.label} (${profile.supportBadge})` : option}
-            </Box>
-          );
-        }}
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            label={label}
-            placeholder={placeholder}
-            required
-            variant="outlined"
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-          />
-        )}
-      />
+        labelId={labelId}
+        value={effectiveValue}
+        label={label}
+        onChange={(e) => onChange(e.target.value)}
+        sx={{ borderRadius: '8px' }}
+        MenuProps={{ disablePortal: true }}
+      >
+        {effectiveOptions.map((item) => (
+          <MenuItem key={item.value} value={item.value}>
+            {item.label} ({item.supportInfo.supportBadge})
+          </MenuItem>
+        ))}
+      </Select>
       <FormHelperText
         component="div"
         sx={{
@@ -190,8 +181,14 @@ function SubjectCombobox({
         <span>
           {supportInfo.supportBadge}: {supportInfo.profileFocus}
         </span>
+        <Link
+          href="/subjects"
+          style={{ color: '#1b77d1', fontWeight: 700, textDecoration: 'none' }}
+        >
+          Meine Fächer verwalten
+        </Link>
       </FormHelperText>
-    </Box>
+    </FormControl>
   );
 }
 
@@ -234,6 +231,12 @@ export default function ExamsPage() {
     );
   }, []);
 
+  const fetchSubjectsApi = React.useCallback(async (): Promise<TeacherSubjectsResponse> => {
+    const res = await fetch('/api/subjects');
+    if (!res.ok) throw new Error('Fehler beim Laden der Fächerliste.');
+    return res.json();
+  }, []);
+
   const {
     data: cachedExams,
     loading: examsLoading,
@@ -247,6 +250,9 @@ export default function ExamsPage() {
     error: classesError,
     revalidate: revalidateClasses,
   } = useDataCache<SimpleClass[] | { classes?: SimpleClass[] }>('/api/classes', fetchClassesApi);
+
+  const { data: cachedSubjectsData, revalidate: revalidateSubjects } =
+    useDataCache<TeacherSubjectsResponse>('/api/subjects', fetchSubjectsApi);
 
   const exams = React.useMemo(() => {
     const raw = Array.isArray(cachedExams) ? cachedExams : cachedExams?.exams || [];
@@ -268,9 +274,19 @@ export default function ExamsPage() {
   const loading = (examsLoading && !cachedExams) || (classesLoading && !cachedClasses);
   const error = examsError || classesError || '';
 
+  const savedSubjects = cachedSubjectsData?.savedSubjects ?? null;
+  const mySubjects = React.useMemo(
+    () =>
+      resolveTeacherSubjects(
+        savedSubjects,
+        exams.map((ex) => ex.subject)
+      ),
+    [savedSubjects, exams]
+  );
+
   const fetchData = React.useCallback(async () => {
-    await Promise.all([revalidateExams(), revalidateClasses()]);
-  }, [revalidateExams, revalidateClasses]);
+    await Promise.all([revalidateExams(), revalidateClasses(), revalidateSubjects()]);
+  }, [revalidateExams, revalidateClasses, revalidateSubjects]);
 
   const [activeTabClassId, setActiveTabClassId] = useState<string>('');
   const activeClassId = React.useMemo(() => {
@@ -570,11 +586,17 @@ export default function ExamsPage() {
     setClassSelectionPrompt('');
     setActiveTabClassId(targetClassId);
     setDialogClassId(targetClassId);
+    if (
+      mySubjects.length > 0 &&
+      !mySubjects.some((s) => s.value.toLowerCase() === examSubject.toLowerCase())
+    ) {
+      setExamSubject(mySubjects[0].value);
+    }
     setCreateError('');
     setRubricOverrideConfirmed(false);
     setRubricOverridePrompt(null);
     setOpenCreate(true);
-  }, [activeClassId, selectedClassId, classes]);
+  }, [activeClassId, selectedClassId, classes, mySubjects, examSubject]);
 
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -714,12 +736,19 @@ export default function ExamsPage() {
 
   const availableSubjects = React.useMemo(() => {
     const counts: Record<string, number> = {};
+    const mergedSubjects = resolveFilterAndViewSubjects(
+      savedSubjects,
+      exams.map((ex) => ex.subject)
+    );
+    mergedSubjects.forEach((s) => {
+      counts[s.value] = 0;
+    });
     classExams.forEach((ex) => {
-      const s = (ex.subject || 'Allgemein').trim() || 'Allgemein';
+      const s = normalizeSubjectValue(ex.subject || 'Allgemein') || 'Allgemein';
       counts[s] = (counts[s] || 0) + 1;
     });
     return Object.entries(counts).map(([name, count]) => ({ name, count }));
-  }, [classExams]);
+  }, [savedSubjects, exams, classExams]);
 
   const effectiveSubjectFilter = React.useMemo(() => {
     if (selectedSubjectFilter === 'ALL') return 'ALL';
@@ -729,7 +758,7 @@ export default function ExamsPage() {
 
   const filteredExams = React.useMemo(() => {
     return classExams.filter((ex) => {
-      const exSubject = (ex.subject || 'Allgemein').trim() || 'Allgemein';
+      const exSubject = normalizeSubjectValue(ex.subject || 'Allgemein') || 'Allgemein';
       if (effectiveSubjectFilter !== 'ALL' && exSubject !== effectiveSubjectFilter) {
         return false;
       }
@@ -769,6 +798,12 @@ export default function ExamsPage() {
               onClick={() => {
                 setGenError('');
                 setGenClassId(activeClassId || (classes[0]?.id ?? ''));
+                if (
+                  mySubjects.length > 0 &&
+                  !mySubjects.some((s) => s.value.toLowerCase() === genSubject.toLowerCase())
+                ) {
+                  setGenSubject(mySubjects[0].value);
+                }
                 setOpenGenerate(true);
               }}
               sx={{
@@ -1434,6 +1469,7 @@ export default function ExamsPage() {
                     <SubjectCombobox
                       id="subject-combobox"
                       value={examSubject}
+                      options={mySubjects}
                       onChange={setExamSubject}
                       label="Fach (KI-Profil)"
                     />
@@ -1879,6 +1915,7 @@ export default function ExamsPage() {
                     <SubjectCombobox
                       id="copy-subject-combobox"
                       value={copySubject}
+                      options={mySubjects}
                       onChange={setCopySubject}
                       label="Fach (KI-Profil)"
                     />
@@ -2224,6 +2261,7 @@ export default function ExamsPage() {
                     <SubjectCombobox
                       id="gen-subject-combobox"
                       value={genSubject}
+                      options={mySubjects}
                       onChange={setGenSubject}
                       label="Fach (KI-Profil)"
                     />

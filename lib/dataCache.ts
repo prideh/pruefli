@@ -245,7 +245,12 @@ export function invalidateExams(examId?: string | null, classId?: string | null)
     invalidateCache(`/api/exams/${examId}`);
   }
   invalidateCache('/api/exams');
+  invalidateCache('/api/subjects');
   invalidateClasses(classId);
+}
+
+export function invalidateSubjects(): void {
+  invalidateCache('/api/subjects');
 }
 
 export function invalidateSubmissions(
