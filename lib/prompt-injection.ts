@@ -294,10 +294,51 @@ export function auditAndEnforceCorrectionSecurity(
       detectedAnyManipulation = true;
       const detectedReason = taskInjection?.reason || rubricInjection?.reason || 'Prompt-Injection';
 
+      // Pruefe, ob neben dem Manipulationsversuch ein echter fachlicher Loesungsinhalt existiert
+      let hasGenuineSolutionContent = false;
+      if (taskInjection !== null) {
+        // Bereinige den Antworttext um erkannte Injektionsmuster
+        const textWithoutInjection = studentAnswer
+          .replace(
+            new RegExp(taskInjection.matchedPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+            ''
+          )
+          .replace(/HINWEIS\s+AN\s+DAS\s+BEWERTUNGSSYSTEM[:\s]*/gi, '')
+          .replace(/SYSTEM\s*OVERRIDE[:\s]*/gi, '')
+          .trim();
+
+        // Hat der Schueler ausserhalb des Steuerungsbefehls substantielle fachliche Angaben gemacht?
+        const hasSubstantialText =
+          textWithoutInjection.length >= 5 && /\w{2,}/.test(textWithoutInjection);
+
+        // Pruefe, ob die vom Modell erkannten Teilschritte fachliche Rechenschritte und keine Injektionen sind
+        const hasValidSteps =
+          Array.isArray(task.schritte) &&
+          task.schritte.some(
+            (s) =>
+              !detectPromptInjection(s.schrittText) &&
+              !detectPromptInjection(s.begruendung) &&
+              (Number(s.erreichtePunkte) > 0 || s.istKorrekt)
+          );
+
+        // Out-of-Scope und reine Rollenspiele gelten nie als fachliche Loesung
+        if (
+          taskInjection.category !== 'OUT_OF_SCOPE' &&
+          taskInjection.category !== 'ROLEPLAY_OR_JAILBREAK' &&
+          hasSubstantialText &&
+          hasValidSteps
+        ) {
+          hasGenuineSolutionContent = true;
+        }
+      }
+
       // Sicherheitsvermerk fuer die Lehrperson
       const locationLabel =
         rubricInjection && !taskInjection ? 'im Referenzmaterial' : 'im Pruefungsinhalt';
-      const securityPrefix = `[SICHERHEITSHINWEIS: Manipulationsversuch ${locationLabel} erkannt (${detectedReason}). Die unzulaessige Anweisung wurde ignoriert und die Bewertung erfolgte strikt regelkonform.]`;
+      const securityDetail = hasGenuineSolutionContent
+        ? 'Die unzulaessige Anweisung wurde ignoriert und die reale Fachloesung wurde inhaltlich bewertet. Bitte manuell pruefen.'
+        : 'Die unzulaessige Anweisung wurde ignoriert und die Bewertung erfolgte strikt regelkonform.';
+      const securityPrefix = `[SICHERHEITSHINWEIS: Manipulationsversuch ${locationLabel} erkannt (${detectedReason}). ${securityDetail}]`;
 
       if (!task.lehrerKommentar || !task.lehrerKommentar.includes('[SICHERHEITSHINWEIS:')) {
         task.lehrerKommentar = task.lehrerKommentar
@@ -305,14 +346,7 @@ export function auditAndEnforceCorrectionSecurity(
           : securityPrefix;
       }
 
-      // Falls die Schuelerantwort NUR aus der Manipulation bestand (keine fachliche Loesung vorhanden)
-      // oder wenn Punkte fuer eine reine Injektion vergeben wurden: Regelkonform auf 0 setzen
-      const isPureInjection =
-        taskInjection !== null &&
-        (studentAnswer.length < 150 ||
-          taskInjection.category === 'FULL_POINTS_OVERRIDE' ||
-          taskInjection.category === 'OUT_OF_SCOPE' ||
-          taskInjection.category === 'ROLEPLAY_OR_JAILBREAK');
+      const isPureInjection = taskInjection !== null && !hasGenuineSolutionContent;
 
       if (isPureInjection) {
         task.erzieltePunkte = 0;
@@ -328,12 +362,37 @@ export function auditAndEnforceCorrectionSecurity(
           }
         }
       } else {
-        // Schueler hat fachliche Arbeit eingereicht, aber mit Injektionsversuch garniert
-        // Markiere Teilschritte als unsicher fuer die Lehrperson
+        // Robustheitsverhalten (Issue #66): Reale Fachloesung neben Angriffsvektor oder im Referenzmaterial vorhanden.
+        // 1. Teilschritte, die selbst den Injektionstext enthalten, werden auf 0 Punkte gesetzt.
+        // 2. Teilschritte mit echten fachlichen Loesungen behalten ihre verdienten Punkte (keine pauschale Nullung).
+        // 3. Erstschritt wird als unsicher markiert, damit die Lehrperson die Pruefung im Workspace bestaetigen muss.
         if (Array.isArray(task.schritte) && task.schritte.length > 0) {
+          for (const step of task.schritte) {
+            const stepInjection =
+              detectPromptInjection(step.schrittText) || detectPromptInjection(step.begruendung);
+            if (stepInjection) {
+              step.erreichtePunkte = 0;
+              step.istKorrekt = false;
+              step.fehlerTyp = 'SonstigerFehler';
+              step.istUnsicher = true;
+              step.unsicherheitsGrund = `Manipulationsbefehl im Teilschritt (${stepInjection.reason}). 0 Punkte.`;
+            }
+          }
+
+          // Erstschritt fuer das Lehrer-Bestaetigungs-Gate markieren
           const firstStep = task.schritte[0];
           firstStep.istUnsicher = true;
           firstStep.unsicherheitsGrund = `Manipulationsversuch erkannt (${locationLabel}): ${detectedReason}. Bitte Loesung manuell pruefen.`;
+
+          // Punkte der echten Teilschritte neu aufsummieren
+          task.erzieltePunkte =
+            Math.round(
+              task.schritte.reduce((sum, s) => sum + (Number(s.erreichtePunkte) || 0), 0) * 10
+            ) / 10;
+
+          if (task.erzieltePunkte === 0) {
+            task.status = 'Fehler';
+          }
         }
       }
     }
