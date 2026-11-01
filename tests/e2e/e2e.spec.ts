@@ -9,6 +9,20 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
   test('1. Teacher Registration -> Decluttered Dashboard -> Class & Student Creation -> Exam & CSV Export -> Mobile QR Relay Handover', async ({
     page,
   }) => {
+    // --- STEP 0: Verify Landingpage-Header logged-out & logged-in across Desktop & Mobile (#71) ---
+    for (const vp of [
+      { width: 1280, height: 800 },
+      { width: 375, height: 667 },
+    ]) {
+      await page.setViewportSize(vp);
+      await page.goto('/');
+      const header = page.locator('header');
+      await expect(header.getByRole('button', { name: 'Login' })).toBeVisible();
+      await expect(header.getByRole('button', { name: 'Registrieren' })).toBeVisible();
+      await expect(header.getByText('Zum Workspace')).toHaveCount(0);
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+
     // --- STEP 1: Register a new teacher via UI ---
     await page.goto('/register');
     await page.getByLabel(/Name/i).first().fill(teacherName);
@@ -29,6 +43,21 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
 
     // Verify sidebar does NOT show cluttering "Protokoll" link
     await expect(page.getByRole('link', { name: 'Protokoll' })).toHaveCount(0);
+
+    // Verify Landingpage-Header in logged-in state across Desktop & Mobile viewports (#71)
+    for (const vp of [
+      { width: 1280, height: 800 },
+      { width: 375, height: 667 },
+    ]) {
+      await page.setViewportSize(vp);
+      await page.goto('/');
+      const header = page.locator('header');
+      await expect(header.getByRole('button', { name: 'Login' })).toBeVisible();
+      await expect(header.getByRole('button', { name: 'Registrieren' })).toBeVisible();
+      await expect(header.getByText('Zum Workspace')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Zum Korrektur-Workspace' })).toBeVisible();
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     // --- STEP 2: Create a Class & Add Students ---
     await page.goto('/classes');

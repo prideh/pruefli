@@ -87,69 +87,43 @@ export default async function Home() {
         </Stack>
 
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-          {isAuthenticated ? (
-            <Link href="/dashboard" passHref style={{ textDecoration: 'none' }}>
-              <Button
-                variant="contained"
-                endIcon={<ArrowForwardIcon />}
-                sx={{
-                  fontWeight: 650,
-                  backgroundColor: '#1b77d1',
-                  color: '#ffffff',
-                  textTransform: 'none',
-                  fontSize: { xs: '0.85rem', sm: '0.95rem' },
-                  borderRadius: '8px',
-                  boxShadow: 'none',
-                  '&:hover': {
-                    backgroundColor: '#1565c0',
-                    boxShadow: '0 2px 8px rgba(27, 119, 209, 0.25)',
-                  },
-                }}
-              >
-                Zum Workspace
-              </Button>
-            </Link>
-          ) : (
-            <>
-              <Link href="/login" passHref style={{ textDecoration: 'none' }}>
-                <Button
-                  variant="text"
-                  sx={{
-                    fontWeight: 650,
-                    color: '#334155',
-                    textTransform: 'none',
-                    fontSize: { xs: '0.875rem', sm: '0.95rem' },
-                    '&:hover': {
-                      color: '#1b77d1',
-                      backgroundColor: 'rgba(27, 119, 209, 0.04)',
-                    },
-                  }}
-                >
-                  Login
-                </Button>
-              </Link>
-              <Link href="/register" passHref style={{ textDecoration: 'none' }}>
-                <Button
-                  variant="contained"
-                  sx={{
-                    fontWeight: 650,
-                    backgroundColor: '#1b77d1',
-                    color: '#ffffff',
-                    textTransform: 'none',
-                    fontSize: { xs: '0.875rem', sm: '0.95rem' },
-                    borderRadius: '8px',
-                    boxShadow: 'none',
-                    '&:hover': {
-                      backgroundColor: '#1565c0',
-                      boxShadow: '0 2px 8px rgba(27, 119, 209, 0.25)',
-                    },
-                  }}
-                >
-                  Registrieren
-                </Button>
-              </Link>
-            </>
-          )}
+          <Link href="/login" passHref style={{ textDecoration: 'none' }}>
+            <Button
+              variant="text"
+              sx={{
+                fontWeight: 650,
+                color: '#334155',
+                textTransform: 'none',
+                fontSize: { xs: '0.875rem', sm: '0.95rem' },
+                '&:hover': {
+                  color: '#1b77d1',
+                  backgroundColor: 'rgba(27, 119, 209, 0.04)',
+                },
+              }}
+            >
+              Login
+            </Button>
+          </Link>
+          <Link href="/register" passHref style={{ textDecoration: 'none' }}>
+            <Button
+              variant="contained"
+              sx={{
+                fontWeight: 650,
+                backgroundColor: '#1b77d1',
+                color: '#ffffff',
+                textTransform: 'none',
+                fontSize: { xs: '0.875rem', sm: '0.95rem' },
+                borderRadius: '8px',
+                boxShadow: 'none',
+                '&:hover': {
+                  backgroundColor: '#1565c0',
+                  boxShadow: '0 2px 8px rgba(27, 119, 209, 0.25)',
+                },
+              }}
+            >
+              Registrieren
+            </Button>
+          </Link>
         </Stack>
       </Box>
 

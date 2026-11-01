@@ -1,8 +1,22 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { signJWT } from '@/lib/jwt';
 
-describe('UX Navigation Details Improvements', () => {
+const mockCookieGet = vi.fn();
+
+vi.mock('next/headers', () => ({
+  cookies: vi.fn(async () => ({
+    get: mockCookieGet,
+  })),
+}));
+
+describe('UX Navigation Details Improvements & Landingpage-Header (#71)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('Klassenkarten verlinken den Klassennamen direkt auf die Klassendetailseite', () => {
     const classesFile = fs.readFileSync(
       path.resolve(__dirname, '../../app/classes/page.tsx'),
@@ -17,12 +31,52 @@ describe('UX Navigation Details Improvements', () => {
     expect(linkMatch).not.toBeNull();
   });
 
-  it('Startseite bietet im Header direkte Einstiegspunkte für Login und Registrieren', () => {
+  it('Startseite zeigt im Header immer Login und Registrieren (kein "Zum Workspace" im Header, #71)', () => {
     const landingFile = fs.readFileSync(path.resolve(__dirname, '../../app/page.tsx'), 'utf-8');
-    expect(landingFile).toContain('href="/login"');
-    expect(landingFile).toContain('href="/register"');
-    expect(landingFile).toContain('Login');
-    expect(landingFile).toContain('Registrieren');
+    const headerMatch = landingFile.match(
+      /<Box\s+component="header"[\s\S]*?>([\s\S]*?){\/\* Hero section \*\/}/
+    );
+    expect(headerMatch).not.toBeNull();
+    const headerBlock = headerMatch![1];
+
+    expect(headerBlock).toContain('href="/login"');
+    expect(headerBlock).toContain('href="/register"');
+    expect(headerBlock).toContain('Login');
+    expect(headerBlock).toContain('Registrieren');
+    expect(headerBlock).not.toContain('Zum Workspace');
+    expect(headerBlock).not.toContain('isAuthenticated');
+  });
+
+  it('rendert auf der Startseite sowohl ausgeloggt als auch eingeloggt immer Login & Registrieren im Header, waehrend der Hero-CTA zustandsabhaengig bleibt (#71)', async () => {
+    const { default: Home } = await import('@/app/page');
+
+    // 1. Ausgeloggter Zustand
+    mockCookieGet.mockReturnValue(undefined);
+    const loggedOutHtml = renderToStaticMarkup(await Home());
+    const loggedOutHeader = loggedOutHtml.match(/<header[^>]*>([\s\S]*?)<\/header>/)?.[1] || '';
+
+    expect(loggedOutHeader).toContain('href="/login"');
+    expect(loggedOutHeader).toContain('Login');
+    expect(loggedOutHeader).toContain('href="/register"');
+    expect(loggedOutHeader).toContain('Registrieren');
+    expect(loggedOutHeader).not.toContain('Zum Workspace');
+    expect(loggedOutHtml).toContain('Jetzt kostenlos starten');
+    expect(loggedOutHtml).toContain('Login / Registrieren');
+    expect(loggedOutHtml).toContain('Spare bis zu 80% deiner Korrekturzeit.');
+
+    // 2. Eingeloggter Zustand
+    const validToken = await signJWT({ userId: 'teacher-71' }, '7d');
+    mockCookieGet.mockReturnValue({ value: validToken });
+    const loggedInHtml = renderToStaticMarkup(await Home());
+    const loggedInHeader = loggedInHtml.match(/<header[^>]*>([\s\S]*?)<\/header>/)?.[1] || '';
+
+    expect(loggedInHeader).toContain('href="/login"');
+    expect(loggedInHeader).toContain('Login');
+    expect(loggedInHeader).toContain('href="/register"');
+    expect(loggedInHeader).toContain('Registrieren');
+    expect(loggedInHeader).not.toContain('Zum Workspace');
+    expect(loggedInHtml).toContain('Zum Korrektur-Workspace');
+    expect(loggedInHtml).toContain('Spare bis zu 80% deiner Korrekturzeit.');
   });
 
   it('Startseite bietet in der Hero-Sektion einen sichtbaren Login/Registrieren-Button', () => {
@@ -30,13 +84,13 @@ describe('UX Navigation Details Improvements', () => {
     expect(landingFile).toContain('Login / Registrieren');
   });
 
-  it('Verwendet kein "ß" in geaenderten Navigationstexten (Schweizer Rechtschreibung)', () => {
+  it('Verwendet kein Eszett in geaenderten Navigationstexten (Schweizer Rechtschreibung)', () => {
     const landingFile = fs.readFileSync(path.resolve(__dirname, '../../app/page.tsx'), 'utf-8');
     const classesFile = fs.readFileSync(
       path.resolve(__dirname, '../../app/classes/page.tsx'),
       'utf-8'
     );
-    expect(landingFile).not.toContain('ß');
-    expect(classesFile).not.toContain('ß');
+    expect(landingFile).not.toContain('\u00DF');
+    expect(classesFile).not.toContain('\u00DF');
   });
 });
