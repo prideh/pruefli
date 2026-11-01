@@ -367,13 +367,6 @@ export function detectBlankOrEmptyImage(buffer: Buffer): { isBlank: boolean; rea
       offset = dataEnd + 4;
     }
 
-    if (width > 0 && height > 0 && (width < 20 || height < 20)) {
-      return {
-        isBlank: true,
-        reason: 'Die Bildabmessungen sind zu klein für ein lesbares Dokument.',
-      };
-    }
-
     if (width >= 20 && height >= 20 && idatBuffers.length > 0) {
       try {
         const compressed = Buffer.concat(idatBuffers);
