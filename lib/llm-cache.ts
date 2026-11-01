@@ -21,7 +21,7 @@ export interface LlmCacheEntry<T> {
 }
 
 export const LLM_PROMPT_VERSIONS = {
-  grading: '2026-11-01-grading-v4-ref-injection',
+  grading: '2026-11-01-grading-v5-step-consistency',
   rubricParse: '2026-11-01-rubric-v3',
   scanIdentification: '2026-10-30-scan-v1',
   examGeneration: '2026-10-30-generation-v1',

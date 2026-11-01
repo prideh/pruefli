@@ -580,11 +580,17 @@ export default function CorrectWorkspace() {
     const clamped = Math.max(0, Math.min(step.maximalPunkte, roundedPoints));
     step.erreichtePunkte = clamped;
 
-    // Auto-adjust error type based on points
+    // Auto-adjust error type and correctness flag based on points
     if (clamped === step.maximalPunkte) {
-      step.fehlerTyp = 'KeinFehler';
-    } else if (clamped < step.maximalPunkte && step.fehlerTyp === 'KeinFehler') {
-      step.fehlerTyp = 'SonstigerFehler';
+      step.istKorrekt = true;
+      if (step.fehlerTyp !== 'Folgefehler') {
+        step.fehlerTyp = 'KeinFehler';
+      }
+    } else if (clamped < step.maximalPunkte) {
+      step.istKorrekt = false;
+      if (step.fehlerTyp === 'KeinFehler' || (clamped === 0 && step.fehlerTyp === 'Folgefehler')) {
+        step.fehlerTyp = 'SonstigerFehler';
+      }
     }
 
     // Teacher adjustment resolves AI uncertainty
@@ -670,6 +676,16 @@ export default function CorrectWorkspace() {
     const step = { ...steps[stepIndex] };
 
     step.fehlerTyp = newErrorType;
+    step.istKorrekt = newErrorType !== 'SonstigerFehler';
+    if (newErrorType === 'KeinFehler' && step.erreichtePunkte < step.maximalPunkte) {
+      step.erreichtePunkte = step.maximalPunkte;
+    } else if (
+      newErrorType === 'SonstigerFehler' &&
+      step.maximalPunkte > 0 &&
+      step.erreichtePunkte >= step.maximalPunkte
+    ) {
+      step.erreichtePunkte = 0;
+    }
     step.istUnsicher = false;
     step.unsicherheitsGrund = '';
 

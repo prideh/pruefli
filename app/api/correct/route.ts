@@ -5,6 +5,8 @@ import {
   DEFAULT_GEMINI_MODEL,
   runLiveGeminiCorrection,
   auditAndEnforceCorrectionSecurity,
+  enforceStepFeedbackConsistency,
+  normalizeStepFeedbackConsistency,
   categorizeGeminiError,
   parseSerializedReferenceMaterial,
   type ExamCorrectionResult,
@@ -545,13 +547,15 @@ export async function POST(request: Request) {
 
         const cached = !overwrite ? await getCachedLlmResult<ExamCorrectionResult>(cacheKey) : null;
         if (cached) {
-          result = auditAndEnforceCorrectionSecurity(cached.result, {
-            studentText: cached.result.aufgaben?.map((t) => t.schuelerAntwort).join('\n'),
-            rubricText: rubricParam,
-            examTemplateText: examTemplateParam || undefined,
-            gradingNotes: examRecord?.gradingNotes || undefined,
-            referenzTranskript: cached.result.referenzTranskript || undefined,
-          });
+          result = enforceStepFeedbackConsistency(
+            auditAndEnforceCorrectionSecurity(cached.result, {
+              studentText: cached.result.aufgaben?.map((t) => t.schuelerAntwort).join('\n'),
+              rubricText: rubricParam,
+              examTemplateText: examTemplateParam || undefined,
+              gradingNotes: examRecord?.gradingNotes || undefined,
+              referenzTranskript: cached.result.referenzTranskript || undefined,
+            })
+          );
           isReused = true;
           modelUsedForLog = cached.model;
         } else {
@@ -661,7 +665,8 @@ export async function POST(request: Request) {
           const hasSteps = Array.isArray(task.schritte) && task.schritte.length > 0;
 
           if (hasSteps) {
-            for (const step of task.schritte) {
+            for (const rawStep of task.schritte) {
+              const step = normalizeStepFeedbackConsistency(rawStep);
               let errorType: 'KeinFehler' | 'Rechenfehler' | 'Folgefehler' | 'SonstigerFehler' =
                 'KeinFehler';
               if (step.fehlerTyp === 'Rechenfehler') errorType = 'Rechenfehler';

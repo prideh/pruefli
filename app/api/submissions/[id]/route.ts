@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { calculateRawSwissGrade, calculateSwissGrade } from '@/lib/grading';
+import { normalizeStepFeedbackConsistency } from '@/lib/gemini';
 import { deleteSubmissionScanFiles, StorageCleanupError } from '@/lib/storage-cleanup';
 import {
   serverCache,
@@ -132,18 +133,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         status: task.status,
         lehrerKommentar: task.lehrerKommentar,
         schritte: task.schritte
-          .map((step) => ({
-            id: step.id,
-            schrittIndex: step.schrittIndex,
-            schrittText: step.schrittText,
-            istKorrekt: step.istKorrekt,
-            fehlerTyp: step.fehlerTyp,
-            erreichtePunkte: step.erreichtePunkte,
-            maximalPunkte: step.maximalPunkte,
-            begruendung: step.begruendung,
-            istUnsicher: step.istUnsicher,
-            unsicherheitsGrund: step.unsicherheitsGrund || '',
-          }))
+          .map((step) =>
+            normalizeStepFeedbackConsistency({
+              id: step.id,
+              schrittIndex: step.schrittIndex,
+              schrittText: step.schrittText,
+              istKorrekt: step.istKorrekt,
+              fehlerTyp: step.fehlerTyp,
+              erreichtePunkte: step.erreichtePunkte,
+              maximalPunkte: step.maximalPunkte,
+              begruendung: step.begruendung,
+              istUnsicher: step.istUnsicher,
+              unsicherheitsGrund: step.unsicherheitsGrund || '',
+            })
+          )
           .sort((a, b) => a.schrittIndex - b.schrittIndex),
       })),
       schuelerFeedback: {
@@ -231,6 +234,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
             // If step ID is present, scope update to steps belonging to this submission
             if (updatedStep.id) {
+              const normalizedStep = normalizeStepFeedbackConsistency({
+                id: updatedStep.id,
+                schrittIndex: updatedStep.schrittIndex ?? 0,
+                schrittText: updatedStep.schrittText ?? '',
+                istKorrekt: Boolean(updatedStep.istKorrekt),
+                fehlerTyp: updatedStep.fehlerTyp || 'KeinFehler',
+                erreichtePunkte: clampedPoints,
+                maximalPunkte: updatedStep.maximalPunkte,
+                begruendung: updatedStep.begruendung ?? '',
+              });
+
               stepUpdatePromises.push(
                 tx.stepCorrection.updateMany({
                   where: {
@@ -241,8 +255,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
                   },
                   data: {
                     erreichtePunkte: clampedPoints,
-                    begruendung: updatedStep.begruendung,
-                    fehlerTyp: updatedStep.fehlerTyp,
+                    begruendung: normalizedStep.begruendung,
+                    fehlerTyp: normalizedStep.fehlerTyp,
                     istUnsicher:
                       updatedStep.istUnsicher !== undefined
                         ? Boolean(updatedStep.istUnsicher)

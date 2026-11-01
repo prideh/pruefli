@@ -5,6 +5,8 @@ import { checkAiRateLimit, createRateLimitResponse } from '@/lib/rate-limit';
 import {
   DEFAULT_GEMINI_MODEL,
   runLiveGeminiCorrection,
+  enforceStepFeedbackConsistency,
+  normalizeStepFeedbackConsistency,
   categorizeGeminiError,
   parseSerializedReferenceMaterial,
   type ExamCorrectionResult,
@@ -287,7 +289,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             ? await getCachedLlmResult<ExamCorrectionResult>(cacheKey)
             : null;
         if (cached) {
-          result = cached.result;
+          result = enforceStepFeedbackConsistency(cached.result);
           isReused = true;
           modelUsedForLog = cached.model;
         } else {
@@ -399,7 +401,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             const hasSteps = Array.isArray(task.schritte) && task.schritte.length > 0;
 
             if (hasSteps) {
-              for (const step of task.schritte) {
+              for (const rawStep of task.schritte) {
+                const step = normalizeStepFeedbackConsistency(rawStep);
                 const clampedStepMax = Math.max(0, Number(step.maximalPunkte || 0));
                 const clampedStepEarned = Math.max(
                   0,

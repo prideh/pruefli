@@ -5,6 +5,8 @@ import {
   DEFAULT_GEMINI_MODEL,
   identifyExamAndStudentFromScan,
   runLiveGeminiCorrection,
+  enforceStepFeedbackConsistency,
+  normalizeStepFeedbackConsistency,
   categorizeGeminiError,
   parseSerializedReferenceMaterial,
   type ExamCorrectionResult,
@@ -356,7 +358,7 @@ export async function POST(request: Request) {
           let result: ExamCorrectionResult;
           const cached = await getCachedLlmResult<ExamCorrectionResult>(cacheKey);
           if (cached) {
-            result = cached.result;
+            result = enforceStepFeedbackConsistency(cached.result);
           } else {
             result = await runLiveGeminiCorrection(
               firstEvalPage.data,
@@ -423,7 +425,8 @@ export async function POST(request: Request) {
             const hasSteps = Array.isArray(task.schritte) && task.schritte.length > 0;
 
             if (hasSteps) {
-              for (const step of task.schritte) {
+              for (const rawStep of task.schritte) {
+                const step = normalizeStepFeedbackConsistency(rawStep);
                 let errorType: 'KeinFehler' | 'Rechenfehler' | 'Folgefehler' | 'SonstigerFehler' =
                   'KeinFehler';
                 if (step.fehlerTyp === 'Rechenfehler') errorType = 'Rechenfehler';
@@ -776,7 +779,7 @@ export async function POST(request: Request) {
 
         const cached = await getCachedLlmResult<ExamCorrectionResult>(cacheKey);
         if (cached) {
-          result = cached.result;
+          result = enforceStepFeedbackConsistency(cached.result);
           isReused = true;
         } else {
           result = await runLiveGeminiCorrection(
@@ -916,7 +919,8 @@ export async function POST(request: Request) {
           const hasSteps = Array.isArray(task.schritte) && task.schritte.length > 0;
 
           if (hasSteps) {
-            for (const step of task.schritte) {
+            for (const rawStep of task.schritte) {
+              const step = normalizeStepFeedbackConsistency(rawStep);
               let errorType: 'KeinFehler' | 'Rechenfehler' | 'Folgefehler' | 'SonstigerFehler' =
                 'KeinFehler';
               if (step.fehlerTyp === 'Rechenfehler') errorType = 'Rechenfehler';

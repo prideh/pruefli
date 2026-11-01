@@ -694,12 +694,13 @@ const CORRECTION_RESPONSE_SCHEMA: Schema = {
                 istKorrekt: {
                   type: Type.BOOLEAN,
                   description:
-                    'True, wenn dieser Schritt fachlich korrekt ist oder ein mathematisch konsistenter Folgefehler ist; sonst false.',
+                    'True NUR dann, wenn dieser Schritt die volle Punktzahl erhält (erreichtePunkte == maximalPunkte), weil er fachlich korrekt ist oder ein mathematisch konsistenter Folgefehler ohne Punktabzug vorliegt. False bei jedem Punktabzug (erreichtePunkte < maximalPunkte).',
                 },
                 fehlerTyp: {
                   type: Type.STRING,
                   enum: ['KeinFehler', 'Rechenfehler', 'Folgefehler', 'SonstigerFehler'],
-                  description: 'Klassifikation des Schritts.',
+                  description:
+                    'Klassifikation passend zur Punktevergabe: "KeinFehler" NUR bei voller Punktzahl ohne Fehler; "Folgefehler" bei mathematisch konsistentem Weiterrechnen mit falschem Vorwert (volle Punkte oder Teilpunkte > 0); "Rechenfehler" oder "SonstigerFehler" bei Punktabzug (zwingend bei 0 Punkten).',
                 },
                 erreichtePunkte: {
                   type: Type.NUMBER,
@@ -713,7 +714,7 @@ const CORRECTION_RESPONSE_SCHEMA: Schema = {
                 begruendung: {
                   type: Type.STRING,
                   description:
-                    'Klare fachliche Begründung der Punktevergabe (bei Folgefehlern mit expliziter Nachrechnung des übernommenen Zwischenwerts).',
+                    'Klare fachliche Begründung der Punktevergabe (bei Folgefehlern mit expliziter Nachrechnung des übernommenen Zwischenwerts). MUSS widerspruchsfrei zu erreichtePunkte und fehlerTyp passen: NIEMALS "kein Punktabzug" oder "volle Punktzahl" schreiben, wenn erreichtePunkte < maximalPunkte (insbesondere bei 0 Punkten)!',
                 },
                 istUnsicher: {
                   type: Type.BOOLEAN,
@@ -862,6 +863,14 @@ PHASE 2 — SCHRITTWEISE BEWERTUNG, TEILPUNKTE & FOLGEFEHLER:
    - Macht die Schülerin / der Schüler in Schritt N einen Rechen- oder Vorzeichenfehler, erhält Schritt N Punktabzug (fehlerTyp: "Rechenfehler", istKorrekt: false).
    - Rechne anschliessend alle folgenden Schritte (N+1, N+2, ...) aktiv mit dem FEHLERHAFTEN Zwischenwert der Schülerin / des Schülers durch!
    - Wurde mit diesem falschen Zwischenwert mathematisch/logisch korrekt weitergerechnet, vergibst du für den Folgeschritt die VOLLEN Punkte dieses Teilschritts (istKorrekt: true, fehlerTyp: "Folgefehler") und dokumentierst die Nachrechnung in "begruendung" (z. B. "Folgefehler: Mit dem Zwischenergebnis 4x = 16 aus Schritt 1 korrekt durch 4 dividiert (x = 4).").
+4. Widerspruchsfreiheit von Teilschritt-Punkten, Status und Begründung (STRIKTE KONSISTENZREGEL):
+   - Für jeden Teilschritt müssen "erreichtePunkte", "maximalPunkte", "fehlerTyp", "istKorrekt" und der Text in "begruendung" widerspruchsfrei zusammenpassen.
+   - Bei Punktabzug ("erreichtePunkte" < "maximalPunkte", insbesondere bei 0 Punkten):
+     * Setze "istKorrekt": false und "fehlerTyp": "Rechenfehler" oder "SonstigerFehler" (oder "Folgefehler" nur bei Teilpunkten > 0). Setze NIEMALS "fehlerTyp": "KeinFehler" bei Punktabzug!
+     * Schreibe in "begruendung" UNTER KEINEN UMSTÄNDEN Formulierungen wie "kein Punktabzug", "daher kein Punktabzug für diesen Teilschritt" oder "volle Punktzahl", wenn für diesen Schritt Punkte abgezogen werden! Benenne stattdessen klar den Fehler und den tatsächlichen Punktabzug.
+   - Ohne Punktabzug ("erreichtePunkte" == "maximalPunkte"):
+     * Setze "istKorrekt": true und "fehlerTyp": "KeinFehler" (bzw. "Folgefehler", wenn mit einem falschen Zwischenwert aus einem früheren Schritt fehlerfrei weitergerechnet wurde). Setze NIEMALS "Rechenfehler" oder "SonstigerFehler" bei voller Punktzahl!
+     * Behaupte in "begruendung" keinen Punktabzug für diesen Teilschritt.
 
 REGELN FÜR EHRLICHE UNSICHERHEIT ("istUnsicher" & "unsicherheitsGrund"):
 Gib ehrlich zu, wenn eine Stelle menschliches Augenmass erfordert, aber vermeide unnötige Fehlalarme:
@@ -918,6 +927,185 @@ REFERENZBEISPIEL FÜR KONSISTENTE PUNKTESUMMEN:
   - Schritt 3: schrittText: "x = 4", erreichtePunkte: 2, maximalPunkte: 2, istKorrekt: true, fehlerTyp: "Folgefehler", istUnsicher: false, unsicherheitsGrund: ""
   (Summe der Schritte: 0 + 2 + 2 = 4 erzieltePunkte von 1 + 2 + 2 = 5 maximalPunkte)
 `;
+
+function formatStepPoints(points: number): string {
+  const rounded = Math.round(points * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function formatStepPointsWithUnit(points: number): string {
+  const rounded = Math.round(points * 10) / 10;
+  const formatted = formatStepPoints(rounded);
+  return Math.abs(rounded - 1) < 1e-6 ? `${formatted} Punkt` : `${formatted} Punkte`;
+}
+
+function hasContradictoryNoDeductionClaim(text: string): boolean {
+  if (!text) return false;
+  if (
+    /\b(?:kein(?:en|erlei)?|ohne)\s+(?:(?:weiter(?:en|er)?|zus(?:ä|ae)tzlich(?:en|er)?|erneut(?:en|er)?)\s+)?(?:punkt(?:e)?abzug|abzug)\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:volle\s+punkt(?:zahl|e)|vollen\s+punkte)\b/i.test(text) &&
+    !/\b(?:nicht|keine|kein|ohne|statt|weder)\b[^.!?]*\b(?:volle\s+punkt(?:zahl|e)|vollen\s+punkte)\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function hasContradictoryDeductionClaim(text: string): boolean {
+  if (!text) return false;
+  if (
+    /\b(?:keine\s+punkte|0\s+punkte|null\s+punkte|teilpunkte)\s+f(?:ü|ue)r\s+diesen\s+(?:teil)?schritt\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:\d+(?:[.,]\d+)?\s*punkte?\s+abzug|punkt(?:e)?abzug)\b/i.test(text) &&
+    !/\b(?:kein(?:en|erlei)?|ohne|nicht|weder)\b[^.!?]*\b(?:punkt(?:e)?abzug|abzug)\b/i.test(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Stellt sicher, dass Punkte (erreichtePunkte / maximalPunkte), Status (fehlerTyp / istKorrekt)
+ * und Begruendungstext (begruendung) eines einzelnen Teilschritts widerspruchsfrei uebereinstimmen,
+ * ohne die vergebenen Punkte, Notenskala oder Prompt-Injection-Warnungen zu veraendern.
+ */
+export function normalizeStepFeedbackConsistency(step: CorrectedStep): CorrectedStep {
+  const maxPts = Math.max(0, Math.round((Number(step.maximalPunkte) || 0) * 10) / 10);
+  const earnedPts = Math.max(
+    0,
+    Math.min(maxPts, Math.round((Number(step.erreichtePunkte) || 0) * 10) / 10)
+  );
+  const deductedPts = Math.max(0, Math.round((maxPts - earnedPts) * 10) / 10);
+
+  let begruendung =
+    typeof step.begruendung === 'string' ? step.begruendung.replace(/\u00df/g, 'ss') : '';
+  let fehlerTyp = step.fehlerTyp;
+  let istKorrekt = Boolean(step.istKorrekt);
+
+  if (maxPts > 0 && deductedPts > 0) {
+    // Punkte wurden abgezogen (erreichtePunkte < maximalPunkte)
+    istKorrekt = false;
+
+    if (fehlerTyp === 'KeinFehler') {
+      if (earnedPts > 0 && /\bfolgefehler\b/i.test(begruendung)) {
+        fehlerTyp = 'Folgefehler';
+      } else {
+        fehlerTyp = 'Rechenfehler';
+      }
+    } else if (earnedPts === 0 && fehlerTyp === 'Folgefehler') {
+      fehlerTyp = 'Rechenfehler';
+    }
+
+    if (hasContradictoryNoDeductionClaim(begruendung)) {
+      const strippedClauses = begruendung.replace(
+        /[,;–—-]\s*(?:daher|deshalb|somit|folglich|darum|also|hierf(?:ü|ue)r|daf(?:ü|ue)r)?\s*(?:gibt\s+es\s+|erfolgt\s+|wird\s+)?(?:(?:kein(?:en|erlei)?|ohne)\s+(?:(?:weiter(?:en|er)?|zus(?:ä|ae)tzlich(?:en|er)?|erneut(?:en|er)?)\s+)?(?:punkt(?:e)?abzug|abzug)|(?:erh(?:ä|ae)lt\s+|gibt\s+es\s+)?(?:die\s+)?(?:volle\s+punkt(?:zahl|e)|vollen\s+punkte))[^.!?]*(?=[.!?]|$)/gi,
+        ''
+      );
+      const rawSentences = strippedClauses.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+      const keptSentences = rawSentences
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0 && !hasContradictoryNoDeductionClaim(s))
+        .map((s) => (/[.!?]$/.test(s) ? s : `${s}.`));
+
+      const accurateConclusion =
+        earnedPts === 0
+          ? keptSentences.length > 0
+            ? `Daher keine Punkte für diesen Teilschritt (${formatStepPointsWithUnit(deductedPts)} Abzug).`
+            : `Keine Punkte für diesen Teilschritt (${formatStepPointsWithUnit(deductedPts)} Abzug).`
+          : keptSentences.length > 0
+            ? `Daher Teilpunkte für diesen Teilschritt (${formatStepPoints(earnedPts)} von ${formatStepPoints(maxPts)} Punkten, ${formatStepPointsWithUnit(deductedPts)} Abzug).`
+            : `Teilpunkte für diesen Teilschritt (${formatStepPoints(earnedPts)} von ${formatStepPoints(maxPts)} Punkten, ${formatStepPointsWithUnit(deductedPts)} Abzug).`;
+
+      begruendung = [...keptSentences, accurateConclusion].join(' ');
+    }
+  } else if (maxPts > 0 && deductedPts === 0) {
+    // Volle Punktzahl fuer diesen Teilschritt (erreichtePunkte === maximalPunkte)
+    istKorrekt = true;
+
+    if (fehlerTyp === 'Rechenfehler' || fehlerTyp === 'SonstigerFehler') {
+      fehlerTyp = /\bfolgefehler\b/i.test(begruendung) ? 'Folgefehler' : 'KeinFehler';
+    }
+
+    if (hasContradictoryDeductionClaim(begruendung)) {
+      const strippedClauses = begruendung.replace(
+        /[,;–—-]\s*(?:daher|deshalb|somit|folglich|darum|also)?\s*(?:(?:keine\s+punkte|0\s+punkte|null\s+punkte|teilpunkte)\s+f(?:ü|ue)r\s+diesen\s+(?:teil)?schritt|\d+(?:[.,]\d+)?\s*punkte?\s+abzug|punkt(?:e)?abzug\b)[^.!?]*(?=[.!?]|$)/gi,
+        ''
+      );
+      const rawSentences = strippedClauses.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+      const keptSentences = rawSentences
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0 && !hasContradictoryDeductionClaim(s))
+        .map((s) => (/[.!?]$/.test(s) ? s : `${s}.`));
+
+      const accurateConclusion = `Kein Punktabzug für diesen Teilschritt (${formatStepPoints(maxPts)} von ${formatStepPoints(maxPts)} Punkten).`;
+      begruendung = [...keptSentences, accurateConclusion].join(' ');
+    }
+  }
+
+  return {
+    ...step,
+    istKorrekt,
+    fehlerTyp,
+    begruendung,
+  };
+}
+
+/**
+ * Durchlaeuft alle Aufgaben und Teilschritte eines Korrekturergebnisses und stellt sicher,
+ * dass Teilschritt-Punkte, Status und Begruendungstext in sich konsistent sind,
+ * ohne Gesamtpunkte, Notenskala oder Sicherheitswarnungen zu verfaelschen.
+ */
+export function enforceStepFeedbackConsistency(result: ExamCorrectionResult): ExamCorrectionResult {
+  if (!result || !Array.isArray(result.aufgaben)) {
+    return result;
+  }
+
+  const normalizedTasks = result.aufgaben.map((task) => {
+    if (!Array.isArray(task.schritte) || task.schritte.length === 0) {
+      return task;
+    }
+
+    const normalizedSteps = task.schritte.map((step) => normalizeStepFeedbackConsistency(step));
+    const hasFolgefehler = normalizedSteps.some((s) => s.fehlerTyp === 'Folgefehler');
+    const allCorrect = normalizedSteps.every(
+      (s) => s.fehlerTyp === 'KeinFehler' && s.erreichtePunkte >= s.maximalPunkte
+    );
+    const anyDeduction = normalizedSteps.some((s) => s.erreichtePunkte < s.maximalPunkte);
+
+    let status = task.status;
+    if (allCorrect) {
+      status = 'Korrekt';
+    } else if (hasFolgefehler) {
+      status = 'Folgefehler';
+    } else if (anyDeduction && status === 'Korrekt') {
+      status = 'Fehler';
+    }
+
+    return {
+      ...task,
+      status,
+      schritte: normalizedSteps,
+    };
+  });
+
+  return {
+    ...result,
+    aufgaben: normalizedTasks,
+  };
+}
 
 export async function runLiveGeminiCorrection(
   studentExamImageBase64: string,
@@ -1065,13 +1253,14 @@ Verbindliche Template-Regeln:
         }
 
         const parsedResult = JSON.parse(responseText) as ExamCorrectionResult;
-        return auditAndEnforceCorrectionSecurity(parsedResult, {
+        const securityAudited = auditAndEnforceCorrectionSecurity(parsedResult, {
           studentText: parsedResult.aufgaben?.map((t) => t.schuelerAntwort).join('\n'),
           rubricText: rubric,
           examTemplateText: materialOptions?.examTemplate || undefined,
           gradingNotes: materialOptions?.gradingNotes || undefined,
           referenzTranskript: parsedResult.referenzTranskript || undefined,
         });
+        return enforceStepFeedbackConsistency(securityAudited);
       } catch (err) {
         const duration = Date.now() - callStart;
         const categorized = categorizeGeminiError(err);
