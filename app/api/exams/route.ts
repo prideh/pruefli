@@ -113,7 +113,10 @@ export async function POST(request: Request) {
       maxPoints,
       classId,
       tasks,
+      overrideDocumentType: explicitOverride,
+      override,
     } = body;
+    const overrideDocumentType = explicitOverride === true || override === true;
 
     if (!title || typeof title !== 'string' || title.trim() === '') {
       return NextResponse.json({ error: 'Prüfungstitel ist erforderlich.' }, { status: 400 });
@@ -137,10 +140,18 @@ export async function POST(request: Request) {
     }
 
     if (rubricText) {
-      const rubricDocValidation = await validateReferenceUpload(rubricText, 'Die Musterlösung');
+      const rubricDocValidation = await validateReferenceUpload(rubricText, 'Die Musterlösung', {
+        overrideDocumentType,
+        teacherId: session.userId,
+      });
       if (!rubricDocValidation.valid) {
         return NextResponse.json(
-          { error: rubricDocValidation.error },
+          {
+            error: rubricDocValidation.error,
+            reason: rubricDocValidation.reason,
+            canOverride: rubricDocValidation.canOverride,
+            classification: rubricDocValidation.classification,
+          },
           { status: rubricDocValidation.status || 400 }
         );
       }
@@ -149,11 +160,20 @@ export async function POST(request: Request) {
     if (examTemplateText) {
       const templateDocValidation = await validateReferenceUpload(
         examTemplateText,
-        'Die Prüfungsvorlage'
+        'Die Prüfungsvorlage',
+        {
+          overrideDocumentType,
+          teacherId: session.userId,
+        }
       );
       if (!templateDocValidation.valid) {
         return NextResponse.json(
-          { error: templateDocValidation.error },
+          {
+            error: templateDocValidation.error,
+            reason: templateDocValidation.reason,
+            canOverride: templateDocValidation.canOverride,
+            classification: templateDocValidation.classification,
+          },
           { status: templateDocValidation.status || 400 }
         );
       }

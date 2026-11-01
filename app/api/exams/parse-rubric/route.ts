@@ -55,7 +55,8 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { rubricText, bypassCache } = body;
+    const { rubricText, bypassCache, overrideDocumentType: explicitOverride, override } = body;
+    const overrideDocumentType = explicitOverride === true || override === true;
 
     if (!rubricText) {
       return NextResponse.json({ error: 'Musterlösung fehlt.' }, { status: 400 });
@@ -68,10 +69,18 @@ export async function POST(request: Request) {
     }
 
     // Content and document type check (reject invalid/empty/consent form before cache/LLM)
-    const docValidation = await validateReferenceUpload(rubricText, 'Die Musterlösung');
+    const docValidation = await validateReferenceUpload(rubricText, 'Die Musterlösung', {
+      overrideDocumentType,
+      teacherId: session.userId,
+    });
     if (!docValidation.valid) {
       return NextResponse.json(
-        { error: docValidation.error },
+        {
+          error: docValidation.error,
+          reason: docValidation.reason,
+          canOverride: docValidation.canOverride,
+          classification: docValidation.classification,
+        },
         { status: docValidation.status || 400 }
       );
     }

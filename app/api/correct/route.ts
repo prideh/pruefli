@@ -91,6 +91,8 @@ export async function POST(request: Request) {
     const classId = formData.get('classId') as string | null;
     const examId = formData.get('examId') as string | null; // For existing exams
     const overwrite = formData.get('overwrite') === 'true';
+    const overrideDocumentType =
+      formData.get('overrideDocumentType') === 'true' || formData.get('override') === 'true';
 
     // For new exams
     const examTitle = formData.get('examTitle') as string | null;
@@ -159,19 +161,92 @@ export async function POST(request: Request) {
     }
 
     // Content and document type validations (reject invalid/empty/non-exam before storage and model calls)
-    const studentDocValidation = await validateStudentExamUpload(studentExam);
+    // Phase 1: Fast deterministic checks on all files first (zero LLM calls)
+    const studentFastValidation = await validateStudentExamUpload(
+      studentExam,
+      'Die Schülerarbeit',
+      { overrideDocumentType, teacherId: session.userId, skipAiClassification: true }
+    );
+    if (!studentFastValidation.valid) {
+      return NextResponse.json(
+        {
+          error: studentFastValidation.error,
+          reason: studentFastValidation.reason,
+          canOverride: studentFastValidation.canOverride,
+          classification: studentFastValidation.classification,
+        },
+        { status: studentFastValidation.status || 400 }
+      );
+    }
+
+    if (rubric) {
+      const rubricFastValidation = await validateReferenceUpload(rubric, 'Die Musterlösung', {
+        overrideDocumentType,
+        teacherId: session.userId,
+        skipAiClassification: true,
+      });
+      if (!rubricFastValidation.valid) {
+        return NextResponse.json(
+          {
+            error: rubricFastValidation.error,
+            reason: rubricFastValidation.reason,
+            canOverride: rubricFastValidation.canOverride,
+            classification: rubricFastValidation.classification,
+          },
+          { status: rubricFastValidation.status || 400 }
+        );
+      }
+    }
+
+    if (examTemplate) {
+      const templateFastValidation = await validateReferenceUpload(
+        examTemplate,
+        'Die Prüfungsvorlage',
+        { overrideDocumentType, teacherId: session.userId, skipAiClassification: true }
+      );
+      if (!templateFastValidation.valid) {
+        return NextResponse.json(
+          {
+            error: templateFastValidation.error,
+            reason: templateFastValidation.reason,
+            canOverride: templateFastValidation.canOverride,
+            classification: templateFastValidation.classification,
+          },
+          { status: templateFastValidation.status || 400 }
+        );
+      }
+    }
+
+    // Phase 2: AI document-type classification (when not overridden and API key is present)
+    const studentDocValidation = await validateStudentExamUpload(studentExam, 'Die Schülerarbeit', {
+      overrideDocumentType,
+      teacherId: session.userId,
+    });
     if (!studentDocValidation.valid) {
       return NextResponse.json(
-        { error: studentDocValidation.error },
+        {
+          error: studentDocValidation.error,
+          reason: studentDocValidation.reason,
+          canOverride: studentDocValidation.canOverride,
+          classification: studentDocValidation.classification,
+        },
         { status: studentDocValidation.status || 400 }
       );
     }
 
     if (rubric) {
-      const rubricDocValidation = await validateReferenceUpload(rubric, 'Die Musterlösung');
+      const rubricDocValidation = await validateReferenceUpload(rubric, 'Die Musterlösung', {
+        overrideDocumentType,
+        teacherId: session.userId,
+      });
       if (!rubricDocValidation.valid) {
         return NextResponse.json(
-          { error: rubricDocValidation.error },
+          {
+            error: rubricDocValidation.error,
+            reason: rubricDocValidation.reason,
+            canOverride: rubricDocValidation.canOverride,
+            classification: rubricDocValidation.classification,
+          },
           { status: rubricDocValidation.status || 400 }
         );
       }
@@ -180,11 +255,17 @@ export async function POST(request: Request) {
     if (examTemplate) {
       const templateDocValidation = await validateReferenceUpload(
         examTemplate,
-        'Die Prüfungsvorlage'
+        'Die Prüfungsvorlage',
+        { overrideDocumentType, teacherId: session.userId }
       );
       if (!templateDocValidation.valid) {
         return NextResponse.json(
-          { error: templateDocValidation.error },
+          {
+            error: templateDocValidation.error,
+            reason: templateDocValidation.reason,
+            canOverride: templateDocValidation.canOverride,
+            classification: templateDocValidation.classification,
+          },
           { status: templateDocValidation.status || 400 }
         );
       }

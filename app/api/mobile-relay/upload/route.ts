@@ -75,6 +75,8 @@ export async function POST(request: Request) {
     const explicitStudentId = formData.get('studentId') as string | null;
     const explicitSubmissionId = formData.get('submissionId') as string | null;
     const explicitTargetMode = formData.get('targetMode') as string | null;
+    const overrideDocumentType =
+      formData.get('overrideDocumentType') === 'true' || formData.get('override') === 'true';
     const rawPages = formData.getAll('pages').filter((f): f is File => f instanceof File);
 
     const payload = await verifyMobileRelayToken(token);
@@ -156,17 +158,28 @@ export async function POST(request: Request) {
           ? 'Die Schülerarbeit'
           : `Seite ${idx + 1}`;
 
-      const docValidation = await validateDocument({
-        buffer: p.buffer,
-        name: origFile?.name,
-        mimeType: p.mimeType,
-        label: pageLabel,
-        expectedType: isReferenceScan ? 'reference' : 'student_exam',
-      });
+      const docValidation = await validateDocument(
+        {
+          buffer: p.buffer,
+          name: origFile?.name,
+          mimeType: p.mimeType,
+          label: pageLabel,
+          expectedType: isReferenceScan ? 'reference' : 'student_exam',
+        },
+        {
+          overrideDocumentType,
+          teacherId: payload.teacherId,
+        }
+      );
 
       if (!docValidation.valid) {
         return NextResponse.json(
-          { error: docValidation.error },
+          {
+            error: docValidation.error,
+            reason: docValidation.reason,
+            canOverride: docValidation.canOverride,
+            classification: docValidation.classification,
+          },
           { status: docValidation.status || 400 }
         );
       }

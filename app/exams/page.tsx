@@ -320,22 +320,41 @@ export default function ExamsPage() {
   const [examGradeRounding, setExamGradeRounding] = useState<GradeRounding>('0.1');
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [parsingRubric, setParsingRubric] = useState(false);
+  const [rubricOverridePrompt, setRubricOverridePrompt] = useState<{
+    reason: string;
+    summary?: string;
+  } | null>(null);
   const [parsedTasks, setParsedTasks] = useState<
     { taskId: string; title: string; maxPoints: number }[]
   >([]);
 
-  const autoParseRubric = async (rubricValue: string) => {
+  const autoParseRubric = async (rubricValue: string, allowOverride = false) => {
     if (!rubricValue || rubricValue.trim() === '') return;
     setParsingRubric(true);
     setCreateError('');
+    if (!allowOverride) {
+      setRubricOverridePrompt(null);
+    }
     try {
       const res = await fetch('/api/exams/parse-rubric', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rubricText: rubricValue }),
+        body: JSON.stringify({
+          rubricText: rubricValue,
+          overrideDocumentType: allowOverride,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Fehler beim Parsen.');
+      if (!res.ok) {
+        if (data.canOverride) {
+          setRubricOverridePrompt({
+            reason: data.error || 'Nicht-Prüfungsdokument erkannt.',
+            summary: data.classification?.detectedSummary,
+          });
+        }
+        throw new Error(data.error || 'Fehler beim Parsen.');
+      }
+      setRubricOverridePrompt(null);
       setParsedTasks(data.tasks || []);
       const totalPoints = (data.tasks || []).reduce(
         (sum: number, t: { maxPoints?: number | string }) => sum + (Number(t.maxPoints) || 0),
@@ -391,6 +410,7 @@ export default function ExamsPage() {
     setUploadedFileName('');
     setParsedTasks([]);
     setExamMaxPoints(20);
+    setRubricOverridePrompt(null);
   };
 
   const [createLoading, setCreateLoading] = useState(false);
@@ -420,6 +440,7 @@ export default function ExamsPage() {
           gradeRounding: examGradeRounding,
           classId: selectedClassId,
           tasks: parsedTasks.length > 0 ? parsedTasks : undefined,
+          overrideDocumentType: Boolean(rubricOverridePrompt),
         }),
       });
 
@@ -435,6 +456,7 @@ export default function ExamsPage() {
       setExamGradingNotes('');
       setUploadedFileName('');
       setParsedTasks([]);
+      setRubricOverridePrompt(null);
       setActiveTabClassId(selectedClassId); // Automatically select the tab of the class for the new exam
       invalidateExams(undefined, selectedClassId);
       await fetchData(); // Refresh list
@@ -1560,7 +1582,23 @@ export default function ExamsPage() {
               }}
             >
               {createError && (
-                <Alert severity="error" sx={{ borderRadius: '8px' }}>
+                <Alert
+                  severity="error"
+                  sx={{ borderRadius: '8px' }}
+                  action={
+                    rubricOverridePrompt ? (
+                      <Button
+                        color="inherit"
+                        size="small"
+                        variant="outlined"
+                        onClick={() => autoParseRubric(examRubric, true)}
+                        sx={{ textTransform: 'none', fontWeight: 700 }}
+                      >
+                        Trotzdem als Musterlösung verwenden
+                      </Button>
+                    ) : undefined
+                  }
+                >
                   {createError}
                 </Alert>
               )}

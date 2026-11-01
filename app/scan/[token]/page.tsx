@@ -220,19 +220,26 @@ export default function MobileScanRelayPage() {
 
   const activeExamObj = exams.find((e) => e.id === selectedExamId) || null;
   const availableStudents = activeExamObj?.students || [];
+  const [relayOverrideAllowed, setRelayOverrideAllowed] = useState(false);
 
-  const submitPages = async (pagesToSubmit: File[]) => {
+  const submitPages = async (pagesToSubmit: File[], allowOverride = false) => {
     const distinctPages = deduplicateRelayFiles(pagesToSubmit);
     if (distinctPages.length === 0) return;
     setUploading(true);
     setUploadErrorMsg('');
     setUploadSuccessMsg('');
+    if (!allowOverride) {
+      setRelayOverrideAllowed(false);
+    }
 
     try {
       const optimizedFiles = await Promise.all(distinctPages.map((f) => optimizeMobileImage(f)));
       const formData = new FormData();
       formData.append('token', token);
       formData.append('targetMode', activeMode);
+      if (allowOverride) {
+        formData.append('overrideDocumentType', 'true');
+      }
       if (selectedExamId && selectedExamId !== 'AUTO') {
         formData.append('examId', selectedExamId);
       }
@@ -250,7 +257,7 @@ export default function MobileScanRelayPage() {
         method: 'POST',
         body: formData,
       });
-      let data: { error?: string; pagesCount?: number } | null = null;
+      let data: { error?: string; pagesCount?: number; canOverride?: boolean } | null = null;
       try {
         data = await res.json();
       } catch {
@@ -259,7 +266,11 @@ export default function MobileScanRelayPage() {
 
       if (!res.ok) {
         setUploadErrorMsg(data?.error || `Upload fehlgeschlagen (HTTP ${res.status}).`);
+        if (data?.canOverride) {
+          setRelayOverrideAllowed(true);
+        }
       } else {
+        setRelayOverrideAllowed(false);
         capturedPages.forEach((p) => URL.revokeObjectURL(p.previewUrl));
         setCapturedPages([]);
 
@@ -685,7 +696,28 @@ export default function MobileScanRelayPage() {
           )}
 
           {uploadErrorMsg && (
-            <Alert severity="error" sx={{ borderRadius: '12px', fontWeight: 600 }}>
+            <Alert
+              severity="error"
+              sx={{ borderRadius: '12px', fontWeight: 600 }}
+              action={
+                relayOverrideAllowed ? (
+                  <Button
+                    color="inherit"
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      const files = capturedPages.map((p) => p.file);
+                      if (files.length > 0) {
+                        submitPages(files, true);
+                      }
+                    }}
+                    sx={{ textTransform: 'none', fontWeight: 700 }}
+                  >
+                    Trotzdem senden
+                  </Button>
+                ) : undefined
+              }
+            >
               {uploadErrorMsg}
             </Alert>
           )}

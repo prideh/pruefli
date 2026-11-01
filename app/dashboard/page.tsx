@@ -153,6 +153,13 @@ export default function Dashboard() {
     return [];
   });
 
+  const [nonExamOverridePrompt, setNonExamOverridePrompt] = useState<{
+    fileName: string;
+    reason: string;
+    summary?: string;
+    category?: string;
+  } | null>(null);
+
   const executeCancelSubmission = async (subId: string) => {
     try {
       const res = await fetch(`/api/submissions/${subId}`, { method: 'DELETE' });
@@ -611,7 +618,10 @@ export default function Dashboard() {
   };
 
   // 6. Submit Grading job to API
-  const startAnalysis = async (forceOverwrite?: boolean | React.MouseEvent) => {
+  const startAnalysis = async (
+    forceOverwrite?: boolean | React.MouseEvent,
+    allowDocumentOverride = false
+  ) => {
     const shouldOverwrite = forceOverwrite === true;
 
     if (!selectedClassId) {
@@ -651,6 +661,10 @@ export default function Dashboard() {
 
         if (shouldOverwrite) {
           formData.append('overwrite', 'true');
+        }
+
+        if (allowDocumentOverride) {
+          formData.append('overrideDocumentType', 'true');
         }
 
         if (!isFirst && resolvedExamId !== 'NEW') {
@@ -697,6 +711,18 @@ export default function Dashboard() {
             setOpenConfirmOverwrite(true);
             throw new Error('DUPLICATE_SUBMISSION');
           }
+          if (errorData.canOverride) {
+            setNonExamOverridePrompt({
+              fileName: file.name,
+              reason:
+                errorData.error ||
+                'Das Dokument wurde als Nicht-Prüfungsdokument erkannt (z. B. Einverständniserklärung).',
+              summary: errorData.classification?.detectedSummary,
+              category: errorData.classification?.documentType,
+            });
+            setLoading(false);
+            throw new Error('NON_EXAM_DOCUMENT');
+          }
           throw new Error(errorData.error || `Fehler beim Upload von ${file.name}`);
         }
 
@@ -721,6 +747,7 @@ export default function Dashboard() {
 
       setStudentFiles([]);
       setLoading(false);
+      setNonExamOverridePrompt(null);
       invalidateSubmissions(undefined, resolvedExamId, selectedClassId);
       if (selectedExamId === 'NEW') {
         invalidateExams(resolvedExamId, selectedClassId);
@@ -733,6 +760,9 @@ export default function Dashboard() {
     } catch (err) {
       if (err instanceof Error && err.message === 'DUPLICATE_SUBMISSION') {
         return; // Handled by overwrite modal
+      }
+      if (err instanceof Error && err.message === 'NON_EXAM_DOCUMENT') {
+        return; // Handled by nonExamOverridePrompt modal
       }
       const errMsg = err instanceof Error ? err.message : 'Ein Fehler ist aufgetreten.';
       setError(errMsg);
@@ -1255,7 +1285,27 @@ export default function Dashboard() {
         </Stack>
 
         {error && (
-          <Alert severity="error" sx={{ borderRadius: '12px' }}>
+          <Alert
+            severity="error"
+            sx={{ borderRadius: '12px' }}
+            action={
+              nonExamOverridePrompt ? (
+                <Button
+                  color="inherit"
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setNonExamOverridePrompt(null);
+                    setError('');
+                    startAnalysis(false, true);
+                  }}
+                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                >
+                  Trotzdem als Prüfung behandeln
+                </Button>
+              ) : undefined
+            }
+          >
             {error}
           </Alert>
         )}
@@ -2637,6 +2687,51 @@ export default function Dashboard() {
             }}
           >
             Ja, überschreiben
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Non-Exam Document Override Confirmation Dialog */}
+      <Dialog
+        open={Boolean(nonExamOverridePrompt)}
+        onClose={() => setNonExamOverridePrompt(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#b45309', fontWeight: 700 }}
+        >
+          <InfoOutlinedIcon />
+          Nicht-Prüfungsdokument erkannt
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            {nonExamOverridePrompt?.reason}
+          </Typography>
+          {nonExamOverridePrompt?.summary && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <strong>Erkannter Inhalt:</strong> {nonExamOverridePrompt.summary}
+            </Alert>
+          )}
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            Das Dokument scheint keine Prüfung oder Schülerarbeit zu sein. Möchten Sie es dennoch
+            ausdrücklich als Prüfung behandeln und zur Korrektur freigeben?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button onClick={() => setNonExamOverridePrompt(null)} variant="outlined" color="inherit">
+            Abbrechen
+          </Button>
+          <Button
+            onClick={() => {
+              setNonExamOverridePrompt(null);
+              setError('');
+              startAnalysis(false, true);
+            }}
+            variant="contained"
+            color="warning"
+          >
+            Trotzdem als Prüfung behandeln
           </Button>
         </DialogActions>
       </Dialog>

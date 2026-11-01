@@ -59,6 +59,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const { id: submissionId } = await params;
+    const body = await request.json().catch(() => ({}));
+    const overrideDocumentType = body?.overrideDocumentType === true || body?.override === true;
 
     // 2. Fetch the failed submission
     const submission = await db.submission.findUnique({
@@ -159,16 +161,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const fileData = await storage.read(relUrl);
       if (fileData) {
         const pageLabel = pageUrls.length === 1 ? 'Die Schülerarbeit' : `Seite ${idx + 1}`;
-        const docValidation = await validateDocument({
-          buffer: fileData.buffer,
-          name: relUrl,
-          mimeType: fileData.contentType,
-          label: pageLabel,
-          expectedType: 'student_exam',
-        });
+        const docValidation = await validateDocument(
+          {
+            buffer: fileData.buffer,
+            name: relUrl,
+            mimeType: fileData.contentType,
+            label: pageLabel,
+            expectedType: 'student_exam',
+          },
+          {
+            overrideDocumentType,
+            teacherId: session.userId,
+          }
+        );
         if (!docValidation.valid) {
           return NextResponse.json(
-            { error: docValidation.error },
+            {
+              error: docValidation.error,
+              reason: docValidation.reason,
+              canOverride: docValidation.canOverride,
+              classification: docValidation.classification,
+            },
             { status: docValidation.status || 400 }
           );
         }

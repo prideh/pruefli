@@ -40,7 +40,10 @@ export async function POST(request: Request) {
       gradingFormula = 'LINEAR_60',
       gradeRounding = '0.1',
       bypassCache,
+      overrideDocumentType: explicitOverride,
+      override,
     } = body;
+    const overrideDocumentType = explicitOverride === true || override === true;
 
     // Requirement: Material upload is MANDATORY; refuse if missing
     if (!material) {
@@ -80,10 +83,18 @@ export async function POST(request: Request) {
     }
 
     // Content and document type check (reject invalid/empty/consent form before model calls)
-    const docValidation = await validateExamMaterialInput(material);
+    const docValidation = await validateExamMaterialInput(material, {
+      overrideDocumentType,
+      teacherId: session.userId,
+    });
     if (!docValidation.valid) {
       return NextResponse.json(
-        { error: docValidation.error },
+        {
+          error: docValidation.error,
+          reason: docValidation.reason,
+          canOverride: docValidation.canOverride,
+          classification: docValidation.classification,
+        },
         { status: docValidation.status || 400 }
       );
     }

@@ -86,15 +86,24 @@ export default function CorrectWorkspace() {
   const [addTaskError, setAddTaskError] = useState<string>('');
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
   const [retryError, setRetryError] = useState<string>('');
+  const [retryOverridePrompt, setRetryOverridePrompt] = useState<{
+    reason: string;
+    summary?: string;
+  } | null>(null);
 
-  const handleRetry = async () => {
+  const handleRetry = async (allowOverride = false) => {
     const submissionId = Array.isArray(id) ? id[0] : id;
     if (!submissionId) return;
     setIsRetrying(true);
     setRetryError('');
+    if (!allowOverride) {
+      setRetryOverridePrompt(null);
+    }
     try {
       const res = await fetch(`/api/submissions/${submissionId}/replace`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ overrideDocumentType: allowOverride }),
       });
       if (res.ok) {
         setData((prev) =>
@@ -102,6 +111,12 @@ export default function CorrectWorkspace() {
         );
       } else {
         const errJson = await res.json().catch(() => ({}));
+        if (errJson.canOverride) {
+          setRetryOverridePrompt({
+            reason: errJson.error || 'Nicht-Prüfungsdokument erkannt.',
+            summary: errJson.classification?.detectedSummary,
+          });
+        }
         setRetryError(errJson.error || 'Fehler beim Neustart der Korrektur.');
       }
     } catch (e) {
@@ -439,7 +454,23 @@ export default function CorrectWorkspace() {
           </Alert>
 
           {retryError && (
-            <Alert severity="warning" sx={{ textAlign: 'left', borderRadius: '8px', mb: 3 }}>
+            <Alert
+              severity="warning"
+              sx={{ textAlign: 'left', borderRadius: '8px', mb: 3 }}
+              action={
+                retryOverridePrompt ? (
+                  <Button
+                    color="inherit"
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleRetry(true)}
+                    sx={{ textTransform: 'none', fontWeight: 700 }}
+                  >
+                    Trotzdem als Prüfung behandeln
+                  </Button>
+                ) : undefined
+              }
+            >
               {retryError}
             </Alert>
           )}
@@ -469,7 +500,7 @@ export default function CorrectWorkspace() {
             <Button
               variant="contained"
               disabled={isRetrying}
-              onClick={handleRetry}
+              onClick={() => handleRetry()}
               startIcon={
                 isRetrying ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeIcon />
               }

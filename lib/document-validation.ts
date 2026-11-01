@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import zlib from 'node:zlib';
+import { classifyDocumentWithGemini, type DocumentClassificationResult } from '@/lib/gemini';
 
 export interface DocumentValidationResult {
   valid: boolean;
@@ -13,6 +14,15 @@ export interface DocumentValidationResult {
     | 'BLANK_SCAN'
     | 'NON_EXAM_DOCUMENT'
     | 'UNREADABLE';
+  classification?: DocumentClassificationResult;
+  canOverride?: boolean;
+}
+
+export interface DocumentValidationOptions {
+  overrideDocumentType?: boolean;
+  teacherId?: string;
+  bypassCache?: boolean;
+  skipAiClassification?: boolean;
 }
 
 export interface DocumentInput {
@@ -357,15 +367,24 @@ export function detectBlankOrEmptyImage(buffer: Buffer): { isBlank: boolean; rea
       offset = dataEnd + 4;
     }
 
-    if (width >= 50 && height >= 50 && idatBuffers.length > 0) {
+    if (width > 0 && height > 0 && (width < 20 || height < 20)) {
+      return {
+        isBlank: true,
+        reason: 'Die Bildabmessungen sind zu klein für ein lesbares Dokument.',
+      };
+    }
+
+    if (width >= 20 && height >= 20 && idatBuffers.length > 0) {
       try {
         const compressed = Buffer.concat(idatBuffers);
         const decompressed = zlib.inflateSync(compressed);
         if (decompressed.length > 500) {
-          // Check pixel bytes across scanlines.
-          // In PNG, if all pixel bytes are identical or white (>98% pure white / black):
-          let whiteOrBlackCount = 0;
+          let pureWhiteCount = 0;
+          let pureBlackCount = 0;
+          let darkInkCount = 0;
           let totalPixelBytes = 0;
+          let minVal = 255;
+          let maxVal = 0;
           const bytesPerRow = height > 0 ? decompressed.length / height : 0;
           const stride = bytesPerRow > 1 ? Math.floor(bytesPerRow) : 1;
 
@@ -376,17 +395,30 @@ export function detectBlankOrEmptyImage(buffer: Buffer): { isBlank: boolean; rea
             }
             totalPixelBytes++;
             const b = decompressed[i];
-            if (b >= 250 || b <= 5) {
-              whiteOrBlackCount++;
-            }
+            if (b < minVal) minVal = b;
+            if (b > maxVal) maxVal = b;
+
+            if (b >= 250) pureWhiteCount++;
+            if (b <= 5) pureBlackCount++;
+            if (b <= 160) darkInkCount++;
           }
 
-          if (totalPixelBytes > 500 && whiteOrBlackCount / totalPixelBytes >= 0.98) {
-            return {
-              isBlank: true,
-              reason:
-                'Die hochgeladene Seite ist vollständig leer oder unbeschrieben (keine handschriftlichen oder gedruckten Inhalte erkennbar). Bitte laden Sie einen lesbaren Scan mit sichtbaren Aufgaben hoch.',
-            };
+          if (totalPixelBytes > 500) {
+            // Case 1: Pure solid uniform color (standard deviation ~ 0)
+            const isUniform = maxVal - minVal <= 5;
+            // Case 2: Uniformly blank white sheet (paper with no ink marks whatsoever)
+            const isBlankWhite = pureWhiteCount / totalPixelBytes >= 0.998 && darkInkCount < 10;
+            // Case 3: Uniformly black / blocked camera lens
+            const isBlankBlack =
+              pureBlackCount / totalPixelBytes >= 0.998 && totalPixelBytes - pureBlackCount < 10;
+
+            if (isUniform || isBlankWhite || isBlankBlack) {
+              return {
+                isBlank: true,
+                reason:
+                  'Die hochgeladene Seite ist vollständig leer oder unbeschrieben (keine handschriftlichen oder gedruckten Inhalte erkennbar). Bitte laden Sie einen lesbaren Scan mit sichtbaren Aufgaben hoch.',
+              };
+            }
           }
         }
       } catch {
@@ -406,7 +438,10 @@ export function detectBlankOrEmptyImage(buffer: Buffer): { isBlank: boolean; rea
 /**
  * Validates document buffer, headers, size, emptiness, and content plausibility.
  */
-export async function validateDocument(input: DocumentInput): Promise<DocumentValidationResult> {
+export async function validateDocument(
+  input: DocumentInput,
+  options?: DocumentValidationOptions
+): Promise<DocumentValidationResult> {
   const { buffer, name, text, label = 'Das Dokument' } = input;
 
   // 1. Text-only validation
@@ -429,14 +464,25 @@ export async function validateDocument(input: DocumentInput): Promise<DocumentVa
       };
     }
 
-    const nonExamCheck = isNonExamDocument({ name, text: trimmed });
-    if (nonExamCheck.isNonExam) {
-      return {
-        valid: false,
-        status: 400,
-        reason: 'NON_EXAM_DOCUMENT',
-        error: nonExamCheck.reason,
-      };
+    if (!options?.overrideDocumentType) {
+      const nonExamCheck = isNonExamDocument({ name, text: trimmed });
+      if (nonExamCheck.isNonExam) {
+        return {
+          valid: false,
+          status: 400,
+          reason: 'NON_EXAM_DOCUMENT',
+          error: nonExamCheck.reason,
+          canOverride: true,
+          classification: {
+            isExamRelated: false,
+            documentType: 'CONSENT_FORM',
+            confidence: 'HIGH',
+            detectedSummary: nonExamCheck.detectedCategory || 'Administratives Formular',
+            rejectionReason: nonExamCheck.reason || '',
+            canOverride: true,
+          },
+        };
+      }
     }
 
     return { valid: true };
@@ -513,14 +559,60 @@ export async function validateDocument(input: DocumentInput): Promise<DocumentVa
   }
 
   // 6. Non-exam document check (e.g. consent form, declaration of consent, invoice)
-  const nonExamCheck = isNonExamDocument({ name, buffer, text });
-  if (nonExamCheck.isNonExam) {
-    return {
-      valid: false,
-      status: 400,
-      reason: 'NON_EXAM_DOCUMENT',
-      error: nonExamCheck.reason,
-    };
+  if (!options?.overrideDocumentType) {
+    // 6a. Fast local heuristic check (filename, embedded text, PDF metadata)
+    const nonExamCheck = isNonExamDocument({ name, buffer, text });
+    if (nonExamCheck.isNonExam) {
+      return {
+        valid: false,
+        status: 400,
+        reason: 'NON_EXAM_DOCUMENT',
+        error: nonExamCheck.reason,
+        canOverride: true,
+        classification: {
+          isExamRelated: false,
+          documentType: 'CONSENT_FORM',
+          confidence: 'HIGH',
+          detectedSummary: nonExamCheck.detectedCategory || 'Administratives Formular',
+          rejectionReason: nonExamCheck.reason || '',
+          canOverride: true,
+        },
+      };
+    }
+
+    // 6b. Deep inspection via lightweight Gemini vision call when API key is configured
+    if (
+      !options?.skipAiClassification &&
+      buffer &&
+      buffer.length > 0 &&
+      process.env.GEMINI_API_KEY
+    ) {
+      const classification = await classifyDocumentWithGemini({
+        buffer,
+        mimeType:
+          input.mimeType || (isPng ? 'image/png' : isPdf ? 'application/pdf' : 'image/jpeg'),
+        fileName: name,
+        expectedType: input.expectedType,
+        teacherId: options?.teacherId,
+        bypassCache: options?.bypassCache,
+      });
+
+      if (
+        classification &&
+        (!classification.isExamRelated || classification.documentType === 'AMBIGUOUS')
+      ) {
+        return {
+          valid: false,
+          status: 400,
+          reason: 'NON_EXAM_DOCUMENT',
+          error:
+            classification.rejectionReason ||
+            `${label} wurde nicht als Prüfungsdokument erkannt. Sie können es über "Trotzdem als Prüfung behandeln" dennoch verwenden.`,
+          canOverride: true,
+          classification,
+        };
+      }
+    }
   }
 
   return { valid: true };
@@ -534,7 +626,8 @@ export async function validateStudentExamUpload(
     | File
     | { name?: string; type?: string; size?: number; arrayBuffer?: () => Promise<ArrayBuffer> }
     | Buffer,
-  label = 'Die Schülerarbeit'
+  label = 'Die Schülerarbeit',
+  options?: DocumentValidationOptions
 ): Promise<DocumentValidationResult> {
   if (!file) {
     return {
@@ -546,7 +639,7 @@ export async function validateStudentExamUpload(
   }
 
   if (Buffer.isBuffer(file)) {
-    return validateDocument({ buffer: file, label });
+    return validateDocument({ buffer: file, label, expectedType: 'student_exam' }, options);
   }
 
   if ('size' in file && typeof file.size === 'number' && file.size === 0) {
@@ -566,13 +659,16 @@ export async function validateStudentExamUpload(
     return { valid: true };
   }
 
-  return validateDocument({
-    buffer,
-    name: file.name,
-    mimeType: file.type,
-    label,
-    expectedType: 'student_exam',
-  });
+  return validateDocument(
+    {
+      buffer,
+      name: file.name,
+      mimeType: file.type,
+      label,
+      expectedType: 'student_exam',
+    },
+    options
+  );
 }
 
 /**
@@ -581,7 +677,8 @@ export async function validateStudentExamUpload(
  */
 export async function validateReferenceUpload(
   payload: unknown,
-  label = 'Die Musterlösung'
+  label = 'Die Musterlösung',
+  options?: DocumentValidationOptions
 ): Promise<DocumentValidationResult> {
   if (!payload) {
     return {
@@ -615,13 +712,16 @@ export async function validateReferenceUpload(
     }
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    return validateDocument({
-      buffer,
-      name: file.name,
-      mimeType: file.type,
-      label,
-      expectedType: 'reference',
-    });
+    return validateDocument(
+      {
+        buffer,
+        name: file.name,
+        mimeType: file.type,
+        label,
+        expectedType: 'reference',
+      },
+      options
+    );
   }
 
   // 2. Object with mimeType and base64 data
@@ -633,13 +733,16 @@ export async function validateReferenceUpload(
   ) {
     const item = payload as { data: string; mimeType?: string; name?: string };
     const buffer = Buffer.from(item.data, 'base64');
-    return validateDocument({
-      buffer,
-      name: item.name,
-      mimeType: item.mimeType,
-      label,
-      expectedType: 'reference',
-    });
+    return validateDocument(
+      {
+        buffer,
+        name: item.name,
+        mimeType: item.mimeType,
+        label,
+        expectedType: 'reference',
+      },
+      options
+    );
   }
 
   // 3. Array of objects
@@ -654,7 +757,7 @@ export async function validateReferenceUpload(
     }
     for (let i = 0; i < payload.length; i++) {
       const page = payload[i];
-      const pageRes = await validateReferenceUpload(page, `${label} (Seite ${i + 1})`);
+      const pageRes = await validateReferenceUpload(page, `${label} (Seite ${i + 1})`, options);
       if (!pageRes.valid) return pageRes;
     }
     return { valid: true };
@@ -678,17 +781,20 @@ export async function validateReferenceUpload(
     ) {
       try {
         const parsed = JSON.parse(trimmed);
-        return validateReferenceUpload(parsed, label);
+        return validateReferenceUpload(parsed, label, options);
       } catch {
         // Plain text fallback
       }
     }
 
-    return validateDocument({
-      text: trimmed,
-      label,
-      expectedType: 'reference',
-    });
+    return validateDocument(
+      {
+        text: trimmed,
+        label,
+        expectedType: 'reference',
+      },
+      options
+    );
   }
 
   return { valid: true };
@@ -698,7 +804,8 @@ export async function validateReferenceUpload(
  * Validates teaching material used for exam generation.
  */
 export async function validateExamMaterialInput(
-  material: unknown
+  material: unknown,
+  options?: DocumentValidationOptions
 ): Promise<DocumentValidationResult> {
-  return validateReferenceUpload(material, 'Das Unterrichtsmaterial');
+  return validateReferenceUpload(material, 'Das Unterrichtsmaterial', options);
 }

@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type, ThinkingLevel, type Schema } from '@google/genai';
 import {
+  computeSha256,
   computeScanIdentificationHash,
+  computeDocumentClassificationHash,
   buildLlmCacheKey,
   getCachedLlmResult,
   setCachedLlmResult,
@@ -1090,5 +1092,256 @@ REGELN:
       extractedStudentName: '',
       isStudentNameCertain: false,
     };
+  }
+}
+
+export type DetectedDocumentType =
+  | 'STUDENT_EXAM'
+  | 'EXAM_TEMPLATE'
+  | 'RUBRIC'
+  | 'TEACHING_MATERIAL'
+  | 'CONSENT_FORM'
+  | 'ADMINISTRATIVE_FORM'
+  | 'PRIVACY_POLICY'
+  | 'INVOICE'
+  | 'MEDICAL_CERTIFICATE'
+  | 'LETTER_OR_CORRESPONDENCE'
+  | 'EMPTY_PAGE'
+  | 'OTHER_NON_EXAM'
+  | 'AMBIGUOUS';
+
+export interface DocumentClassificationResult {
+  isExamRelated: boolean;
+  documentType: DetectedDocumentType;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  detectedSummary: string;
+  rejectionReason: string;
+  canOverride: boolean;
+}
+
+const DOCUMENT_CLASSIFICATION_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    isExamRelated: {
+      type: Type.BOOLEAN,
+      description:
+        'True wenn das Dokument eine Prüfung, Schülerarbeit, ein Test, eine Klausur, ein Übungsblatt, eine Musterlösung, ein Erwartungshorizont oder Unterrichtsmaterial ist; False wenn es ein administratives Dokument (z. B. Einverständniserklärung, Elternbrief, Datenschutzerklärung, Rechnung, ärztliches Attest) oder kein Schulprüfungsmaterial ist.',
+    },
+    documentType: {
+      type: Type.STRING,
+      enum: [
+        'STUDENT_EXAM',
+        'EXAM_TEMPLATE',
+        'RUBRIC',
+        'TEACHING_MATERIAL',
+        'CONSENT_FORM',
+        'ADMINISTRATIVE_FORM',
+        'PRIVACY_POLICY',
+        'INVOICE',
+        'MEDICAL_CERTIFICATE',
+        'LETTER_OR_CORRESPONDENCE',
+        'EMPTY_PAGE',
+        'OTHER_NON_EXAM',
+        'AMBIGUOUS',
+      ],
+      description: 'Genaue Klassifikation des Dokumenttyps.',
+    },
+    confidence: {
+      type: Type.STRING,
+      enum: ['HIGH', 'MEDIUM', 'LOW'],
+      description: 'Sicherheit der Klassifikation.',
+    },
+    detectedSummary: {
+      type: Type.STRING,
+      description:
+        'Prägnante Kurzbeschreibung des erkannten Dokuments in Schweizer Hochdeutsch (immer "ss" statt Eszett), z. B. "Einverständniserklärung für Foto- und Videoaufnahmen" oder "Mathematik-Prüfung zu linearen Gleichungen".',
+    },
+    rejectionReason: {
+      type: Type.STRING,
+      description:
+        'Verständliche Erklärung für die Lehrperson in Schweizer Hochdeutsch (immer "ss" statt Eszett), weshalb das Dokument abgewiesen wird; leerer String falls es eine reguläre Prüfung oder Musterlösung ist.',
+    },
+    canOverride: {
+      type: Type.BOOLEAN,
+      description:
+        'Immer true, damit die Lehrperson im Zweifelsfall das Dokument trotzdem als Prüfung behandeln kann.',
+    },
+  },
+  required: [
+    'isExamRelated',
+    'documentType',
+    'confidence',
+    'detectedSummary',
+    'rejectionReason',
+    'canOverride',
+  ],
+};
+
+const CLASSIFICATION_SYSTEM_PROMPT = `
+Du bist ein präzises Klassifikationssystem für Schweizer Schulen und Lehrpersonen.
+Deine Aufgabe ist es, den Dokumenttyp des hochgeladenen Dokuments vor einer Korrektur oder Prüfungserstellung zu bestimmen.
+
+ENTSCHEIDUNGSKRITERIEN:
+1. PRÜFUNG / SCHÜLERARBEIT / MUSTERLÖSUNG (isExamRelated = true):
+   - Gedruckte, getippte oder handschriftliche Prüfungen, Tests, Klausuren, Lernkontrollen.
+   - Handschriftliche Lösungen von Schülerinnen und Schülern (auch unvollständige, spärlich beschriebene oder mit Rechenfehlern behaftete Blätter).
+   - Musterlösungen, Erwartungshorizonte, Bewertungsraster, Punkteschlüssel.
+   - Prüfungsvorlagen und offizielles Unterrichtsmaterial.
+
+2. KEINE PRÜFUNG / ADMINISTRATIVES FORMULAR (isExamRelated = false):
+   - Einverständniserklärung / Einwilligungsformular (z. B. für Fotos, Videos, Ausflüge, Nutzungsvereinbarungen).
+   - Datenschutzerklärung, rechtliche Vereinbarung, AGB.
+   - Rechnung, Quittung, Zahlungsbeleg, Bankauszug.
+   - Ärztliches Zeugnis, Attest, Krankmeldung, Arbeitsunfähigkeitsbescheinigung.
+   - Elternbrief, Mitteilung, Rundschreiben, administratives Schreiben.
+   - Leere Seite oder unbeschriebenes Papier.
+
+3. MEHRDEUTIGE ODER UNGEWÖHNLICHE FORMATE (documentType = "AMBIGUOUS"):
+   - Skizzenblätter, Entwürfe, ungewöhnliche Aufgabenformate, Notizblätter.
+   - Falls unklar ist, ob es sich um eine Prüfung handelt: setze isExamRelated = false, confidence = "LOW", canOverride = true, und erkläre in rejectionReason verständlich, was erkannt wurde.
+
+SPRACHREGELN (SCHWEIZER HOCHDEUTSCH):
+- Verwende in sämtlichen Texten ("detectedSummary", "rejectionReason") ausnahmslos Schweizer Hochdeutsch (immer "ss", niemals "ß").
+- Formuliere rejectionReason freundlich, respektvoll und verständlich für die Lehrperson.
+- Biete bei Nicht-Prüfungen immer den Hinweis auf die manuelle Freigabe über "Trotzdem als Prüfung behandeln" an.
+`;
+
+export interface ClassifyDocumentOptions {
+  buffer?: Buffer;
+  base64Data?: string;
+  mimeType: string;
+  fileName?: string;
+  expectedType?: 'student_exam' | 'reference' | 'material';
+  teacherId?: string;
+  bypassCache?: boolean;
+}
+
+/**
+ * Lightweight vision classification determining whether a document is an exam/rubric
+ * or an administrative non-exam document (e.g. consent form, invoice, medical sick note).
+ */
+export async function classifyDocumentWithGemini(
+  options: ClassifyDocumentOptions
+): Promise<DocumentClassificationResult | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const {
+    buffer,
+    base64Data,
+    mimeType,
+    fileName,
+    expectedType = 'student_exam',
+    teacherId,
+    bypassCache,
+  } = options;
+
+  const rawBase64 = base64Data || (buffer ? buffer.toString('base64') : '');
+  if (!rawBase64) {
+    return null;
+  }
+
+  const dataHash = computeSha256(rawBase64);
+  const cacheKey = teacherId
+    ? buildLlmCacheKey(
+        teacherId,
+        'document_classification',
+        computeDocumentClassificationHash({
+          teacherId,
+          modelName: DEFAULT_GEMINI_MODEL,
+          dataHash,
+          mimeType,
+          expectedType,
+        })
+      )
+    : null;
+
+  if (cacheKey && !bypassCache) {
+    const cached = await getCachedLlmResult<DocumentClassificationResult>(cacheKey);
+    if (cached) {
+      return cached.result;
+    }
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { timeout: 15_000 },
+    });
+
+    const contents: (string | { inlineData: { mimeType: string; data: string } })[] = [];
+    contents.push({
+      inlineData: {
+        mimeType: mimeType || 'image/jpeg',
+        data: rawBase64,
+      },
+    });
+
+    const contextHint = fileName ? `Dateiname: "${fileName}". ` : '';
+    const typeHint =
+      expectedType === 'reference'
+        ? 'Erwartet wird eine Musterlösung, ein Erwartungshorizont oder eine Prüfungsvorlage.'
+        : expectedType === 'material'
+          ? 'Erwartet wird Unterrichtsmaterial für eine Prüfung.'
+          : 'Erwartet wird eine Schülerarbeit oder ein Prüfungsbogen.';
+
+    contents.push(
+      `${contextHint}${typeHint} Klassifiziere dieses Dokument und prüfe, ob es sich um ein valides Prüfungsdokument handelt oder um ein administratives / fachfremdes Dokument (z. B. Einverständniserklärung).`
+    );
+
+    const response = await ai.models.generateContent({
+      model: DEFAULT_GEMINI_MODEL,
+      contents,
+      config: {
+        systemInstruction: CLASSIFICATION_SYSTEM_PROMPT,
+        responseMimeType: 'application/json',
+        responseSchema: DOCUMENT_CLASSIFICATION_SCHEMA,
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.LOW,
+        },
+        maxOutputTokens: 250,
+        temperature: 0.0,
+        seed: 42,
+        abortSignal: AbortSignal.timeout(15_000),
+        httpOptions: { timeout: 15_000 },
+      },
+    });
+
+    const responseText = response?.text?.trim();
+    if (!responseText) {
+      return null;
+    }
+    const parsed = JSON.parse(responseText) as DocumentClassificationResult;
+
+    const result: DocumentClassificationResult = {
+      isExamRelated: Boolean(parsed.isExamRelated),
+      documentType: parsed.documentType || 'OTHER_NON_EXAM',
+      confidence: parsed.confidence || 'HIGH',
+      detectedSummary: parsed.detectedSummary || 'Dokument',
+      rejectionReason:
+        parsed.rejectionReason ||
+        'Das Dokument wurde nicht als Prüfungsdokument erkannt. Sie können es über "Trotzdem als Prüfung behandeln" dennoch verwenden.',
+      canOverride: true,
+    };
+
+    if (cacheKey && teacherId) {
+      await setCachedLlmResult(cacheKey, {
+        result,
+        cachedAt: Date.now(),
+        cachedAtIso: new Date().toISOString(),
+        model: DEFAULT_GEMINI_MODEL,
+        hash: dataHash,
+        callType: 'document_classification',
+        promptVersion: LLM_PROMPT_VERSIONS.documentClassification,
+        teacherId,
+      });
+    }
+
+    return result;
+  } catch (err) {
+    console.warn('classifyDocumentWithGemini failed (falling back to deterministic checks):', err);
+    return null;
   }
 }

@@ -6,7 +6,8 @@ export type LlmCallType =
   | 'rubric_parse'
   | 'scan_identification'
   | 'exam_generation'
-  | 'task_regeneration';
+  | 'task_regeneration'
+  | 'document_classification';
 
 export interface LlmCacheEntry<T> {
   result: T;
@@ -25,6 +26,7 @@ export const LLM_PROMPT_VERSIONS = {
   scanIdentification: '2026-10-30-scan-v1',
   examGeneration: '2026-10-30-generation-v1',
   taskRegeneration: '2026-10-30-task-regen-v1',
+  documentClassification: '2026-11-01-doc-class-v1',
 } as const;
 
 /**
@@ -197,6 +199,28 @@ export function computeTaskRegenerationHash(params: {
     topic: params.topic?.trim() || null,
     stufe: params.stufe?.trim() || null,
     difficulty: params.difficulty?.trim() || null,
+  });
+  return computeSha256(canonical);
+}
+
+/**
+ * Berechnet den Content-Hash fuer die Vorab-Klassifizierung eines Dokumenttyps.
+ */
+export function computeDocumentClassificationHash(params: {
+  teacherId: string;
+  modelName: string;
+  promptVersion?: string;
+  dataHash: string;
+  mimeType: string;
+  expectedType?: string;
+}): string {
+  const canonical = canonicalizeJson({
+    teacherId: params.teacherId,
+    modelName: params.modelName,
+    promptVersion: params.promptVersion || LLM_PROMPT_VERSIONS.documentClassification,
+    dataHash: params.dataHash,
+    mimeType: params.mimeType,
+    expectedType: params.expectedType || null,
   });
   return computeSha256(canonical);
 }
