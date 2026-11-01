@@ -1201,7 +1201,7 @@ ENTSCHEIDUNGSKRITERIEN:
    - Falls unklar ist, ob es sich um eine Prüfung handelt: setze isExamRelated = false, confidence = "LOW", canOverride = true, und erkläre in rejectionReason verständlich, was erkannt wurde.
 
 SPRACHREGELN (SCHWEIZER HOCHDEUTSCH):
-- Verwende in sämtlichen Texten ("detectedSummary", "rejectionReason") ausnahmslos Schweizer Hochdeutsch (immer "ss", niemals "ß").
+- Verwende in sämtlichen Texten ("detectedSummary", "rejectionReason") ausnahmslos Schweizer Hochdeutsch (immer "ss", niemals das deutsche Eszett).
 - Formuliere rejectionReason freundlich, respektvoll und verständlich für die Lehrperson.
 - Biete bei Nicht-Prüfungen immer den Hinweis auf die manuelle Freigabe über "Trotzdem als Prüfung behandeln" an.
 `;
