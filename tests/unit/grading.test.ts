@@ -372,5 +372,18 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       ).toFixed(2);
       expect(weightedSubjectAvg).toBe('5.42');
     });
+
+    it('stellt im Korrektur-Workspace-Header einen sichtbaren Trenner zwischen Fach und Gesamtpunkten sicher (Issue #74)', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const workspaceSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/correct/[id]/page.tsx'),
+        'utf8'
+      );
+
+      expect(workspaceSource).toContain("{'Fach: '}");
+      expect(workspaceSource).toContain("{' · '}");
+      expect(workspaceSource).toContain("{'Gesamtpunkte: '}");
+    });
   });
 });

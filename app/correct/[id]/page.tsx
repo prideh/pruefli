@@ -802,6 +802,7 @@ export default function CorrectWorkspace() {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            gap: '16px',
             borderBottom: '1px solid #e2e8f0',
             background: '#ffffff',
             height: '64px',
@@ -941,21 +942,6 @@ export default function CorrectWorkspace() {
               );
             })()}
 
-            <Stack
-              direction="row"
-              spacing={1}
-              sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center' }}
-            >
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                Fach:
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>
-                {data.fach}
-              </Typography>
-            </Stack>
-          </Stack>
-
-          <Stack direction="row" spacing={3} sx={{ alignItems: 'center' }}>
             {data.isReused && (
               <Tooltip title="Dieses Korrekturergebnis wurde aus dem KI-Cache für identische Eingaben wiederverwendet.">
                 <Chip
@@ -972,12 +958,35 @@ export default function CorrectWorkspace() {
                 />
               </Tooltip>
             )}
+          </Stack>
+
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexShrink: 0 }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center' }}
+            >
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                {'Fach: '}
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>
+                {data.fach}
+              </Typography>
+              <Typography
+                component="span"
+                variant="body2"
+                sx={{ color: '#94a3b8', fontWeight: 700, pl: 0.5 }}
+              >
+                {' · '}
+              </Typography>
+            </Stack>
+
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
               <Typography
                 variant="body2"
                 sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}
               >
-                Gesamtpunkte:
+                {'Gesamtpunkte: '}
               </Typography>
               {(() => {
                 const taskMaxSum =
