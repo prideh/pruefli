@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { signJWT } from '@/lib/jwt';
+import { signJWT, verifyJWT } from '@/lib/jwt';
 
 const mockCookieGet = vi.fn();
 
@@ -66,6 +67,17 @@ describe('UX Navigation Details Improvements & Landingpage-Header (#71)', () => 
 
     // 2. Eingeloggter Zustand
     const validToken = await signJWT({ userId: 'teacher-71' }, '7d');
+    const now = Math.floor(Date.now() / 1000);
+    const secret = process.env.JWT_SECRET || 'pruefli-dev-secret-key-safe-fallback';
+    const hdr = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url');
+    const pld = Buffer.from(
+      JSON.stringify({ userId: 'teacher-71', iat: now, exp: now + 7 * 24 * 60 * 60 })
+    ).toString('base64url');
+    const sig = crypto.createHmac('sha256', secret).update(`${hdr}.${pld}`).digest('base64url');
+    const hmacToken = `${hdr}.${pld}.${sig}`;
+    const verifiedHmac = await verifyJWT(hmacToken);
+    expect(verifiedHmac?.userId).toBe('teacher-71');
+
     mockCookieGet.mockReturnValue({ value: validToken });
     const loggedInHtml = renderToStaticMarkup(await Home());
     const loggedInHeader = loggedInHtml.match(/<header[^>]*>([\s\S]*?)<\/header>/)?.[1] || '';

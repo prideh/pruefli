@@ -17,8 +17,18 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
       await page.setViewportSize(vp);
       await page.goto('/');
       const header = page.locator('header');
-      await expect(header.getByRole('button', { name: 'Login' })).toBeVisible();
-      await expect(header.getByRole('button', { name: 'Registrieren' })).toBeVisible();
+      await expect(
+        header
+          .getByRole('button', { name: 'Login' })
+          .or(header.getByRole('link', { name: 'Login' }))
+          .first()
+      ).toBeVisible();
+      await expect(
+        header
+          .getByRole('button', { name: 'Registrieren' })
+          .or(header.getByRole('link', { name: 'Registrieren' }))
+          .first()
+      ).toBeVisible();
       await expect(header.getByText('Zum Workspace')).toHaveCount(0);
     }
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -52,10 +62,25 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
       await page.setViewportSize(vp);
       await page.goto('/');
       const header = page.locator('header');
-      await expect(header.getByRole('button', { name: 'Login' })).toBeVisible();
-      await expect(header.getByRole('button', { name: 'Registrieren' })).toBeVisible();
+      await expect(
+        header
+          .getByRole('button', { name: 'Login' })
+          .or(header.getByRole('link', { name: 'Login' }))
+          .first()
+      ).toBeVisible();
+      await expect(
+        header
+          .getByRole('button', { name: 'Registrieren' })
+          .or(header.getByRole('link', { name: 'Registrieren' }))
+          .first()
+      ).toBeVisible();
       await expect(header.getByText('Zum Workspace')).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Zum Korrektur-Workspace' })).toBeVisible();
+      await expect(
+        page
+          .getByRole('button', { name: 'Zum Korrektur-Workspace' })
+          .or(page.getByRole('link', { name: 'Zum Korrektur-Workspace' }))
+          .first()
+      ).toBeVisible();
     }
     await page.setViewportSize({ width: 1280, height: 800 });
 
