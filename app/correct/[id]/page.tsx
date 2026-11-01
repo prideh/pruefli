@@ -1500,6 +1500,20 @@ export default function CorrectWorkspace() {
                               }}
                             />
                           )}
+                          {t.lehrerKommentar?.includes('[SICHERHEITSHINWEIS:') && (
+                            <Chip
+                              label="🛡 Manipulation erkannt"
+                              size="small"
+                              sx={{
+                                height: '20px',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                backgroundColor: '#fef2f2',
+                                color: '#991b1b',
+                                border: '1px solid #ef4444',
+                              }}
+                            />
+                          )}
                         </Stack>
                       }
                     />
@@ -1547,6 +1561,59 @@ export default function CorrectWorkspace() {
                 gap: '24px',
               }}
             >
+              {/* Global Security Warning Banner for Prompt Injection / Manipulation Attempts */}
+              {(() => {
+                const securityTasks = data.aufgaben.filter(
+                  (t) =>
+                    t.lehrerKommentar?.includes('[SICHERHEITSHINWEIS:') ||
+                    t.schritte.some((s) =>
+                      s.unsicherheitsGrund?.toLowerCase().includes('manipulationsversuch')
+                    )
+                );
+                if (securityTasks.length === 0) return null;
+                const firstSecurityTaskIdx = data.aufgaben.findIndex(
+                  (t) =>
+                    t.lehrerKommentar?.includes('[SICHERHEITSHINWEIS:') ||
+                    t.schritte.some((s) =>
+                      s.unsicherheitsGrund?.toLowerCase().includes('manipulationsversuch')
+                    )
+                );
+                return (
+                  <Alert
+                    severity="error"
+                    sx={{
+                      borderRadius: '10px',
+                      border: '1.5px solid #ef4444',
+                      backgroundColor: '#fef2f2',
+                      color: '#991b1b',
+                      flexShrink: 0,
+                      alignItems: 'center',
+                    }}
+                    action={
+                      firstSecurityTaskIdx !== -1 && firstSecurityTaskIdx !== activeTaskIndex ? (
+                        <Button
+                          color="error"
+                          size="small"
+                          variant="outlined"
+                          onClick={() => setActiveTaskIndex(firstSecurityTaskIdx)}
+                          sx={{ textTransform: 'none', fontWeight: 700 }}
+                        >
+                          Zur Aufgabe springen
+                        </Button>
+                      ) : undefined
+                    }
+                  >
+                    <strong>Sicherheitshinweis (Manipulationsversuch erkannt):</strong> In{' '}
+                    {securityTasks.length === 1
+                      ? 'einer Aufgabe'
+                      : `${securityTasks.length} Aufgaben`}{' '}
+                    wurde ein versuchter Steuerungsbefehl / Prompt-Injection im Prüfungsinhalt
+                    erkannt. Die unzulässige Anweisung wurde ignoriert und die Bewertung bleibt
+                    regelkonform. Details findest du im Kommentar der betroffenen Aufgabe.
+                  </Alert>
+                );
+              })()}
+
               {/* Global AI Uncertainty Warning Banner */}
               {(() => {
                 const uncertainStepCount = data.aufgaben.reduce(
