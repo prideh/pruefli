@@ -95,9 +95,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     let resolvedStudentName = 'Automatische Zuordnung';
-    if (submission.studentId) {
+    const initialStudentId = submission.studentId || submission.targetStudentId;
+    if (initialStudentId) {
       const student = await db.student.findUnique({
-        where: { id: submission.studentId },
+        where: { id: initialStudentId },
       });
       if (student) {
         resolvedStudentName = student.name;
@@ -105,7 +106,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const modelToUse = DEFAULT_GEMINI_MODEL;
-    const actionType = submission.status === 'FAILED' ? 'NEUSTART' : 'ERSETZT';
+    const isDuplicateConflict = Boolean(
+      submission.errorMessage?.includes('bereits eine Korrektur')
+    );
+    const actionType =
+      submission.status === 'FAILED' && !isDuplicateConflict ? 'NEUSTART' : 'ERSETZT';
 
     // Verify scan files actually exist in durable storage before scheduling background AI task
     const storage = getStorageAdapter();
@@ -283,9 +288,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         let isReused = false;
         let modelUsedForLog = modelToUse;
 
-        // On retry of a failed submission, check if cached result exists
+        // On retry or duplicate-overwrite of a failed submission, check if cached result exists
         const cached =
-          actionType === 'NEUSTART'
+          submission.status === 'FAILED'
             ? await getCachedLlmResult<ExamCorrectionResult>(cacheKey)
             : null;
         if (cached) {
@@ -323,7 +328,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
 
         // Resolve student ID via calibrated auto-matching if student was not manually set previously
-        let matchedStudentId = submission.studentId;
+        let matchedStudentId = submission.studentId || submission.targetStudentId;
         let suggestedStudentId = submission.suggestedStudentId;
         let isStudentMatchUncertain = false;
         const extractedStudentName =
@@ -486,6 +491,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             where: { id: submissionId },
             data: {
               studentId: matchedStudentId,
+              targetStudentId: null,
               extractedStudentName,
               suggestedStudentId,
               isStudentMatchUncertain,

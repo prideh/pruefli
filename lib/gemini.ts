@@ -37,7 +37,15 @@ export type GeminiErrorCategory =
   | 'UPSTREAM_SERVICE'
   | 'INVALID_RESPONSE'
   | 'MISSING_FILE'
+  | 'DUPLICATE_SUBMISSION'
   | 'UNKNOWN';
+
+export function isDuplicateSubmissionErrorMessage(message?: string | null): boolean {
+  if (!message) return false;
+  return /existiert bereits eine Korrektur|bereits eine Korrektur|DUPLICATE_SUBMISSION/i.test(
+    message
+  );
+}
 
 export interface GeminiHealthResult {
   ok: boolean;
@@ -144,6 +152,42 @@ export function categorizeGeminiError(error: unknown): CategorizedGeminiError {
     depth++;
   }
   const combined = parts.join(' | ');
+
+  // 0. Duplicate submission (expected domain conflict in background auto-match grading)
+  if (isDuplicateSubmissionErrorMessage(combined)) {
+    let rawMsg = '';
+    if (error instanceof Error && isDuplicateSubmissionErrorMessage(error.message)) {
+      rawMsg = error.message.trim();
+    } else if (
+      typeof error === 'object' &&
+      error !== null &&
+      'message' in error &&
+      typeof (error as { message?: unknown }).message === 'string' &&
+      isDuplicateSubmissionErrorMessage((error as { message: string }).message)
+    ) {
+      rawMsg = (error as { message: string }).message.trim();
+    } else if (typeof error === 'string' && isDuplicateSubmissionErrorMessage(error)) {
+      rawMsg = error.trim();
+    } else {
+      const match = combined.match(
+        /Für Schüler\/in\s+"[^"]+"\s+existiert bereits eine Korrektur[^|]*/i
+      );
+      if (match) {
+        rawMsg = match[0].trim();
+      }
+    }
+
+    const userMessage = (
+      rawMsg ||
+      "Für diese/n Schüler/in existiert bereits eine Korrektur. Klicke auf 'Korrektur ersetzen', um sie zu überschreiben."
+    ).replace(/ß/g, 'ss');
+
+    return {
+      category: 'DUPLICATE_SUBMISSION',
+      userMessage,
+      technicalDetails: combined,
+    };
+  }
 
   // 1. Timeout (Client timeout, HeadersTimeoutError, UND_ERR_HEADERS_TIMEOUT, AbortError from timeout)
   const isTimeout =

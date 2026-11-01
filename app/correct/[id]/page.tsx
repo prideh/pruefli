@@ -412,6 +412,8 @@ export default function CorrectWorkspace() {
 
   // Failure screen for FAILED state
   if (data.status === 'FAILED') {
+    const isDuplicateError = Boolean(data.errorMessage?.includes('bereits eine Korrektur'));
+
     return (
       <Box
         sx={{
@@ -431,8 +433,8 @@ export default function CorrectWorkspace() {
             width: '72px',
             height: '72px',
             borderRadius: '50%',
-            backgroundColor: '#fee2e2',
-            color: '#ef4444',
+            backgroundColor: isDuplicateError ? '#fef3c7' : '#fee2e2',
+            color: isDuplicateError ? '#d97706' : '#ef4444',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -443,13 +445,18 @@ export default function CorrectWorkspace() {
 
         <Box sx={{ maxWidth: '500px', width: '100%' }}>
           <Typography variant="h5" sx={{ fontWeight: 800, color: '#0f172a', mb: 1 }}>
-            KI-Korrektur fehlgeschlagen
+            {isDuplicateError ? 'Bestehende Korrektur gefunden' : 'KI-Korrektur fehlgeschlagen'}
           </Typography>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-            Während der automatisierten Korrektur ist ein Fehler aufgetreten.
+            {isDuplicateError
+              ? 'Für diese/n Schüler/in liegt in dieser Prüfung bereits eine Korrektur vor.'
+              : 'Während der automatisierten Korrektur ist ein Fehler aufgetreten.'}
           </Typography>
 
-          <Alert severity="error" sx={{ textAlign: 'left', borderRadius: '8px', mb: 3 }}>
+          <Alert
+            severity={isDuplicateError ? 'warning' : 'error'}
+            sx={{ textAlign: 'left', borderRadius: '8px', mb: 3 }}
+          >
             {data.errorMessage || 'Ein unbekannter Fehler ist aufgetreten.'}
           </Alert>
 
@@ -499,21 +506,28 @@ export default function CorrectWorkspace() {
           ) : (
             <Button
               variant="contained"
+              color={isDuplicateError ? 'error' : 'primary'}
               disabled={isRetrying}
               onClick={() => handleRetry()}
               startIcon={
                 isRetrying ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeIcon />
               }
               sx={{
-                backgroundColor: '#0284c7',
+                backgroundColor: isDuplicateError ? '#dc2626' : '#0284c7',
                 borderRadius: '8px',
                 textTransform: 'none',
                 fontWeight: 700,
                 px: 3,
-                '&:hover': { backgroundColor: '#0369a1' },
+                '&:hover': { backgroundColor: isDuplicateError ? '#b91c1c' : '#0369a1' },
               }}
             >
-              {isRetrying ? 'Starte neu...' : 'Erneut versuchen'}
+              {isRetrying
+                ? isDuplicateError
+                  ? 'Ersetze Korrektur...'
+                  : 'Starte neu...'
+                : isDuplicateError
+                  ? 'Korrektur ersetzen'
+                  : 'Erneut versuchen'}
             </Button>
           )}
 

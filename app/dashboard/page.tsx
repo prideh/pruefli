@@ -1086,7 +1086,9 @@ export default function Dashboard() {
                               sx={{ color: 'text.secondary', display: 'block' }}
                             >
                               {isFailed
-                                ? `Fehlgeschlagen: ${job.errorMessage || 'Unbekannter KI-Fehler'}`
+                                ? job.errorMessage?.includes('bereits eine Korrektur')
+                                  ? job.errorMessage
+                                  : `Fehlgeschlagen: ${job.errorMessage || 'Unbekannter KI-Fehler'}`
                                 : isProcessing
                                   ? 'KI analysiert Lösungswege auf Folgefehler...'
                                   : isCompleted
@@ -1100,7 +1102,9 @@ export default function Dashboard() {
                           <Chip
                             label={
                               isFailed
-                                ? 'Fehler'
+                                ? job.errorMessage?.includes('bereits eine Korrektur')
+                                  ? 'Duplikat'
+                                  : 'Fehler'
                                 : isProcessing
                                   ? 'Wird korrigiert'
                                   : isCompleted
@@ -1110,7 +1114,9 @@ export default function Dashboard() {
                             size="small"
                             color={
                               isFailed
-                                ? 'error'
+                                ? job.errorMessage?.includes('bereits eine Korrektur')
+                                  ? 'warning'
+                                  : 'error'
                                 : isProcessing
                                   ? 'info'
                                   : isCompleted

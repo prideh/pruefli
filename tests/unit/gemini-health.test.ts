@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { checkGeminiHealth, GEMINI_HEALTH_TIMEOUT_MS } from '@/lib/gemini';
+import {
+  checkGeminiHealth,
+  categorizeGeminiError,
+  isDuplicateSubmissionErrorMessage,
+  GEMINI_HEALTH_TIMEOUT_MS,
+} from '@/lib/gemini';
 import { GET } from '@/app/api/health/gemini/route';
 import * as sessionModule from '@/lib/session';
 
@@ -192,6 +197,49 @@ describe('Gemini Health Check & Error Categorization (/api/health/gemini)', () =
       expect(data.ok).toBe(false);
       expect(typeof data.latencyMs).toBe('number');
       expect(data.errorCategory).toBe('TIMEOUT');
+    });
+  });
+
+  describe('Duplicate Submission Background Error Categorization (DUPLICATE_SUBMISSION)', () => {
+    it('categorizes background duplicate student error as DUPLICATE_SUBMISSION and preserves actionable replace message', () => {
+      const dupErr = new Error(
+        'Für Schüler/in "Anna Beispiel" existiert bereits eine Korrektur. Klicke auf \'Korrektur ersetzen\', um sie zu überschreiben.'
+      );
+
+      const categorized = categorizeGeminiError(dupErr);
+
+      expect(categorized.category).toBe('DUPLICATE_SUBMISSION');
+      expect(categorized.userMessage).toBe(
+        'Für Schüler/in "Anna Beispiel" existiert bereits eine Korrektur. Klicke auf \'Korrektur ersetzen\', um sie zu überschreiben.'
+      );
+      expect(categorized.userMessage).toContain('Korrektur ersetzen');
+      expect(categorized.userMessage).not.toContain('Ein unerwarteter Fehler');
+      expect(categorized.userMessage).not.toContain('ß');
+      expect(isDuplicateSubmissionErrorMessage(categorized.userMessage)).toBe(true);
+    });
+
+    it('prioritizes DUPLICATE_SUBMISSION even if student or context string contains status-like numbers (e.g. 500)', () => {
+      const dupErr = new Error(
+        'Für Schüler/in "Klasse 500 Anna" existiert bereits eine Korrektur. Klicke auf \'Korrektur ersetzen\', um sie zu überschreiben.'
+      );
+
+      const categorized = categorizeGeminiError(dupErr);
+
+      expect(categorized.category).toBe('DUPLICATE_SUBMISSION');
+      expect(categorized.userMessage).toContain('Klasse 500 Anna');
+      expect(categorized.userMessage).toContain('Korrektur ersetzen');
+    });
+
+    it('normalizes any Eszett (ß) to Swiss German "ss" in duplicate error messages', () => {
+      const dupErr = new Error(
+        'Für Schüler/in "Lukas Groß" existiert bereits eine Korrektur. Klicke auf \'Korrektur ersetzen\', um sie zu überschreiben.'
+      );
+
+      const categorized = categorizeGeminiError(dupErr);
+
+      expect(categorized.category).toBe('DUPLICATE_SUBMISSION');
+      expect(categorized.userMessage).toContain('Lukas Gross');
+      expect(categorized.userMessage).not.toContain('ß');
     });
   });
 });

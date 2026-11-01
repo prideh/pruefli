@@ -502,6 +502,9 @@ export async function POST(request: Request) {
     after(async () => {
       const startTime = Date.now();
       let finalStudentName = resolvedStudentName;
+      let resolvedMatchedStudentId: string | null = studentId || null;
+      let resolvedExtractedStudentName: string | null = null;
+      let resolvedSuggestedStudentId: string | null = null;
 
       try {
         // 1. Update status to PROCESSING
@@ -614,6 +617,10 @@ export async function POST(request: Request) {
               : 'Nicht zugeordnet';
           }
         }
+
+        resolvedMatchedStudentId = matchedStudentId;
+        resolvedExtractedStudentName = extractedStudentName;
+        resolvedSuggestedStudentId = suggestedStudentId;
 
         // 5. Build deterministic task & step corrections and compute server-authoritative points
         const taskCorrectionsData: {
@@ -767,8 +774,14 @@ export async function POST(request: Request) {
                   where: { id: existingSubmission.id },
                 });
               } else {
+                const duplicateStudentLabel =
+                  finalStudentName &&
+                  finalStudentName !== 'Automatische Zuordnung' &&
+                  !finalStudentName.includes('(Nicht zugeordnet)')
+                    ? finalStudentName
+                    : result.schuelerName || 'diese/n Schüler/in';
                 throw new Error(
-                  `Für Schüler/in "${result.schuelerName}" existiert bereits eine Korrektur. Klicke auf 'Korrektur ersetzen', um sie zu überschreiben.`
+                  `Für Schüler/in "${duplicateStudentLabel}" existiert bereits eine Korrektur. Klicke auf 'Korrektur ersetzen', um sie zu überschreiben.`
                 );
               }
             }
@@ -860,10 +873,16 @@ export async function POST(request: Request) {
         }
 
         const categorized = categorizeGeminiError(error);
-        console.error(
-          `Background grading error for submission ${submissionId} [Category: ${categorized.category} | Details: ${categorized.technicalDetails}]:`,
-          error
-        );
+        if (categorized.category === 'DUPLICATE_SUBMISSION') {
+          console.warn(
+            `Background grading duplicate detected for submission ${submissionId} [Category: ${categorized.category} | Details: ${categorized.technicalDetails}]`
+          );
+        } else {
+          console.error(
+            `Background grading error for submission ${submissionId} [Category: ${categorized.category} | Details: ${categorized.technicalDetails}]:`,
+            error
+          );
+        }
 
         // Update decoupled CorrectionLog to FAILED with monitoring category and upstream error details
         const logDetail = categorized.technicalDetails
@@ -890,6 +909,13 @@ export async function POST(request: Request) {
             data: {
               status: 'FAILED',
               errorMessage: categorized.userMessage,
+              ...(resolvedMatchedStudentId ? { targetStudentId: resolvedMatchedStudentId } : {}),
+              ...(resolvedExtractedStudentName
+                ? { extractedStudentName: resolvedExtractedStudentName }
+                : {}),
+              ...(resolvedSuggestedStudentId
+                ? { suggestedStudentId: resolvedSuggestedStudentId }
+                : {}),
             },
           });
         } catch (dbErr) {
@@ -909,6 +935,7 @@ export async function POST(request: Request) {
           submissionId: submission.id,
           examId: finalExamId,
           classId: classId,
+          studentId: resolvedMatchedStudentId || studentId || undefined,
         });
         await invalidateLogsCache(session.userId);
       }
