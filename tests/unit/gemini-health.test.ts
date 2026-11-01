@@ -214,7 +214,7 @@ describe('Gemini Health Check & Error Categorization (/api/health/gemini)', () =
       );
       expect(categorized.userMessage).toContain('Korrektur ersetzen');
       expect(categorized.userMessage).not.toContain('Ein unerwarteter Fehler');
-      expect(categorized.userMessage).not.toContain('ß');
+      expect(categorized.userMessage).not.toContain('\u00df');
       expect(isDuplicateSubmissionErrorMessage(categorized.userMessage)).toBe(true);
     });
 
@@ -230,16 +230,16 @@ describe('Gemini Health Check & Error Categorization (/api/health/gemini)', () =
       expect(categorized.userMessage).toContain('Korrektur ersetzen');
     });
 
-    it('normalizes any Eszett (ß) to Swiss German "ss" in duplicate error messages', () => {
+    it('normalizes any Eszett to Swiss German "ss" in duplicate error messages', () => {
       const dupErr = new Error(
-        'Für Schüler/in "Lukas Groß" existiert bereits eine Korrektur. Klicke auf \'Korrektur ersetzen\', um sie zu überschreiben.'
+        'Für Schüler/in "Lukas Gro\u00df" existiert bereits eine Korrektur. Klicke auf \'Korrektur ersetzen\', um sie zu überschreiben.'
       );
 
       const categorized = categorizeGeminiError(dupErr);
 
       expect(categorized.category).toBe('DUPLICATE_SUBMISSION');
       expect(categorized.userMessage).toContain('Lukas Gross');
-      expect(categorized.userMessage).not.toContain('ß');
+      expect(categorized.userMessage).not.toContain('\u00df');
     });
   });
 });

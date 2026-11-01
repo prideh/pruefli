@@ -180,7 +180,7 @@ export function categorizeGeminiError(error: unknown): CategorizedGeminiError {
     const userMessage = (
       rawMsg ||
       "Für diese/n Schüler/in existiert bereits eine Korrektur. Klicke auf 'Korrektur ersetzen', um sie zu überschreiben."
-    ).replace(/ß/g, 'ss');
+    ).replace(/\u00df/g, 'ss');
 
     return {
       category: 'DUPLICATE_SUBMISSION',
