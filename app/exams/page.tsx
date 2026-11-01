@@ -438,9 +438,6 @@ export default function ExamsPage() {
 
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (parsingRubric) {
-      return;
-    }
     if (!examTitle.trim() || !examSubject.trim() || !selectedClassId) {
       setCreateError('Bitte fülle alle Pflichtfelder aus.');
       return;
@@ -1670,7 +1667,7 @@ export default function ExamsPage() {
                 <Button
                   type="submit"
                   variant="contained"
-                  disabled={createLoading || parsingRubric}
+                  disabled={createLoading}
                   sx={{
                     textTransform: 'none',
                     fontWeight: 700,
@@ -1678,13 +1675,7 @@ export default function ExamsPage() {
                     borderRadius: '8px',
                   }}
                 >
-                  {createLoading ? (
-                    <CircularProgress size={20} color="inherit" />
-                  ) : parsingRubric ? (
-                    'Analyse läuft...'
-                  ) : (
-                    'Anlegen'
-                  )}
+                  {createLoading ? <CircularProgress size={20} color="inherit" /> : 'Anlegen'}
                 </Button>
               </Stack>
             </DialogActions>
