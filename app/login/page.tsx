@@ -24,6 +24,28 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import EmailIcon from '@mui/icons-material/Email';
 import LockIcon from '@mui/icons-material/Lock';
 import { setCachedTeacher } from '@/lib/sessionCache';
+import SocialLoginButtons from '@/components/SocialLoginButtons';
+
+function getInitialLoginError(): string {
+  if (typeof window === 'undefined') return '';
+  const params = new URLSearchParams(window.location.search);
+  const urlError = params.get('error');
+  if (!urlError) return '';
+  switch (urlError) {
+    case 'oauth_cancelled':
+      return 'Die Anmeldung über den Anbieter wurde abgebrochen.';
+    case 'provider_not_configured':
+      return 'Dieser Social-Login-Anbieter ist noch nicht eingerichtet.';
+    case 'invalid_state':
+      return 'Die Sitzung ist abgelaufen. Bitte versuche es erneut.';
+    case 'link_token_expired':
+      return 'Der Verknüpfungs-Link ist abgelaufen oder ungültig.';
+    case 'oauth_exchange_failed':
+      return 'Anmeldung beim Anbieter fehlgeschlagen. Bitte versuche es später erneut.';
+    default:
+      return '';
+  }
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,7 +53,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(getInitialLoginError);
 
   // Proactively check if already logged in
   useEffect(() => {
@@ -260,6 +282,8 @@ export default function LoginPage() {
                 </Button>
               </Stack>
             </form>
+
+            <SocialLoginButtons labelPrefix="anmelden" />
 
             <Box sx={{ mt: 3, textAlign: 'center' }}>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>

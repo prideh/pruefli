@@ -25,6 +25,7 @@ import EmailIcon from '@mui/icons-material/Email';
 import LockIcon from '@mui/icons-material/Lock';
 import PersonIcon from '@mui/icons-material/Person';
 import { setCachedTeacher } from '@/lib/sessionCache';
+import SocialLoginButtons from '@/components/SocialLoginButtons';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -307,6 +308,8 @@ export default function RegisterPage() {
                 </Typography>
               </Stack>
             </form>
+
+            <SocialLoginButtons labelPrefix="registrieren" />
 
             <Box sx={{ mt: 3, textAlign: 'center' }}>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>

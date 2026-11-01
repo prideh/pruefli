@@ -216,3 +216,194 @@ export async function verifyPasswordResetToken(
     return null;
   }
 }
+
+export interface OAuthStatePayload {
+  purpose: 'oauth_state';
+  provider: 'google' | 'microsoft';
+  action: 'login' | 'link';
+  teacherId?: string | null;
+  nonce: string;
+  exp?: number;
+  iat?: number;
+}
+
+/**
+ * Signs a short-lived 15-minute token for OAuth state and CSRF verification.
+ */
+export async function signOAuthStateToken(
+  payload: {
+    provider: 'google' | 'microsoft';
+    action?: 'login' | 'link';
+    teacherId?: string | null;
+    nonce: string;
+  },
+  expiry = '15m'
+): Promise<string> {
+  const key = getSecretKey();
+  return new SignJWT({
+    purpose: 'oauth_state',
+    provider: payload.provider,
+    action: payload.action || 'login',
+    teacherId: payload.teacherId || null,
+    nonce: payload.nonce,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiry)
+    .sign(key);
+}
+
+/**
+ * Verifies an OAuth state CSRF token.
+ */
+export async function verifyOAuthStateToken(
+  token: string | undefined | null
+): Promise<OAuthStatePayload | null> {
+  if (!token) return null;
+  try {
+    const key = getSecretKey();
+    const { payload } = await jwtVerify(token, key, {
+      algorithms: ['HS256'],
+    });
+    if (
+      payload.purpose !== 'oauth_state' ||
+      (payload.provider !== 'google' && payload.provider !== 'microsoft') ||
+      typeof payload.nonce !== 'string'
+    ) {
+      return null;
+    }
+    return payload as unknown as OAuthStatePayload;
+  } catch {
+    return null;
+  }
+}
+
+export interface OAuthPendingLinkPayload {
+  purpose: 'oauth_pending_link';
+  provider: 'google' | 'microsoft';
+  providerAccountId: string;
+  providerEmail: string;
+  providerName?: string | null;
+  existingTeacherId: string;
+  existingTeacherEmail: string;
+  exp?: number;
+  iat?: number;
+}
+
+/**
+ * Signs a short-lived 15-minute token for pending account linking that requires ownership proof.
+ */
+export async function signOAuthPendingLinkToken(
+  payload: {
+    provider: 'google' | 'microsoft';
+    providerAccountId: string;
+    providerEmail: string;
+    providerName?: string | null;
+    existingTeacherId: string;
+    existingTeacherEmail: string;
+  },
+  expiry = '15m'
+): Promise<string> {
+  const key = getSecretKey();
+  return new SignJWT({
+    purpose: 'oauth_pending_link',
+    provider: payload.provider,
+    providerAccountId: payload.providerAccountId,
+    providerEmail: payload.providerEmail.toLowerCase(),
+    providerName: payload.providerName || null,
+    existingTeacherId: payload.existingTeacherId,
+    existingTeacherEmail: payload.existingTeacherEmail.toLowerCase(),
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiry)
+    .sign(key);
+}
+
+/**
+ * Verifies a pending account linking token.
+ */
+export async function verifyOAuthPendingLinkToken(
+  token: string | undefined | null
+): Promise<OAuthPendingLinkPayload | null> {
+  if (!token) return null;
+  try {
+    const key = getSecretKey();
+    const { payload } = await jwtVerify(token, key, {
+      algorithms: ['HS256'],
+    });
+    if (
+      payload.purpose !== 'oauth_pending_link' ||
+      (payload.provider !== 'google' && payload.provider !== 'microsoft') ||
+      typeof payload.existingTeacherId !== 'string' ||
+      typeof payload.providerAccountId !== 'string'
+    ) {
+      return null;
+    }
+    return payload as unknown as OAuthPendingLinkPayload;
+  } catch {
+    return null;
+  }
+}
+
+export interface OAuthConfirmLinkEmailPayload {
+  purpose: 'oauth_confirm_link_email';
+  provider: 'google' | 'microsoft';
+  providerAccountId: string;
+  providerEmail: string;
+  teacherId: string;
+  exp?: number;
+  iat?: number;
+}
+
+/**
+ * Signs a 24-hour token for confirming account linking via email.
+ */
+export async function signOAuthConfirmLinkEmailToken(
+  payload: {
+    provider: 'google' | 'microsoft';
+    providerAccountId: string;
+    providerEmail: string;
+    teacherId: string;
+  },
+  expiry = '24h'
+): Promise<string> {
+  const key = getSecretKey();
+  return new SignJWT({
+    purpose: 'oauth_confirm_link_email',
+    provider: payload.provider,
+    providerAccountId: payload.providerAccountId,
+    providerEmail: payload.providerEmail.toLowerCase(),
+    teacherId: payload.teacherId,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiry)
+    .sign(key);
+}
+
+/**
+ * Verifies an email confirmation token for account linking.
+ */
+export async function verifyOAuthConfirmLinkEmailToken(
+  token: string | undefined | null
+): Promise<OAuthConfirmLinkEmailPayload | null> {
+  if (!token) return null;
+  try {
+    const key = getSecretKey();
+    const { payload } = await jwtVerify(token, key, {
+      algorithms: ['HS256'],
+    });
+    if (
+      payload.purpose !== 'oauth_confirm_link_email' ||
+      (payload.provider !== 'google' && payload.provider !== 'microsoft') ||
+      typeof payload.teacherId !== 'string' ||
+      typeof payload.providerAccountId !== 'string'
+    ) {
+      return null;
+    }
+    return payload as unknown as OAuthConfirmLinkEmailPayload;
+  } catch {
+    return null;
+  }
+}

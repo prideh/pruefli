@@ -262,10 +262,55 @@ export default function PrivacyPage() {
                 </Box>
               </Box>
 
-              {/* Section 6: Betroffenenrechte nach Schweizer DSG */}
+              {/* Section 6: Social Sign-in (Google & Microsoft Identity) */}
+              <Box>
+                <Stack direction="row" spacing={1.5} sx={{ mb: 1.5, alignItems: 'center' }}>
+                  <SecurityIcon sx={{ color: '#1b77d1', fontSize: '1.5rem' }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                    6. Social Sign-in (Google & Microsoft Identity Platform)
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" sx={{ color: '#334155', lineHeight: 1.7, mb: 1.5 }}>
+                  Lehrpersonen können sich auf prüefli optional über bestehende institutionelle oder
+                  persönliche Konten von <strong>Google</strong> (Google Workspace / Cloud Identity)
+                  oder <strong>Microsoft</strong> (Microsoft Entra ID / Microsoft 365) anmelden.
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#334155', lineHeight: 1.7, mb: 1.5 }}>
+                  Bei der Nutzung des Social Sign-in werden ausschliesslich die zur sicheren
+                  Identifikation erforderlichen Daten (eindeutige Benutzer-ID des Providers,
+                  E-Mail-Adresse und Anzeigename) über standardisierte, verschlüsselte OAuth 2.0 /
+                  OpenID Connect Protokolle ausgetauscht. Die Prüfung erfolgt rein serverseitig: Es
+                  werden keinerlei Analyse-, Werbe- oder Tracking-Skripte der Identitätsanbieter in
+                  den Browser des Nutzers eingebunden.
+                </Typography>
+                <Box
+                  sx={{
+                    p: 2,
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{ fontWeight: 700, color: '#334155', display: 'block', mb: 0.5 }}
+                  >
+                    SCHUTZ VOR UNBERECHTIGTER KONTO-VERKNÜPFUNG
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#475569', lineHeight: 1.6 }}>
+                    Ein Social-Login verknüpft ein bestehendes prüefli-Konto niemals automatisch
+                    allein aufgrund einer übereinstimmenden E-Mail-Adresse oder eines
+                    Provider-Claims. Zum Schutz der Schüler- und Prüfungsdaten ist stets ein
+                    Nachweis der bestehenden Konto-Inhaberschaft (z. B. durch Passworteingabe oder
+                    Bestätigung per E-Mail) zwingend erforderlich.
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* Section 7: Betroffenenrechte nach Schweizer DSG */}
               <Box>
                 <Typography variant="h6" sx={{ fontWeight: 700, color: '#0f172a', mb: 1.5 }}>
-                  6. Rechte der betroffenen Personen (Schweizer DSG)
+                  7. Rechte der betroffenen Personen (Schweizer DSG)
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#334155', lineHeight: 1.7 }}>
                   Nach dem Schweizer Bundesgesetz über den Datenschutz (DSG) sowie ggf. anwendbaren

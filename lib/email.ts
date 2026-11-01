@@ -15,7 +15,7 @@ export interface SendEmailOptions {
   subject: string;
   textContent: string;
   htmlContent: string;
-  template: 'verification' | 'password_reset' | 'general';
+  template: 'verification' | 'password_reset' | 'oauth_link' | 'general';
 }
 
 export interface SendEmailResult {
@@ -422,5 +422,131 @@ export async function sendPasswordResetEmail(params: {
     textContent,
     htmlContent,
     template: 'password_reset',
+  });
+}
+
+/**
+ * Renders the de-CH Swiss German OAuth link confirmation email templates.
+ * Strict Swiss German: uses "ss" exclusively, never Eszett.
+ */
+export function renderOAuthLinkConfirmationEmail(
+  name: string,
+  providerName: string,
+  confirmationUrl: string
+): {
+  subject: string;
+  textContent: string;
+  htmlContent: string;
+} {
+  const safeName = name?.trim() || 'Lehrperson';
+  const subject = `prüefli-Konto mit ${providerName} verknüpfen`;
+
+  const textContent = `Grüezi ${safeName}
+
+Wir haben eine Anfrage erhalten, dein bestehendes prüefli-Konto mit deinem ${providerName}-Konto zu verknüpfen.
+
+Aus Sicherheitsgründen wird diese Verknüpfung erst nach deiner Bestätigung aktiviert. Klicke auf folgenden Link, um die Verknüpfung zu bestätigen:
+${confirmationUrl}
+
+Dieser Bestätigungslink ist 24 Stunden gültig. Falls du diese Verknüpfung nicht angefordert hast, kannst du diese Nachricht ignorieren. Es werden keine Änderungen an deinem Konto vorgenommen.
+
+Freundliche Grüsse
+Dein prüefli-Team
+https://pruefli.ch`;
+
+  const htmlContent = `<!DOCTYPE html>
+<html lang="de-CH">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 580px; background-color: #ffffff; border-radius: 14px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);" cellspacing="0" cellpadding="0">
+          <!-- Header -->
+          <tr>
+            <td style="background-color: #0f172a; padding: 24px 32px; text-align: left;">
+              <span style="font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;">prüefli</span>
+              <span style="display: block; font-size: 13px; color: #94a3b8; margin-top: 4px; font-weight: 500;">Sichere Konto-Verknüpfung</span>
+            </td>
+          </tr>
+          <!-- Body -->
+          <tr>
+            <td style="padding: 36px 32px 28px 32px;">
+              <h1 style="font-size: 20px; font-weight: 750; color: #0f172a; margin-top: 0; margin-bottom: 16px;">Grüezi ${safeName}</h1>
+              <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-bottom: 24px;">
+                Wir haben eine Anfrage erhalten, dein bestehendes prüefli-Konto mit deinem <strong>${providerName}</strong>-Konto zu verknüpfen.
+              </p>
+              <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-bottom: 24px;">
+                Zum Schutz deines Kontos vor unberechtigtem Zugriff wird ein Nachweis der Konto-Inhaberschaft vorausgesetzt. Bitte bestätige die Verknüpfung über die folgende Schaltfläche:
+              </p>
+              <!-- Action Button -->
+              <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 28px 0;">
+                <tr>
+                  <td align="left" style="border-radius: 8px; background-color: #1b77d1;">
+                    <a href="${confirmationUrl}" target="_blank" style="display: inline-block; padding: 13px 26px; font-size: 15px; font-weight: 700; color: #ffffff; text-decoration: none; border-radius: 8px;">
+                      Konto-Verknüpfung jetzt bestätigen
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin-top: 24px;">
+                Dieser Bestätigungslink ist <strong>24 Stunden gültig</strong>. Falls der Button nicht funktioniert, kopiere diesen Link in deinen Browser:
+              </p>
+              <p style="font-size: 12px; line-height: 1.4; color: #1b77d1; word-break: break-all; margin-top: 6px;">
+                <a href="${confirmationUrl}" style="color: #1b77d1; text-decoration: underline;">${confirmationUrl}</a>
+              </p>
+              <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin-top: 24px; margin-bottom: 0;">
+                Falls du diese Verknüpfung nicht angefordert hast, kannst du diese Nachricht ignorieren. Es werden keine Änderungen an deinem Konto vorgenommen.
+              </p>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 32px; font-size: 12px; color: #64748b; text-align: left;">
+              <p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">prüefli – Bildungsinformatik Schweiz</p>
+              <p style="margin: 0; color: #94a3b8;">
+                Diese E-Mail wurde automatisch von <a href="https://pruefli.ch" style="color: #64748b; text-decoration: underline;">pruefli.ch</a> versendet.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return { subject, textContent, htmlContent };
+}
+
+/**
+ * Sends an email link to confirm account linking.
+ */
+export async function sendOAuthLinkConfirmationEmail(params: {
+  toEmail: string;
+  toName: string;
+  providerName: string;
+  confirmToken: string;
+}): Promise<SendEmailResult> {
+  const { toEmail, toName, providerName, confirmToken } = params;
+  const baseUrl = getAppUrl();
+  const confirmationUrl = `${baseUrl}/api/auth/oauth/link-confirm-email?token=${encodeURIComponent(confirmToken)}`;
+
+  const { subject, textContent, htmlContent } = renderOAuthLinkConfirmationEmail(
+    toName,
+    providerName,
+    confirmationUrl
+  );
+
+  return sendTransactionalEmail({
+    to: { email: toEmail, name: toName },
+    subject,
+    textContent,
+    htmlContent,
+    template: 'oauth_link',
   });
 }
