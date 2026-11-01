@@ -313,7 +313,7 @@ Neu formulierte letzte Aufgabe.`;
       };
 
       const embedded = embedExamMetadata('Eigene Notizen der Lehrperson', meta);
-      expect(embedded).toContain('<!-- GRADEAI_EXAM_META:');
+      expect(embedded).toContain('<!-- PRUEFLI_EXAM_META:');
       expect(embedded).toContain('Eigene Notizen der Lehrperson');
 
       const parsed = parseExamMetadata(embedded);
@@ -321,6 +321,15 @@ Neu formulierte letzte Aufgabe.`;
       expect(parsed.metadata.isApproved).toBe(false);
       expect(parsed.metadata.taskSources?.['1']).toBe('S. 4, Bsp. 1');
       expect(parsed.cleanNotes).toBe('Eigene Notizen der Lehrperson');
+
+      // Abwaertskompatibles Parsen von bestehenden GRADEAI_EXAM_META-Dateien
+      const legacyEmbedded =
+        '<!-- GRADEAI_EXAM_META:{"isGenerated":true,"isApproved":false,"taskSources":{"1":"Legacy"}} --> Alte Notizen';
+      const legacyParsed = parseExamMetadata(legacyEmbedded);
+      expect(legacyParsed.metadata.isGenerated).toBe(true);
+      expect(legacyParsed.metadata.isApproved).toBe(false);
+      expect(legacyParsed.metadata.taskSources?.['1']).toBe('Legacy');
+      expect(legacyParsed.cleanNotes).toBe('Alte Notizen');
 
       expect(isExamGenerated({ gradingNotes: embedded })).toBe(true);
       expect(isExamApproved({ gradingNotes: embedded })).toBe(false);

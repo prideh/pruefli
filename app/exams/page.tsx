@@ -168,7 +168,10 @@ export default function ExamsPage() {
       return activeTabClassId;
     }
     const defaultId =
-      typeof window !== 'undefined' ? localStorage.getItem('gradeai_default_class_id') : null;
+      typeof window !== 'undefined'
+        ? localStorage.getItem('pruefli_default_class_id') ||
+          localStorage.getItem('gradeai_default_class_id')
+        : null;
     const hasDefault = defaultId && classes.some((c) => c.id === defaultId);
     return hasDefault ? (defaultId as string) : (classes[0]?.id ?? '');
   }, [classes, activeTabClassId]);
@@ -183,7 +186,10 @@ export default function ExamsPage() {
 
   const [defaultClassId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('gradeai_default_class_id');
+      return (
+        localStorage.getItem('pruefli_default_class_id') ||
+        localStorage.getItem('gradeai_default_class_id')
+      );
     }
     return null;
   });
@@ -253,7 +259,7 @@ export default function ExamsPage() {
     // Mandatory material upload check
     if (!effectiveMaterial) {
       setGenError(
-        'Das Hochladen von Unterrichtsmaterial ist erforderlich. GradeAI generiert Prüfungen ausschliesslich auf Basis Ihrer Unterlagen.'
+        'Das Hochladen von Unterrichtsmaterial ist erforderlich. prüefli generiert Prüfungen ausschliesslich auf Basis Ihrer Unterlagen.'
       );
       return;
     }
@@ -1917,7 +1923,7 @@ export default function ExamsPage() {
             <DialogContent>
               <Stack spacing={2.5} sx={{ mt: 1 }}>
                 <Alert severity="info" sx={{ borderRadius: '8px' }}>
-                  <strong>Determinismus & Grounding:</strong> GradeAI generiert die
+                  <strong>Determinismus & Grounding:</strong> prüefli generiert die
                   Aufgabenstellung, Musterlösung und Punkteverteilung ausschliesslich aus deinem
                   hochgeladenen Unterrichtsmaterial. Das Hochladen von Material ist verpflichtend.
                 </Alert>

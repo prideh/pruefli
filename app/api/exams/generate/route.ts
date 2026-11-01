@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Das Hochladen von Unterrichtsmaterial ist erforderlich. GradeAI generiert Prüfungen ausschliesslich auf Basis Ihrer Unterlagen.',
+            'Das Hochladen von Unterrichtsmaterial ist erforderlich. prüefli generiert Prüfungen ausschliesslich auf Basis Ihrer Unterlagen.',
         },
         { status: 400 }
       );
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Das Hochladen von Unterrichtsmaterial ist erforderlich. GradeAI generiert Prüfungen ausschliesslich auf Basis Ihrer Unterlagen.',
+            'Das Hochladen von Unterrichtsmaterial ist erforderlich. prüefli generiert Prüfungen ausschliesslich auf Basis Ihrer Unterlagen.',
         },
         { status: 400 }
       );
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Das Hochladen von Unterrichtsmaterial ist erforderlich. GradeAI generiert Prüfungen ausschliesslich auf Basis Ihrer Unterlagen.',
+            'Das Hochladen von Unterrichtsmaterial ist erforderlich. prüefli generiert Prüfungen ausschliesslich auf Basis Ihrer Unterlagen.',
         },
         { status: 400 }
       );

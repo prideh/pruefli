@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
   const uniqueSuffix = Date.now();
   const teacherEmail = `e2e.teacher.${uniqueSuffix}@schule.ch`;
-  const teacherPassword = 'SwissGradeAiPassword2026!';
+  const teacherPassword = 'SwissPruefliPassword2026!';
   const teacherName = 'Herr Dr. Schweizer';
 
   test('1. Teacher Registration -> Decluttered Dashboard -> Class & Student Creation -> Exam & CSV Export -> Mobile QR Relay Handover', async ({

@@ -200,7 +200,7 @@ export default function ExamPrintFeedbackPage() {
               >
                 <div>
                   <h1 style={{ fontSize: '20pt', margin: 0, fontWeight: 'bold', color: '#0f172a' }}>
-                    GradeAi - Schüler-Feedbackbericht
+                    prüefli - Schüler-Feedbackbericht
                   </h1>
                   <p
                     style={{

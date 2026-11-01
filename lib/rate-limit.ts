@@ -93,17 +93,19 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 }
 
 const globalForRateLimit = globalThis as unknown as {
+  __pruefliRateLimitStore?: RateLimitStore;
   __gradeAiRateLimitStore?: RateLimitStore;
 };
 
 export function getRateLimitStore(): RateLimitStore {
-  if (!globalForRateLimit.__gradeAiRateLimitStore) {
-    globalForRateLimit.__gradeAiRateLimitStore = new InMemoryRateLimitStore();
+  if (!globalForRateLimit.__pruefliRateLimitStore && !globalForRateLimit.__gradeAiRateLimitStore) {
+    globalForRateLimit.__pruefliRateLimitStore = new InMemoryRateLimitStore();
   }
-  return globalForRateLimit.__gradeAiRateLimitStore;
+  return globalForRateLimit.__pruefliRateLimitStore ?? globalForRateLimit.__gradeAiRateLimitStore!;
 }
 
 export function setRateLimitStore(store: RateLimitStore | undefined): void {
+  globalForRateLimit.__pruefliRateLimitStore = store;
   globalForRateLimit.__gradeAiRateLimitStore = store;
 }
 

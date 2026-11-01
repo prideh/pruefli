@@ -141,7 +141,9 @@ export default function Dashboard() {
   const [cancelError, setCancelError] = useState('');
   const [dismissedSubmissionIds, setDismissedSubmissionIds] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('gradeai_dismissed_submission_ids');
+      const stored =
+        localStorage.getItem('pruefli_dismissed_submission_ids') ||
+        localStorage.getItem('gradeai_dismissed_submission_ids');
       if (stored) {
         try {
           return JSON.parse(stored);
@@ -194,14 +196,17 @@ export default function Dashboard() {
     // Für COMPLETED Einträge: Nur lokal ausblenden, in DB belassen
     const updated = [...dismissedSubmissionIds, subId];
     setDismissedSubmissionIds(updated);
-    localStorage.setItem('gradeai_dismissed_submission_ids', JSON.stringify(updated));
+    localStorage.setItem('pruefli_dismissed_submission_ids', JSON.stringify(updated));
   };
 
   // Selection states
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [defaultClassId, setDefaultClassId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('gradeai_default_class_id');
+      return (
+        localStorage.getItem('pruefli_default_class_id') ||
+        localStorage.getItem('gradeai_default_class_id')
+      );
     }
     return null;
   });
@@ -514,10 +519,11 @@ export default function Dashboard() {
     if (!selectedClassId) return;
 
     if (defaultClassId === selectedClassId) {
+      localStorage.removeItem('pruefli_default_class_id');
       localStorage.removeItem('gradeai_default_class_id');
       setDefaultClassId(null);
     } else {
-      localStorage.setItem('gradeai_default_class_id', selectedClassId);
+      localStorage.setItem('pruefli_default_class_id', selectedClassId);
       setDefaultClassId(selectedClassId);
     }
   };

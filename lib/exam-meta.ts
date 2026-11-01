@@ -15,7 +15,8 @@ export interface ExamMetadata {
   taskSources?: Record<string, string>; // Map taskId -> source reference (e.g. "Seite 2, Abschnitt 2.1")
 }
 
-const META_PREFIX = '<!-- GRADEAI_EXAM_META:';
+const META_PREFIX = '<!-- PRUEFLI_EXAM_META:';
+const LEGACY_META_PREFIX = '<!-- GRADEAI_EXAM_META:';
 const META_SUFFIX = ' -->';
 
 /**
@@ -40,17 +41,24 @@ export function parseExamMetadata(gradingNotes?: string | null): {
   }
 
   const trimmed = gradingNotes.trim();
-  const startIdx = trimmed.indexOf(META_PREFIX);
+  let startIdx = trimmed.indexOf(META_PREFIX);
+  let prefixLength = META_PREFIX.length;
+
+  if (startIdx === -1) {
+    startIdx = trimmed.indexOf(LEGACY_META_PREFIX);
+    prefixLength = LEGACY_META_PREFIX.length;
+  }
+
   if (startIdx === -1) {
     return { metadata: defaultMeta, cleanNotes: trimmed };
   }
 
-  const endIdx = trimmed.indexOf(META_SUFFIX, startIdx + META_PREFIX.length);
+  const endIdx = trimmed.indexOf(META_SUFFIX, startIdx + prefixLength);
   if (endIdx === -1) {
     return { metadata: defaultMeta, cleanNotes: trimmed };
   }
 
-  const jsonStr = trimmed.slice(startIdx + META_PREFIX.length, endIdx);
+  const jsonStr = trimmed.slice(startIdx + prefixLength, endIdx);
   const remainingNotes = (
     trimmed.slice(0, startIdx) + trimmed.slice(endIdx + META_SUFFIX.length)
   ).trim();

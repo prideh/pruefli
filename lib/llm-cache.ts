@@ -235,14 +235,16 @@ export function buildLlmCacheKey(
 
 // In-Memory-Speicher, ueber Next.js HMR und Worker-Aufrufe hinweg bestaendig
 const globalForLlmCache = globalThis as unknown as {
+  __pruefliLlmStore?: Map<string, LlmCacheEntry<unknown>>;
   __gradeAiLlmStore?: Map<string, LlmCacheEntry<unknown>>;
 };
 
-const memoryStore: Map<string, LlmCacheEntry<unknown>> = globalForLlmCache.__gradeAiLlmStore ??
+const memoryStore: Map<string, LlmCacheEntry<unknown>> = globalForLlmCache.__pruefliLlmStore ??
+globalForLlmCache.__gradeAiLlmStore ??
 new Map();
 
 if (process.env.NODE_ENV !== 'production') {
-  globalForLlmCache.__gradeAiLlmStore = memoryStore;
+  globalForLlmCache.__pruefliLlmStore = memoryStore;
 }
 
 function getStorageSafeKey(cacheKey: string): string {

@@ -6,7 +6,7 @@ function getSecretKey(): Uint8Array {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('FATAL: JWT_SECRET environment variable must be set in production!');
     }
-    return new TextEncoder().encode('grade-ai-dev-secret-key-safe-fallback');
+    return new TextEncoder().encode('pruefli-dev-secret-key-safe-fallback');
   }
   return new TextEncoder().encode(secret);
 }

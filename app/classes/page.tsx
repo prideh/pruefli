@@ -91,17 +91,21 @@ export default function ClassesPage() {
 
   const [defaultClassId, setDefaultClassId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('gradeai_default_class_id');
+      return (
+        localStorage.getItem('pruefli_default_class_id') ||
+        localStorage.getItem('gradeai_default_class_id')
+      );
     }
     return null;
   });
 
   const handleToggleDefaultClass = (classId: string) => {
     if (defaultClassId === classId) {
+      localStorage.removeItem('pruefli_default_class_id');
       localStorage.removeItem('gradeai_default_class_id');
       setDefaultClassId(null);
     } else {
-      localStorage.setItem('gradeai_default_class_id', classId);
+      localStorage.setItem('pruefli_default_class_id', classId);
       setDefaultClassId(classId);
     }
   };

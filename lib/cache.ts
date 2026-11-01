@@ -166,14 +166,17 @@ class InMemoryCacheStore implements ServerCache {
 
 // Global cache instance across hot module reloads and requests
 const globalForCache = globalThis as unknown as {
+  __pruefliServerCache?: ServerCache;
   __gradeAiServerCache?: ServerCache;
 };
 
 export const serverCache: ServerCache =
-  globalForCache.__gradeAiServerCache ?? new InMemoryCacheStore();
+  globalForCache.__pruefliServerCache ??
+  globalForCache.__gradeAiServerCache ??
+  new InMemoryCacheStore();
 
 if (process.env.NODE_ENV !== 'production') {
-  globalForCache.__gradeAiServerCache = serverCache;
+  globalForCache.__pruefliServerCache = serverCache;
 }
 
 /**

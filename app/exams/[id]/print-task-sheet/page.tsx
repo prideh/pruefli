@@ -103,7 +103,7 @@ export default function ExamPrintTaskSheetPage() {
             Drucken nicht möglich: Prüfung noch nicht freigegeben
           </Typography>
           Diese Prüfung ist ein noch ungeprüfter Entwurf aus Unterrichtsmaterial. Gemäss den
-          Qualitätsrichtlinien von GradeAI muss die Prüfung von der Lehrperson im Editor geprüft und
+          Qualitätsrichtlinien von prüefli muss die Prüfung von der Lehrperson im Editor geprüft und
           ausdrücklich freigegeben werden, bevor ein Aufgabenblatt gedruckt oder exportiert werden
           kann.
         </Alert>
@@ -312,7 +312,7 @@ export default function ExamPrintTaskSheetPage() {
           sx={{ justifyContent: 'space-between', alignItems: 'center', color: 'text.secondary' }}
         >
           <Typography variant="caption" sx={{ fontWeight: 500 }}>
-            Erstellt mit GradeAI • Lehrperson geprüft und freigegeben
+            Erstellt mit prüefli • Lehrperson geprüft und freigegeben
           </Typography>
           <Typography variant="caption" sx={{ fontWeight: 600 }}>
             Viel Erfolg!
