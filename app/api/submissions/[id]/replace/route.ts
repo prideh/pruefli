@@ -326,9 +326,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         let isStudentMatchUncertain = false;
         const extractedStudentName =
           (result.schuelerName || '').trim() || submission.extractedStudentName;
+        let classStudents: { id: string; name: string }[] = [];
 
         if (!matchedStudentId && extractedStudentName) {
-          const classStudents = await db.student.findMany({
+          classStudents = await db.student.findMany({
             where: { classId: submission.exam.classId },
           });
           const matchResult = matchStudentByNameWithConfidence(
@@ -336,9 +337,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             classStudents,
             Boolean(result.istNameUnsicher)
           );
-          suggestedStudentId = matchResult.suggestedStudentId;
+          suggestedStudentId = matchResult.suggestedStudentId || suggestedStudentId;
           if (matchResult.confidence === 'HIGH' && matchResult.matchedStudentId) {
             matchedStudentId = matchResult.matchedStudentId;
+            const matchedRec = classStudents.find((s) => s.id === matchedStudentId);
+            if (matchedRec) {
+              finalStudentName = matchedRec.name;
+            }
+          } else if (isDuplicateConflict && suggestedStudentId) {
+            matchedStudentId = suggestedStudentId;
+            isStudentMatchUncertain = false;
             const matchedRec = classStudents.find((s) => s.id === matchedStudentId);
             if (matchedRec) {
               finalStudentName = matchedRec.name;
@@ -347,32 +355,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             isStudentMatchUncertain = true;
             finalStudentName = `${extractedStudentName} (Nicht zugeordnet)`;
           }
+        } else if (!matchedStudentId && isDuplicateConflict && suggestedStudentId) {
+          matchedStudentId = suggestedStudentId;
+          isStudentMatchUncertain = false;
         }
 
         // Execute transaction to delete duplicate submission and save the new correction
         await db.$transaction(async (tx) => {
-          if (matchedStudentId) {
-            // Delete existing completed/duplicate submission for the matched student to overwrite it
-            const existingSubmission = await tx.submission.findFirst({
-              where: {
-                examId: submission.examId,
-                studentId: matchedStudentId,
-                id: { not: submissionId }, // Exclude current record
-              },
-            });
-
-            if (existingSubmission) {
-              await tx.submission.delete({
-                where: { id: existingSubmission.id },
-              });
-            }
-          }
-
-          // Delete any legacy task corrections that were partially generated
-          await tx.taskCorrection.deleteMany({
-            where: { submissionId },
-          });
-
           // Prepare Task and Step corrections first to calculate deterministic server-side totals
           const taskCorrectionsData: {
             id: string;
@@ -464,6 +453,126 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
               orderIndex: tIdx,
             });
           }
+
+          const normName = (s?: string | null) => (s || '').trim().toLowerCase();
+          const currentNormName = normName(extractedStudentName);
+
+          const existingExamSubmissions =
+            typeof tx.submission.findMany === 'function'
+              ? await tx.submission.findMany({
+                  where: {
+                    examId: submission.examId,
+                    id: { not: submissionId },
+                  },
+                  include: { student: true },
+                  orderBy: { createdAt: 'desc' },
+                })
+              : [];
+
+          if (!matchedStudentId && existingExamSubmissions.length > 0) {
+            const candidateFromSuggested = suggestedStudentId
+              ? existingExamSubmissions.find((s) => s.studentId === suggestedStudentId)
+              : undefined;
+            const candidateFromName =
+              !candidateFromSuggested && currentNormName
+                ? existingExamSubmissions.find(
+                    (s) =>
+                      s.studentId !== null && normName(s.extractedStudentName) === currentNormName
+                  )
+                : undefined;
+            const candidateFromScore =
+              !candidateFromSuggested && !candidateFromName
+                ? existingExamSubmissions.find(
+                    (s) =>
+                      s.studentId !== null &&
+                      s.status === 'COMPLETED' &&
+                      Math.abs((s.earnedPoints ?? 0) - serverTotalEarnedPoints) < 0.01 &&
+                      normName(s.extractedStudentName) === currentNormName
+                  )
+                : undefined;
+
+            const resolvedExisting =
+              candidateFromSuggested || candidateFromName || candidateFromScore;
+            if (resolvedExisting?.studentId) {
+              matchedStudentId = resolvedExisting.studentId;
+              suggestedStudentId = resolvedExisting.studentId;
+              isStudentMatchUncertain = false;
+              if (resolvedExisting.student?.name) {
+                finalStudentName = resolvedExisting.student.name;
+              }
+            }
+          }
+
+          if (existingExamSubmissions.length > 0) {
+            const duplicatesToDelete = existingExamSubmissions.filter((other) => {
+              if (matchedStudentId && other.studentId === matchedStudentId) return true;
+              if (
+                matchedStudentId &&
+                !other.studentId &&
+                (other.targetStudentId === matchedStudentId ||
+                  other.suggestedStudentId === matchedStudentId)
+              ) {
+                return true;
+              }
+              if (
+                !other.studentId &&
+                currentNormName &&
+                normName(other.extractedStudentName) === currentNormName
+              ) {
+                return true;
+              }
+              if (
+                !other.studentId &&
+                other.status === 'COMPLETED' &&
+                Math.abs((other.earnedPoints ?? 0) - serverTotalEarnedPoints) < 0.01 &&
+                normName(other.extractedStudentName) === currentNormName
+              ) {
+                return true;
+              }
+              return false;
+            });
+
+            const dupIds = duplicatesToDelete.map((d) => d.id);
+            if (dupIds.length > 0) {
+              if (typeof tx.correctionLog?.updateMany === 'function') {
+                await tx.correctionLog.updateMany({
+                  where: { submissionId: { in: dupIds } },
+                  data: { submissionId: null },
+                });
+              }
+              if (typeof tx.submission.deleteMany === 'function' && dupIds.length > 1) {
+                await tx.submission.deleteMany({
+                  where: { id: { in: dupIds } },
+                });
+              } else {
+                for (const dupId of dupIds) {
+                  await tx.submission.delete({
+                    where: { id: dupId },
+                  });
+                }
+              }
+            }
+          } else if (matchedStudentId) {
+            // Fallback for mocks without findMany
+            const existingSubmission = await tx.submission.findFirst({
+              where: {
+                examId: submission.examId,
+                studentId: matchedStudentId,
+                id: { not: submissionId }, // Exclude current record
+              },
+            });
+
+            if (existingSubmission) {
+              await tx.submission.delete({
+                where: { id: existingSubmission.id },
+              });
+            }
+          }
+
+          // Delete any legacy task corrections that were partially generated
+          await tx.taskCorrection.deleteMany({
+            where: { submissionId },
+          });
 
           const effectiveMaxPoints =
             submission.exam.maxPoints > 0 ? submission.exam.maxPoints : serverTotalMaxPoints;

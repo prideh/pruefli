@@ -344,7 +344,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const { id: submissionId } = await params;
     const body = await request.json();
-    const { studentId, examId: newExamId } = body;
+    const { studentId, examId: newExamId, overwrite } = body;
+    const shouldOverwrite = overwrite === true;
 
     if (!studentId) {
       return NextResponse.json({ error: 'Schüler-ID fehlt.' }, { status: 400 });
@@ -410,33 +411,137 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       },
     });
 
-    if (existingSubmission) {
+    if (existingSubmission && !shouldOverwrite) {
       return NextResponse.json(
         {
-          error: 'Für diesen Schüler existiert bereits eine Korrektur für diese Prüfung.',
+          error: `Für Schüler/in "${student.name}" existiert bereits eine Korrektur für diese Prüfung. Klicke auf 'Korrektur ersetzen', um sie zu überschreiben.`,
           code: 'DUPLICATE_SUBMISSION',
+          existingSubmissionId: existingSubmission.id,
+          studentId: student.id,
+          studentName: student.name,
+          examId: targetExamId,
         },
         { status: 409 }
       );
     }
 
-    // Update studentId (and examId if reassigned) and clear uncertainty flags
-    const updated = await db.submission.update({
-      where: { id: submissionId },
-      data: {
-        examId: targetExamId,
-        studentId,
-        isStudentMatchUncertain: false,
-        isExamMatchUncertain: false,
-      },
-      include: { student: true },
-    });
+    let deletedDuplicateIds: string[] = [];
+
+    if (shouldOverwrite) {
+      const examOtherSubmissions =
+        typeof db.submission.findMany === 'function'
+          ? await db.submission.findMany({
+              where: {
+                examId: targetExamId,
+                id: { not: submissionId },
+              },
+            })
+          : existingSubmission
+            ? [existingSubmission]
+            : [];
+
+      const normName = (s?: string | null) => (s || '').trim().toLowerCase();
+      const currentNormName = normName(submission.extractedStudentName);
+
+      const duplicatesToDelete = examOtherSubmissions.filter((other) => {
+        if (other.studentId === studentId) return true;
+        if (
+          !other.studentId &&
+          (other.targetStudentId === studentId || other.suggestedStudentId === studentId)
+        ) {
+          return true;
+        }
+        if (
+          !other.studentId &&
+          currentNormName &&
+          normName(other.extractedStudentName) === currentNormName
+        ) {
+          return true;
+        }
+        if (
+          !other.studentId &&
+          other.status === 'COMPLETED' &&
+          submission.status === 'COMPLETED' &&
+          Math.abs((other.earnedPoints ?? 0) - (submission.earnedPoints ?? 0)) < 0.01 &&
+          other.gradeRounded === submission.gradeRounded &&
+          normName(other.extractedStudentName) === currentNormName
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      deletedDuplicateIds = duplicatesToDelete.map((d) => d.id);
+
+      const filesToClean = duplicatesToDelete.filter(
+        (d) => d.studentExamUrl && d.studentExamUrl !== submission.studentExamUrl
+      );
+      if (filesToClean.length > 0) {
+        try {
+          await deleteSubmissionScanFiles(
+            filesToClean.map((d) => ({ id: d.id, studentExamUrl: d.studentExamUrl }))
+          );
+        } catch (cleanupErr) {
+          console.warn('Non-fatal scan cleanup warning during overwrite:', cleanupErr);
+        }
+      }
+    }
+
+    const executeUpdate = async (client: typeof db) => {
+      if (deletedDuplicateIds.length > 0) {
+        if (typeof client.correctionLog?.updateMany === 'function') {
+          await client.correctionLog.updateMany({
+            where: { submissionId: { in: deletedDuplicateIds } },
+            data: { submissionId: null },
+          });
+        }
+        if (typeof client.submission.deleteMany === 'function') {
+          await client.submission.deleteMany({
+            where: { id: { in: deletedDuplicateIds } },
+          });
+        } else {
+          for (const dupId of deletedDuplicateIds) {
+            await client.submission.delete({ where: { id: dupId } });
+          }
+        }
+      }
+
+      const updatedSub = await client.submission.update({
+        where: { id: submissionId },
+        data: {
+          examId: targetExamId,
+          studentId,
+          targetStudentId: null,
+          suggestedStudentId: studentId,
+          isStudentMatchUncertain: false,
+          isExamMatchUncertain: false,
+        },
+        include: { student: true },
+      });
+
+      if (typeof client.correctionLog?.updateMany === 'function') {
+        await client.correctionLog.updateMany({
+          where: { submissionId },
+          data: {
+            studentName: student.name,
+            ...(deletedDuplicateIds.length > 0 ? { actionType: 'ERSETZT' } : {}),
+          },
+        });
+      }
+
+      return updatedSub;
+    };
+
+    const updated =
+      typeof db.$transaction === 'function'
+        ? await db.$transaction(async (tx) => executeUpdate(tx as unknown as typeof db))
+        : await executeUpdate(db);
 
     await invalidateSubmissionCache(session.userId, {
       submissionId,
       examId: submission.examId,
       classId: submission.exam.classId,
-      studentId: submission.studentId || undefined,
+      studentId: submission.studentId || studentId || undefined,
     });
     if (examChanged) {
       await invalidateSubmissionCache(session.userId, {
@@ -446,9 +551,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         studentId,
       });
     }
+    if (deletedDuplicateIds.length > 0) {
+      await invalidateLogsCache(session.userId);
+    }
 
     return NextResponse.json({
       success: true,
+      replaced: deletedDuplicateIds.length > 0,
+      deletedDuplicateIds,
       studentId: updated.studentId,
       studentName: updated.student?.name,
       examId: updated.examId,

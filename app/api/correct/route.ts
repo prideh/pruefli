@@ -585,14 +585,15 @@ export async function POST(request: Request) {
         let suggestedStudentId: string | null = null;
         let isStudentMatchUncertain = false;
         const extractedStudentName = (result.schuelerName || '').trim() || null;
+        let classStudentsList: { id: string; name: string }[] = [];
 
         if (!matchedStudentId) {
-          const classStudents = await db.student.findMany({
+          classStudentsList = await db.student.findMany({
             where: { classId },
           });
           const matchResult = matchStudentByNameWithConfidence(
             extractedStudentName || '',
-            classStudents,
+            classStudentsList,
             Boolean(result.istNameUnsicher)
           );
           suggestedStudentId = matchResult.suggestedStudentId;
@@ -600,7 +601,7 @@ export async function POST(request: Request) {
           if (matchResult.confidence === 'HIGH' && matchResult.matchedStudentId) {
             matchedStudentId = matchResult.matchedStudentId;
             isStudentMatchUncertain = false;
-            const matchedRec = classStudents.find((s) => s.id === matchedStudentId);
+            const matchedRec = classStudentsList.find((s) => s.id === matchedStudentId);
             if (matchedRec) {
               finalStudentName = matchedRec.name;
             }
@@ -752,33 +753,180 @@ export async function POST(request: Request) {
 
         // 6. Execute transaction to write AI grading results
         await db.$transaction(async (tx) => {
-          // Check for duplicate submissions and delete inside the transaction if overwrite is enabled
-          if (matchedStudentId) {
-            const existingSubmission = await tx.submission.findFirst({
-              where: {
-                examId: finalExamId,
-                studentId: matchedStudentId,
-                id: { not: submissionId }, // Exclude current record
-              },
-            });
+          const normName = (s?: string | null) => (s || '').trim().toLowerCase();
+          const currentNormName = normName(extractedStudentName);
+          const candidateStudentId = matchedStudentId || suggestedStudentId;
 
-            if (existingSubmission) {
-              if (overwrite) {
-                // Delete existing completed submission to overwrite it in the same transaction
-                await tx.submission.delete({
-                  where: { id: existingSubmission.id },
+          const existingExamSubmissions =
+            typeof tx.submission.findMany === 'function'
+              ? await tx.submission.findMany({
+                  where: {
+                    examId: finalExamId,
+                    id: { not: submissionId },
+                  },
+                  include: { student: true },
+                  orderBy: { createdAt: 'desc' },
+                })
+              : [];
+
+          let existingDuplicate: {
+            id: string;
+            studentId?: string | null;
+            targetStudentId?: string | null;
+            suggestedStudentId?: string | null;
+            extractedStudentName?: string | null;
+            earnedPoints?: number;
+            gradeRounded?: string;
+            status?: string;
+            student?: { id: string; name: string } | null;
+          } | null = null;
+
+          if (candidateStudentId) {
+            existingDuplicate =
+              existingExamSubmissions.find(
+                (s) => s.studentId === candidateStudentId && s.status === 'COMPLETED'
+              ) ||
+              existingExamSubmissions.find((s) => s.studentId === candidateStudentId) ||
+              null;
+
+            if (!existingDuplicate && typeof tx.submission.findFirst === 'function') {
+              existingDuplicate = await tx.submission.findFirst({
+                where: {
+                  examId: finalExamId,
+                  studentId: candidateStudentId,
+                  id: { not: submissionId },
+                },
+              });
+            }
+          }
+
+          if (
+            !existingDuplicate &&
+            currentNormName &&
+            currentNormName !== 'unbekannt' &&
+            currentNormName !== 'nicht lesbar' &&
+            currentNormName !== 'kein name'
+          ) {
+            existingDuplicate =
+              existingExamSubmissions.find(
+                (s) =>
+                  s.status === 'COMPLETED' &&
+                  s.studentId !== null &&
+                  normName(s.extractedStudentName) === currentNormName
+              ) ||
+              existingExamSubmissions.find(
+                (s) =>
+                  s.status === 'COMPLETED' && normName(s.extractedStudentName) === currentNormName
+              ) ||
+              null;
+          }
+
+          if (!existingDuplicate && isReused) {
+            existingDuplicate =
+              existingExamSubmissions.find(
+                (s) =>
+                  s.status === 'COMPLETED' &&
+                  s.studentId !== null &&
+                  Math.abs((s.earnedPoints ?? 0) - serverTotalEarnedPoints) < 0.01 &&
+                  normName(s.extractedStudentName) === currentNormName
+              ) ||
+              existingExamSubmissions.find(
+                (s) =>
+                  s.status === 'COMPLETED' &&
+                  Math.abs((s.earnedPoints ?? 0) - serverTotalEarnedPoints) < 0.01 &&
+                  normName(s.extractedStudentName) === currentNormName
+              ) ||
+              null;
+          }
+
+          if (existingDuplicate) {
+            const effectiveStudentId =
+              existingDuplicate.studentId ||
+              candidateStudentId ||
+              existingDuplicate.targetStudentId ||
+              existingDuplicate.suggestedStudentId ||
+              null;
+            const matchedRosterStudent = effectiveStudentId
+              ? classStudentsList.find((s) => s.id === effectiveStudentId)
+              : undefined;
+            const resolvedDupStudentName =
+              existingDuplicate.student?.name || matchedRosterStudent?.name || null;
+
+            if (effectiveStudentId) {
+              resolvedMatchedStudentId = effectiveStudentId;
+              resolvedSuggestedStudentId = effectiveStudentId;
+            }
+            if (resolvedDupStudentName) {
+              finalStudentName = resolvedDupStudentName;
+            }
+
+            if (overwrite) {
+              if (effectiveStudentId) {
+                matchedStudentId = effectiveStudentId;
+                suggestedStudentId = effectiveStudentId;
+                isStudentMatchUncertain = false;
+              }
+              const duplicatesToDelete =
+                existingExamSubmissions.length > 0
+                  ? existingExamSubmissions.filter((other) => {
+                      if (other.id === existingDuplicate!.id) return true;
+                      if (effectiveStudentId && other.studentId === effectiveStudentId) return true;
+                      if (
+                        effectiveStudentId &&
+                        !other.studentId &&
+                        (other.targetStudentId === effectiveStudentId ||
+                          other.suggestedStudentId === effectiveStudentId)
+                      ) {
+                        return true;
+                      }
+                      if (
+                        !other.studentId &&
+                        currentNormName &&
+                        normName(other.extractedStudentName) === currentNormName
+                      ) {
+                        return true;
+                      }
+                      if (
+                        !other.studentId &&
+                        other.status === 'COMPLETED' &&
+                        Math.abs((other.earnedPoints ?? 0) - serverTotalEarnedPoints) < 0.01 &&
+                        normName(other.extractedStudentName) === currentNormName
+                      ) {
+                        return true;
+                      }
+                      return false;
+                    })
+                  : [existingDuplicate];
+
+              const dupIds = duplicatesToDelete.map((d) => d.id);
+              if (typeof tx.correctionLog?.updateMany === 'function' && dupIds.length > 0) {
+                await tx.correctionLog.updateMany({
+                  where: { submissionId: { in: dupIds } },
+                  data: { submissionId: null },
+                });
+              }
+              if (typeof tx.submission.deleteMany === 'function' && dupIds.length > 1) {
+                await tx.submission.deleteMany({
+                  where: { id: { in: dupIds } },
                 });
               } else {
-                const duplicateStudentLabel =
-                  finalStudentName &&
-                  finalStudentName !== 'Automatische Zuordnung' &&
-                  !finalStudentName.includes('(Nicht zugeordnet)')
-                    ? finalStudentName
-                    : result.schuelerName || 'diese/n Schüler/in';
-                throw new Error(
-                  `Für Schüler/in "${duplicateStudentLabel}" existiert bereits eine Korrektur. Klicke auf 'Korrektur ersetzen', um sie zu überschreiben.`
-                );
+                for (const dupId of dupIds) {
+                  await tx.submission.delete({
+                    where: { id: dupId },
+                  });
+                }
               }
+            } else {
+              const duplicateStudentLabel =
+                resolvedDupStudentName ||
+                (finalStudentName &&
+                finalStudentName !== 'Automatische Zuordnung' &&
+                !finalStudentName.includes('(Nicht zugeordnet)')
+                  ? finalStudentName
+                  : result.schuelerName || 'diese/n Schüler/in');
+              throw new Error(
+                `Für Schüler/in "${duplicateStudentLabel}" existiert bereits eine Korrektur. Klicke auf 'Korrektur ersetzen', um sie zu überschreiben.`
+              );
             }
           }
 
@@ -913,6 +1061,53 @@ export async function POST(request: Request) {
                 : {}),
             },
           });
+
+          if (
+            categorized.category === 'DUPLICATE_SUBMISSION' &&
+            typeof db.submission.findMany === 'function'
+          ) {
+            const olderFailedDuplicates = await db.submission.findMany({
+              where: {
+                examId: finalExamId,
+                id: { not: submissionId },
+                status: 'FAILED',
+                errorMessage: { contains: 'bereits eine Korrektur' },
+              },
+            });
+            const normName = (s?: string | null) => (s || '').trim().toLowerCase();
+            const staleIds = olderFailedDuplicates
+              .filter((old) => {
+                if (
+                  resolvedMatchedStudentId &&
+                  (old.targetStudentId === resolvedMatchedStudentId ||
+                    old.suggestedStudentId === resolvedMatchedStudentId)
+                ) {
+                  return true;
+                }
+                if (
+                  resolvedExtractedStudentName &&
+                  normName(old.extractedStudentName) === normName(resolvedExtractedStudentName)
+                ) {
+                  return true;
+                }
+                return false;
+              })
+              .map((old) => old.id);
+
+            if (staleIds.length > 0) {
+              if (typeof db.correctionLog?.updateMany === 'function') {
+                await db.correctionLog.updateMany({
+                  where: { submissionId: { in: staleIds } },
+                  data: { submissionId: null },
+                });
+              }
+              if (typeof db.submission.deleteMany === 'function') {
+                await db.submission.deleteMany({
+                  where: { id: { in: staleIds } },
+                });
+              }
+            }
+          }
         } catch (dbErr) {
           const isDbErrCancelled =
             dbErr && typeof dbErr === 'object' && 'code' in dbErr && dbErr.code === 'P2025';

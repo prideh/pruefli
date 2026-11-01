@@ -51,7 +51,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ErrorIcon from '@mui/icons-material/Error';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { getErrorMessage } from '@/lib/api-error';
-import { getDashboardJobTitle } from '@/lib/job-title';
+import { getDashboardJobTitle, isDuplicateSubmissionError } from '@/lib/job-title';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
@@ -96,6 +96,7 @@ interface DashboardExam {
 
 interface DashboardSubmission {
   id: string;
+  studentId?: string | null;
   studentName: string;
   extractedStudentName?: string | null;
   suggestedStudentId?: string | null;
@@ -122,13 +123,184 @@ interface GlobalExamOption {
   className: string;
 }
 
+interface DuplicateAssignConflict {
+  submissionId: string;
+  studentId: string;
+  studentName: string;
+  examId?: string;
+}
+
+function UnassignedSubmissionCell({
+  sub,
+  allExams,
+  activeExamIdForAssign,
+  availableStudentsForAssign,
+  selectedAssignStudentId,
+  isRowDuplicateConflict,
+  isReplacing,
+  onChangeExam,
+  onChangeStudent,
+  onOpenCreateStudent,
+  onAssign,
+}: {
+  sub: DashboardSubmission;
+  allExams: GlobalExamOption[];
+  activeExamIdForAssign: string;
+  availableStudentsForAssign: DashboardStudent[];
+  selectedAssignStudentId: string;
+  isRowDuplicateConflict: boolean;
+  isReplacing: boolean;
+  onChangeExam: (newExamId: string) => void;
+  onChangeStudent: (newStudentId: string) => void;
+  onOpenCreateStudent: () => void;
+  onAssign: (submissionId: string, forceOverwrite: boolean) => void;
+}) {
+  return (
+    <Stack spacing={1} sx={{ py: 1 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <Chip
+          label={
+            sub.isExamMatchUncertain ? '⚠ Klasse/Prüfung & Schüler prüfen' : 'Zuordnung ausstehend'
+          }
+          size="small"
+          sx={{
+            backgroundColor: '#fef3c7',
+            color: '#d97706',
+            fontWeight: 'bold',
+            borderRadius: '6px',
+          }}
+        />
+        {sub.extractedStudentName && (
+          <Typography variant="caption" sx={{ color: '#92400e', fontWeight: 700 }}>
+            KI gelesen: &quot;{sub.extractedStudentName}&quot;
+          </Typography>
+        )}
+      </Stack>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        sx={{
+          alignItems: { xs: 'stretch', sm: 'center' },
+          flexWrap: 'wrap',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {allExams.length > 1 && (
+          <FormControl size="small" sx={{ minWidth: '180px' }}>
+            <Select
+              value={activeExamIdForAssign}
+              onChange={(e) => onChangeExam(e.target.value)}
+              sx={{
+                height: '32px',
+                fontSize: '0.8rem',
+                borderRadius: '6px',
+                backgroundColor: '#ffffff',
+              }}
+            >
+              {allExams.map((ex) => (
+                <MenuItem key={ex.id} value={ex.id}>
+                  {ex.className} · {ex.title}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+        <FormControl size="small" sx={{ minWidth: '160px' }}>
+          <Select
+            value={selectedAssignStudentId}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === 'CREATE_STUDENT') {
+                onOpenCreateStudent();
+                return;
+              }
+              onChangeStudent(val);
+            }}
+            displayEmpty
+            sx={{
+              height: '32px',
+              fontSize: '0.85rem',
+              borderRadius: '6px',
+              backgroundColor: '#ffffff',
+            }}
+          >
+            <MenuItem value="" disabled>
+              <em>Schüler/in wählen...</em>
+            </MenuItem>
+            {availableStudentsForAssign.map((st) => (
+              <MenuItem key={st.id} value={st.id}>
+                {st.name}
+              </MenuItem>
+            ))}
+            <MenuItem value="CREATE_STUDENT" sx={{ color: 'primary.main', fontWeight: 600 }}>
+              + Schüler/in hinzufügen
+            </MenuItem>
+          </Select>
+        </FormControl>
+        <Button
+          size="small"
+          variant={isRowDuplicateConflict ? 'outlined' : 'contained'}
+          disabled={!selectedAssignStudentId || isReplacing}
+          onClick={() => onAssign(sub.id, false)}
+          sx={{
+            minWidth: 'auto',
+            px: 1.5,
+            py: 0.5,
+            height: '32px',
+            textTransform: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+          }}
+        >
+          Zuordnen
+        </Button>
+        {isRowDuplicateConflict && (
+          <Button
+            size="small"
+            variant="contained"
+            color="error"
+            disabled={!selectedAssignStudentId || isReplacing}
+            onClick={() => onAssign(sub.id, true)}
+            startIcon={
+              isReplacing ? (
+                <CircularProgress size={14} color="inherit" />
+              ) : (
+                <AutoAwesomeIcon sx={{ fontSize: '0.95rem !important' }} />
+              )
+            }
+            sx={{
+              minWidth: 'auto',
+              px: 1.5,
+              py: 0.5,
+              height: '32px',
+              textTransform: 'none',
+              borderRadius: '6px',
+              fontWeight: 700,
+              backgroundColor: '#dc2626',
+              whiteSpace: 'nowrap',
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
+            }}
+          >
+            Korrektur ersetzen
+          </Button>
+        )}
+      </Stack>
+      {isRowDuplicateConflict && (
+        <Typography variant="caption" sx={{ color: '#b45309', fontWeight: 700, display: 'block' }}>
+          Für diese/n Schüler/in existiert bereits eine Korrektur — klicke auf &apos;Korrektur
+          ersetzen&apos;, um die bestehende Korrektur zu überschreiben.
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
 export default function Dashboard() {
   const router = useRouter();
 
   // Auth and Session state
-  const [_teacher, setTeacher] = useState<{ id: string; name: string; email: string } | null>(
-    getCachedTeacher()
-  );
   const [authChecking, setAuthChecking] = useState(!getCachedTeacher());
 
   // Database lists
@@ -248,44 +420,49 @@ export default function Dashboard() {
   const [error, setError] = useState<string>('');
   const [openConfirmOverwrite, setOpenConfirmOverwrite] = useState<boolean>(false);
   const [replacingSubmissionId, setReplacingSubmissionId] = useState<string | null>(null);
+  const [duplicateAssignConflict, setDuplicateAssignConflict] =
+    useState<DuplicateAssignConflict | null>(null);
   const [globalExamsCount, setGlobalExamsCount] = useState<number>(0);
   const [initialDataLoading, setInitialDataLoading] = useState<boolean>(true);
 
   // 4. Handle Class Change (Fetch Students & Exams for selected class)
-  const handleClassChange = React.useCallback(async (classId: string) => {
-    setSelectedClassId(classId);
-    setSelectedStudentId('AUTO'); // Recommended default: Auto-Match
-    setStudentFiles([]); // Reset uploads
-    setExams([]);
-    setStudents([]);
+  const handleClassChange = React.useCallback(
+    async (classId: string) => {
+      setSelectedClassId(classId);
+      setSelectedStudentId('AUTO'); // Recommended default: Auto-Match
+      setStudentFiles([]); // Reset uploads
+      setExams([]);
+      setStudents([]);
 
-    if (!classId) return;
+      if (!classId) return;
 
-    try {
-      // Fetch students for class
-      const studentsRes = await fetch(`/api/classes/${classId}/students`);
-      if (studentsRes.ok) {
-        const studentsData = await studentsRes.json();
-        setStudents(studentsData.students || []);
-      }
-
-      // Fetch previous exams for class
-      const examsRes = await fetch(`/api/classes/${classId}/exams`);
-      if (examsRes.ok) {
-        const examsData = await examsRes.json();
-        const loadedExams = examsData.exams || [];
-        setExams(loadedExams);
-        // Pre-select the latest created exam if one exists, else NEW
-        if (loadedExams.length > 0) {
-          setSelectedExamId(loadedExams[0].id);
-        } else {
-          setSelectedExamId('NEW');
+      try {
+        // Fetch students for class
+        const studentsRes = await fetch(`/api/classes/${classId}/students`);
+        if (studentsRes.ok) {
+          const studentsData = await studentsRes.json();
+          setStudents(studentsData.students || []);
         }
+
+        // Fetch previous exams for class
+        const examsRes = await fetch(`/api/classes/${classId}/exams`);
+        if (examsRes.ok) {
+          const examsData = await examsRes.json();
+          const loadedExams = examsData.exams || [];
+          setExams(loadedExams);
+          // Pre-select the latest created exam if one exists, else NEW
+          if (loadedExams.length > 0) {
+            setSelectedExamId(loadedExams[0].id);
+          } else {
+            setSelectedExamId('NEW');
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching class details:', err);
       }
-    } catch (err) {
-      console.error('Error fetching class details:', err);
-    }
-  }, []);
+    },
+    [setSelectedStudentId, setStudentFiles, setSelectedExamId]
+  );
 
   // 2. Fetch classes from DB
   const fetchClasses = React.useCallback(async () => {
@@ -409,45 +586,48 @@ export default function Dashboard() {
   };
 
   // 3. Fetch recent submissions history from DB
-  const fetchRecentSubmissions = React.useCallback(async (forceRefresh = false) => {
-    try {
-      if (forceRefresh) {
-        invalidateSubmissions();
-      }
-      const data = await fetchWithCache<
-        | {
-            submissions: DashboardSubmission[];
-            studentsByClass?: Record<string, DashboardStudent[]>;
-            allExams?: GlobalExamOption[];
-            totalExamsCount?: number;
-          }
-        | DashboardSubmission[]
-      >('/api/submissions');
-      const subs: DashboardSubmission[] = Array.isArray(data) ? data : data?.submissions || [];
-      setRecentSubmissions(subs);
-      if (!Array.isArray(data) && data?.studentsByClass) {
-        setStudentsByClass(data.studentsByClass);
-      }
-      if (!Array.isArray(data) && Array.isArray(data?.allExams)) {
-        setAllExams(data.allExams);
-      }
-      if (!Array.isArray(data) && typeof data?.totalExamsCount === 'number') {
-        setGlobalExamsCount(data.totalExamsCount);
-      }
-      // Pre-populate suggestedStudentId in assignState if not already chosen by teacher
-      setAssignState((prev) => {
-        const next = { ...prev };
-        for (const s of subs) {
-          if (s.studentName === 'Nicht zugeordnet' && s.suggestedStudentId && !next[s.id]) {
-            next[s.id] = s.suggestedStudentId;
-          }
+  const fetchRecentSubmissions = React.useCallback(
+    async (forceRefresh = false) => {
+      try {
+        if (forceRefresh) {
+          invalidateSubmissions();
         }
-        return next;
-      });
-    } catch (err) {
-      console.error('Error fetching recent submissions or global exams count:', err);
-    }
-  }, []);
+        const data = await fetchWithCache<
+          | {
+              submissions: DashboardSubmission[];
+              studentsByClass?: Record<string, DashboardStudent[]>;
+              allExams?: GlobalExamOption[];
+              totalExamsCount?: number;
+            }
+          | DashboardSubmission[]
+        >('/api/submissions');
+        const subs: DashboardSubmission[] = Array.isArray(data) ? data : data?.submissions || [];
+        setRecentSubmissions(subs);
+        if (!Array.isArray(data) && data?.studentsByClass) {
+          setStudentsByClass(data.studentsByClass);
+        }
+        if (!Array.isArray(data) && Array.isArray(data?.allExams)) {
+          setAllExams(data.allExams);
+        }
+        if (!Array.isArray(data) && typeof data?.totalExamsCount === 'number') {
+          setGlobalExamsCount(data.totalExamsCount);
+        }
+        // Pre-populate suggestedStudentId in assignState if not already chosen by teacher
+        setAssignState((prev) => {
+          const next = { ...prev };
+          for (const s of subs) {
+            if (s.studentName === 'Nicht zugeordnet' && s.suggestedStudentId && !next[s.id]) {
+              next[s.id] = s.suggestedStudentId;
+            }
+          }
+          return next;
+        });
+      } catch (err) {
+        console.error('Error fetching recent submissions or global exams count:', err);
+      }
+    },
+    [setAssignState]
+  );
 
   // 1. Verify Authentication & Load Initial Data
   useEffect(() => {
@@ -463,7 +643,6 @@ export default function Dashboard() {
         }
         const data = await res.json();
         if (active) {
-          setTeacher(data.teacher);
           setCachedTeacher(data.teacher);
           setAuthChecking(false);
 
@@ -558,10 +737,23 @@ export default function Dashboard() {
     }
   };
 
-  const handleManualAssign = async (submissionId: string) => {
+  const handleManualAssign = async (submissionId: string, forceOverwrite = false) => {
     const studentId = assignState[submissionId];
     if (!studentId) return;
     const targetExamId = examAssignState[submissionId];
+    const sub = recentSubmissions.find((s) => s.id === submissionId);
+    const activeExamId = targetExamId || sub?.examId;
+    const activeExamOpt = allExams.find((e) => e.id === activeExamId);
+    const activeClassId = activeExamOpt?.classId || sub?.classId || '';
+    const classStudentList = studentsByClass[activeClassId] || students;
+    const selectedStudentName =
+      classStudentList.find((s) => s.id === studentId)?.name || 'diese/n Schüler/in';
+
+    setReplacingSubmissionId(submissionId);
+    if (forceOverwrite) {
+      setError('');
+      setDuplicateAssignConflict(null);
+    }
 
     try {
       const res = await fetch(`/api/submissions/${submissionId}`, {
@@ -570,13 +762,35 @@ export default function Dashboard() {
         body: JSON.stringify({
           studentId,
           examId: targetExamId || undefined,
+          ...(forceOverwrite ? { overwrite: true } : {}),
         }),
       });
 
-      const resData = await res.json();
+      const resData = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (
+          res.status === 409 ||
+          resData.code === 'DUPLICATE_SUBMISSION' ||
+          isDuplicateSubmissionError(resData.error)
+        ) {
+          const conflictStudentName = resData.studentName || selectedStudentName;
+          setDuplicateAssignConflict({
+            submissionId,
+            studentId,
+            studentName: conflictStudentName,
+            examId: activeExamId,
+          });
+          setError(
+            resData.error ||
+              `Für Schüler/in "${conflictStudentName}" existiert bereits eine Korrektur für diese Prüfung. Klicke auf 'Korrektur ersetzen', um sie zu überschreiben.`
+          );
+          return;
+        }
         throw new Error(resData.error || 'Zuweisung fehlgeschlagen');
       }
+
+      setError('');
+      setDuplicateAssignConflict(null);
 
       // If the teacher reassigned the submission to a different Exam, re-run correction against that Exam's rubric
       if (resData.examChanged) {
@@ -601,6 +815,8 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Error in manual assignment:', err);
       setError(err instanceof Error ? err.message : 'Zuweisung fehlgeschlagen.');
+    } finally {
+      setReplacingSubmissionId(null);
     }
   };
 
@@ -1299,8 +1515,10 @@ export default function Dashboard() {
 
         {error && (
           <Alert
-            severity="error"
-            sx={{ borderRadius: '12px' }}
+            severity={
+              duplicateAssignConflict || isDuplicateSubmissionError(error) ? 'warning' : 'error'
+            }
+            sx={{ borderRadius: '12px', alignItems: 'center' }}
             action={
               nonExamOverridePrompt ? (
                 <Button
@@ -1316,6 +1534,47 @@ export default function Dashboard() {
                 >
                   Trotzdem als Prüfung behandeln
                 </Button>
+              ) : duplicateAssignConflict ? (
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <Button
+                    color="error"
+                    size="small"
+                    variant="contained"
+                    disabled={replacingSubmissionId === duplicateAssignConflict.submissionId}
+                    onClick={() => handleManualAssign(duplicateAssignConflict.submissionId, true)}
+                    startIcon={
+                      replacingSubmissionId === duplicateAssignConflict.submissionId ? (
+                        <CircularProgress size={14} color="inherit" />
+                      ) : (
+                        <AutoAwesomeIcon />
+                      )
+                    }
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 700,
+                      borderRadius: '8px',
+                      backgroundColor: '#dc2626',
+                      whiteSpace: 'nowrap',
+                      '&:hover': { backgroundColor: '#b91c1c' },
+                    }}
+                  >
+                    Korrektur ersetzen
+                  </Button>
+                  <Button
+                    color="inherit"
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      const targetId = duplicateAssignConflict.submissionId;
+                      setDuplicateAssignConflict(null);
+                      setError('');
+                      executeCancelSubmission(targetId);
+                    }}
+                    sx={{ textTransform: 'none', fontWeight: 600, whiteSpace: 'nowrap' }}
+                  >
+                    Duplikat löschen
+                  </Button>
+                </Stack>
               ) : undefined
             }
           >
@@ -2382,6 +2641,21 @@ export default function Dashboard() {
                       const activeClassIdForAssign = activeExamOption?.classId || sub.classId;
                       const availableStudentsForAssign =
                         studentsByClass[activeClassIdForAssign] || students;
+                      const selectedAssignStudentId = assignState[sub.id] || '';
+                      const hasExistingCorrectionForSelectedStudent = Boolean(
+                        selectedAssignStudentId &&
+                        recentSubmissions.some(
+                          (other) =>
+                            other.id !== sub.id &&
+                            other.status === 'COMPLETED' &&
+                            other.examId === activeExamIdForAssign &&
+                            other.studentId === selectedAssignStudentId
+                        )
+                      );
+                      const isRowDuplicateConflict =
+                        hasExistingCorrectionForSelectedStudent ||
+                        (duplicateAssignConflict?.submissionId === sub.id &&
+                          duplicateAssignConflict?.studentId === selectedAssignStudentId);
 
                       return (
                         <TableRow
@@ -2398,130 +2672,36 @@ export default function Dashboard() {
                             {!isUnassigned ? (
                               sub.studentName
                             ) : (
-                              <Stack spacing={1} sx={{ py: 1 }}>
-                                <Stack
-                                  direction="row"
-                                  spacing={1}
-                                  sx={{ alignItems: 'center', flexWrap: 'wrap' }}
-                                >
-                                  <Chip
-                                    label={
-                                      sub.isExamMatchUncertain
-                                        ? '⚠ Klasse/Prüfung & Schüler prüfen'
-                                        : 'Zuordnung ausstehend'
-                                    }
-                                    size="small"
-                                    sx={{
-                                      backgroundColor: '#fef3c7',
-                                      color: '#d97706',
-                                      fontWeight: 'bold',
-                                      borderRadius: '6px',
-                                    }}
-                                  />
-                                  {sub.extractedStudentName && (
-                                    <Typography
-                                      variant="caption"
-                                      sx={{ color: '#92400e', fontWeight: 700 }}
-                                    >
-                                      KI gelesen: &quot;{sub.extractedStudentName}&quot;
-                                    </Typography>
-                                  )}
-                                </Stack>
-                                <Stack
-                                  direction={{ xs: 'column', sm: 'row' }}
-                                  spacing={1}
-                                  sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {allExams.length > 1 && (
-                                    <FormControl size="small" sx={{ minWidth: '180px' }}>
-                                      <Select
-                                        value={activeExamIdForAssign}
-                                        onChange={(e) => {
-                                          const newExId = e.target.value;
-                                          setExamAssignState((prev) => ({
-                                            ...prev,
-                                            [sub.id]: newExId,
-                                          }));
-                                          // Clear student selection if class changed
-                                          setAssignState((prev) => ({
-                                            ...prev,
-                                            [sub.id]: '',
-                                          }));
-                                        }}
-                                        sx={{
-                                          height: '32px',
-                                          fontSize: '0.8rem',
-                                          borderRadius: '6px',
-                                          backgroundColor: '#ffffff',
-                                        }}
-                                      >
-                                        {allExams.map((ex) => (
-                                          <MenuItem key={ex.id} value={ex.id}>
-                                            {ex.className} · {ex.title}
-                                          </MenuItem>
-                                        ))}
-                                      </Select>
-                                    </FormControl>
-                                  )}
-                                  <FormControl size="small" sx={{ minWidth: '160px' }}>
-                                    <Select
-                                      value={assignState[sub.id] || ''}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === 'CREATE_STUDENT') {
-                                          setTargetClassForStudent(activeClassIdForAssign);
-                                          setOpenCreateStudent(true);
-                                          return;
-                                        }
-                                        setAssignState((prev) => ({
-                                          ...prev,
-                                          [sub.id]: val,
-                                        }));
-                                      }}
-                                      displayEmpty
-                                      sx={{
-                                        height: '32px',
-                                        fontSize: '0.85rem',
-                                        borderRadius: '6px',
-                                        backgroundColor: '#ffffff',
-                                      }}
-                                    >
-                                      <MenuItem value="" disabled>
-                                        <em>Schüler/in wählen...</em>
-                                      </MenuItem>
-                                      {availableStudentsForAssign.map((st) => (
-                                        <MenuItem key={st.id} value={st.id}>
-                                          {st.name}
-                                        </MenuItem>
-                                      ))}
-                                      <MenuItem
-                                        value="CREATE_STUDENT"
-                                        sx={{ color: 'primary.main', fontWeight: 600 }}
-                                      >
-                                        + Schüler/in hinzufügen
-                                      </MenuItem>
-                                    </Select>
-                                  </FormControl>
-                                  <Button
-                                    size="small"
-                                    variant="contained"
-                                    disabled={!assignState[sub.id]}
-                                    onClick={() => handleManualAssign(sub.id)}
-                                    sx={{
-                                      minWidth: 'auto',
-                                      px: 1.5,
-                                      py: 0.5,
-                                      height: '32px',
-                                      textTransform: 'none',
-                                      borderRadius: '6px',
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    Zuordnen
-                                  </Button>
-                                </Stack>
-                              </Stack>
+                              <UnassignedSubmissionCell
+                                sub={sub}
+                                allExams={allExams}
+                                activeExamIdForAssign={activeExamIdForAssign}
+                                availableStudentsForAssign={availableStudentsForAssign}
+                                selectedAssignStudentId={selectedAssignStudentId}
+                                isRowDuplicateConflict={isRowDuplicateConflict}
+                                isReplacing={replacingSubmissionId === sub.id}
+                                onChangeExam={(newExId) => {
+                                  setExamAssignState((prev) => ({
+                                    ...prev,
+                                    [sub.id]: newExId,
+                                  }));
+                                  setAssignState((prev) => ({
+                                    ...prev,
+                                    [sub.id]: '',
+                                  }));
+                                }}
+                                onChangeStudent={(val) => {
+                                  setAssignState((prev) => ({
+                                    ...prev,
+                                    [sub.id]: val,
+                                  }));
+                                }}
+                                onOpenCreateStudent={() => {
+                                  setTargetClassForStudent(activeClassIdForAssign);
+                                  setOpenCreateStudent(true);
+                                }}
+                                onAssign={handleManualAssign}
+                              />
                             )}
                           </TableCell>
                           <TableCell>{sub.examTitle}</TableCell>
@@ -2563,19 +2743,42 @@ export default function Dashboard() {
                           </TableCell>
                           <TableCell>{sub.date}</TableCell>
                           <TableCell sx={{ textAlign: 'right' }}>
-                            <Link
-                              href={`/correct/${sub.id}`}
-                              passHref
-                              style={{ textDecoration: 'none' }}
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
                             >
-                              <Button
-                                variant="outlined"
-                                size="small"
-                                sx={{ textTransform: 'none', fontWeight: 600 }}
+                              <Link
+                                href={`/correct/${sub.id}`}
+                                passHref
+                                style={{ textDecoration: 'none' }}
                               >
-                                Workspace öffnen
-                              </Button>
-                            </Link>
+                                <Button
+                                  variant="outlined"
+                                  size="small"
+                                  sx={{ textTransform: 'none', fontWeight: 600 }}
+                                >
+                                  Workspace öffnen
+                                </Button>
+                              </Link>
+                              {isUnassigned && (
+                                <Tooltip title="Ausstehenden Eintrag löschen">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => executeCancelSubmission(sub.id)}
+                                    sx={{
+                                      color: 'text.secondary',
+                                      '&:hover': {
+                                        color: 'error.main',
+                                        backgroundColor: '#fee2e2',
+                                      },
+                                    }}
+                                  >
+                                    <CloseIcon sx={{ fontSize: '1.1rem' }} />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </Stack>
                           </TableCell>
                         </TableRow>
                       );

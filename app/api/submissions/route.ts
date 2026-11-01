@@ -144,18 +144,49 @@ export async function GET(request?: Request | NextRequest) {
     }
 
     // Map database structures for client consumption
+    const normExtracted = (s?: string | null) => (s || '').trim().toLowerCase();
     const mapped = submissions.map((sub) => {
       const studentName =
         sub.student?.name ||
         (sub.targetStudentId ? studentMap.get(sub.targetStudentId) : null) ||
         'Nicht zugeordnet';
 
+      let resolvedSuggestedStudentId = sub.suggestedStudentId;
+      if (!sub.studentId && !sub.targetStudentId && !resolvedSuggestedStudentId) {
+        const subNormName = normExtracted(sub.extractedStudentName);
+        const matchingSibling = submissions.find((other) => {
+          if (other.id === sub.id || other.examId !== sub.examId) return false;
+          const otherStudentId = other.studentId || other.targetStudentId;
+          if (!otherStudentId) return false;
+          if (subNormName && normExtracted(other.extractedStudentName) === subNormName) {
+            return true;
+          }
+          if (
+            sub.status === 'COMPLETED' &&
+            other.status === 'COMPLETED' &&
+            Math.abs(other.earnedPoints - sub.earnedPoints) < 0.01 &&
+            other.gradeRounded === sub.gradeRounded &&
+            normExtracted(other.extractedStudentName) === subNormName
+          ) {
+            return true;
+          }
+          return false;
+        });
+
+        if (matchingSibling) {
+          resolvedSuggestedStudentId =
+            matchingSibling.studentId || matchingSibling.targetStudentId || null;
+        } else if (studentsByClass[sub.exam.classId]?.length === 1) {
+          resolvedSuggestedStudentId = studentsByClass[sub.exam.classId][0].id;
+        }
+      }
+
       return {
         id: sub.id,
         studentId: sub.studentId || sub.targetStudentId || null,
         studentName,
         extractedStudentName: sub.extractedStudentName,
-        suggestedStudentId: sub.suggestedStudentId,
+        suggestedStudentId: resolvedSuggestedStudentId,
         isStudentMatchUncertain: sub.isStudentMatchUncertain,
         isExamMatchUncertain: sub.isExamMatchUncertain,
         examId: sub.examId,
