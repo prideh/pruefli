@@ -70,6 +70,8 @@ import {
   GRADE_ROUNDING_OPTIONS,
   getSubjectSupportInfo,
   resolveTeacherSubjects,
+  resolveClassSubjectOptions,
+  resolveDefaultExamSubjectForClass,
   isSerializedDocumentPayload,
   computeAssignedGradeAverage,
   type GradingFormula,
@@ -82,6 +84,7 @@ interface DashboardClass {
   averageGrade?: string;
   gradedSubmissionsCount?: number;
   gradeRawSum?: number;
+  subjects?: string[];
   _count?: {
     students: number;
   };
@@ -396,7 +399,7 @@ export default function Dashboard() {
 
   // New exam states
   const [examTitle, setExamTitle] = useState<string>('');
-  const [examSubject, setExamSubject] = useState<string>('Mathematik');
+  const [examSubject, setExamSubject] = useState<string>('');
   const [examMaxPoints, setExamMaxPoints] = useState<number>(20);
   const [rubricText, setRubricText] = useState<string>('');
   const [rubricFile, setRubricFile] = useState<File | null>(null);
@@ -445,11 +448,32 @@ export default function Dashboard() {
     [cachedSubjectsData?.savedSubjects, exams]
   );
 
+  const selectedClass = React.useMemo(
+    () => classes.find((c) => c.id === selectedClassId) || null,
+    [classes, selectedClassId]
+  );
+
+  const classSubjectOptions = React.useMemo(
+    () => resolveClassSubjectOptions(mySubjects, selectedClass?.subjects),
+    [mySubjects, selectedClass]
+  );
+
+  const effectiveExamSubject = React.useMemo(() => {
+    if (
+      examSubject &&
+      classSubjectOptions.some((sp) => sp.value.toLowerCase() === examSubject.toLowerCase())
+    ) {
+      return examSubject;
+    }
+    return resolveDefaultExamSubjectForClass(classSubjectOptions, exams);
+  }, [examSubject, classSubjectOptions, exams]);
+
   // 4. Handle Class Change (Fetch Students & Exams for selected class)
   const handleClassChange = React.useCallback(
     async (classId: string) => {
       setSelectedClassId(classId);
       setSelectedStudentId('AUTO'); // Recommended default: Auto-Match
+      setExamSubject('');
       setStudentFiles([]); // Reset uploads
       setExams([]);
       setStudents([]);
@@ -481,7 +505,7 @@ export default function Dashboard() {
         console.error('Error fetching class details:', err);
       }
     },
-    [setSelectedStudentId, setStudentFiles, setSelectedExamId]
+    [setSelectedStudentId, setExamSubject, setStudentFiles, setSelectedExamId]
   );
 
   // 2. Fetch classes from DB
@@ -878,7 +902,7 @@ export default function Dashboard() {
       return;
     }
     if (selectedExamId === 'NEW') {
-      if (!examTitle.trim() || !examSubject.trim()) {
+      if (!examTitle.trim() || !effectiveExamSubject.trim()) {
         setError('Bitte gib einen Prüfungstitel und ein Fach für die neue Prüfung an.');
         return;
       }
@@ -916,7 +940,7 @@ export default function Dashboard() {
           formData.append('examId', resolvedExamId);
         } else if (selectedExamId === 'NEW') {
           formData.append('examTitle', examTitle.trim());
-          formData.append('examSubject', examSubject.trim());
+          formData.append('examSubject', effectiveExamSubject.trim());
           formData.append(
             'maxPoints',
             String(Number(examMaxPoints) > 0 ? Number(examMaxPoints) : 20)
@@ -1885,17 +1909,11 @@ export default function Dashboard() {
                                 <InputLabel id="subject-select-label">Fach (KI-Profil)</InputLabel>
                                 <Select
                                   labelId="subject-select-label"
-                                  value={
-                                    mySubjects.some(
-                                      (sp) => sp.value.toLowerCase() === examSubject.toLowerCase()
-                                    )
-                                      ? examSubject
-                                      : (mySubjects[0]?.value ?? examSubject)
-                                  }
+                                  value={effectiveExamSubject}
                                   label="Fach (KI-Profil)"
                                   onChange={(e) => setExamSubject(e.target.value)}
                                 >
-                                  {mySubjects.map((sp) => (
+                                  {classSubjectOptions.map((sp) => (
                                     <MenuItem key={sp.value} value={sp.value}>
                                       {sp.label} ({sp.supportInfo.supportBadge})
                                     </MenuItem>
@@ -1904,8 +1922,8 @@ export default function Dashboard() {
                                 <FormHelperText
                                   sx={{ fontSize: '0.73rem', color: 'text.secondary' }}
                                 >
-                                  {getSubjectSupportInfo(examSubject).supportBadge}:{' '}
-                                  {getSubjectSupportInfo(examSubject).profileFocus}
+                                  {getSubjectSupportInfo(effectiveExamSubject).supportBadge}:{' '}
+                                  {getSubjectSupportInfo(effectiveExamSubject).profileFocus}
                                 </FormHelperText>
                               </FormControl>
                             </Grid>

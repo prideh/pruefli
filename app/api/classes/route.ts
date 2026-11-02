@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { serverCache, CacheTags, invalidateClassCache } from '@/lib/cache';
 import { validateClassName } from '@/lib/payload-limits';
+import { getMultipleClassesSavedSubjects, saveClassSubjects } from '@/lib/teacher-subjects';
 
 export async function GET() {
   try {
@@ -35,6 +36,8 @@ export async function GET() {
       orderBy: { name: 'asc' },
     });
 
+    const subjectsMap = await getMultipleClassesSavedSubjects(rawClasses.map((cls) => cls.id));
+
     const classes = rawClasses.map((cls) => {
       const allGrades = cls.exams.flatMap((ex) =>
         ex.submissions
@@ -54,6 +57,7 @@ export async function GET() {
         averageGrade: avg,
         gradedSubmissionsCount: allGrades.length,
         gradeRawSum,
+        subjects: subjectsMap[cls.id] || [],
       };
     });
 
@@ -107,9 +111,17 @@ export async function POST(request: Request) {
       },
     });
 
+    const savedSubjects = Array.isArray(body.subjects)
+      ? await saveClassSubjects(schoolClass.id, body.subjects)
+      : undefined;
+
     await invalidateClassCache(session.userId);
 
-    return NextResponse.json({ success: true, class: schoolClass });
+    return NextResponse.json({
+      success: true,
+      class:
+        savedSubjects !== undefined ? { ...schoolClass, subjects: savedSubjects } : schoolClass,
+    });
   } catch (error) {
     console.error('Error creating class:', error);
     return NextResponse.json({ error: 'Fehler beim Erstellen der Klasse.' }, { status: 500 });

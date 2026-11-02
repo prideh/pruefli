@@ -4,6 +4,12 @@ import { getSession } from '@/lib/session';
 import { serverCache, CacheTags, invalidateClassCache, invalidateLogsCache } from '@/lib/cache';
 import { deleteClassScanFiles, StorageCleanupError } from '@/lib/storage-cleanup';
 import { validateClassName } from '@/lib/payload-limits';
+import { computeClassSubjectBreakdown } from '@/lib/grading';
+import {
+  getClassSavedSubjects,
+  saveClassSubjects,
+  deleteClassSubjects,
+} from '@/lib/teacher-subjects';
 
 // GET: Fetch class details, students roster, and class statistics
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -147,13 +153,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       gradeDistribution,
     };
 
+    const classSubjects = await getClassSavedSubjects(classId);
+    const subjectStats = computeClassSubjectBreakdown(examsList, classSubjects);
+
     const responsePayload = {
       class: {
         id: schoolClass.id,
         name: schoolClass.name,
         createdAt: schoolClass.createdAt.toLocaleDateString('de-CH'),
+        subjects: classSubjects,
       },
       stats,
+      subjectStats,
       students: studentsRoster,
       exams: examsList,
     };
@@ -205,9 +216,17 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       data: { name: trimmedName },
     });
 
+    const savedSubjects = Array.isArray(body.subjects)
+      ? await saveClassSubjects(classId, body.subjects)
+      : undefined;
+
     await invalidateClassCache(session.userId, classId);
 
-    return NextResponse.json({ success: true, class: updatedClass });
+    return NextResponse.json({
+      success: true,
+      class:
+        savedSubjects !== undefined ? { ...updatedClass, subjects: savedSubjects } : updatedClass,
+    });
   } catch (error) {
     console.error('Error updating class:', error);
     return NextResponse.json({ error: 'Fehler beim Aktualisieren der Klasse.' }, { status: 500 });
@@ -242,6 +261,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     await db.class.delete({
       where: { id: classId },
     });
+    await deleteClassSubjects(classId);
 
     await invalidateClassCache(session.userId, classId);
     await invalidateLogsCache(session.userId);

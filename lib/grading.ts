@@ -388,6 +388,181 @@ export function resolveFilterAndViewSubjects(
   return [...baseList, ...extraFromExams];
 }
 
+export interface ClassSubjectStatItem {
+  value: string;
+  label: string;
+  isCatalog: boolean;
+  supportInfo: SubjectSupportInfo;
+  examsCount: number;
+  submissionsCount: number;
+  averageGrade: string;
+}
+
+/**
+ * Resolves the selectable subjects for a specific class (Issue #81):
+ * - If the class has a non-empty subject subset (`classSubjects`), returns only those subjects
+ *   (intersected/ordered against `teacherSubjects`, preserving any custom subject in `classSubjects`).
+ * - If `classSubjects` is empty or null/undefined ("leer = keine Einschränkung"), returns the full `teacherSubjects` list.
+ */
+export function resolveClassSubjectOptions(
+  teacherSubjects: TeacherSubjectItem[],
+  classSubjects?: string[] | null
+): TeacherSubjectItem[] {
+  const validSubset = (classSubjects || []).map((s) => normalizeSubjectValue(s)).filter(Boolean);
+
+  if (validSubset.length === 0) {
+    return teacherSubjects;
+  }
+
+  const seen = new Set<string>();
+  const subsetItems: TeacherSubjectItem[] = [];
+
+  // Preserve teacherSubjects ordering for items present in teacherSubjects
+  for (const tItem of teacherSubjects) {
+    if (
+      validSubset.some((sub) => sub.toLowerCase() === tItem.value.toLowerCase()) &&
+      !seen.has(tItem.value.toLowerCase())
+    ) {
+      seen.add(tItem.value.toLowerCase());
+      subsetItems.push(tItem);
+    }
+  }
+
+  // Include any remaining item from validSubset not yet in subsetItems
+  for (const sub of validSubset) {
+    const key = sub.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      subsetItems.push(toTeacherSubjectItem(sub));
+    }
+  }
+
+  return subsetItems.length > 0 ? subsetItems : teacherSubjects;
+}
+
+/**
+ * Determines the default pre-selected subject when creating an exam for a specific class (Issue #81):
+ * 1. If `availableClassSubjects` has only 1 subject ("einziges Fach"), returns that subject.
+ * 2. If `classExams` (ordered newest first) contains an exam whose subject is in `availableClassSubjects`
+ *    ("zuletzt in dieser Klasse verwendetes"), returns that subject.
+ * 3. Otherwise returns `availableClassSubjects[0]?.value || 'Mathematik'`.
+ */
+export function resolveDefaultExamSubjectForClass(
+  availableClassSubjects: TeacherSubjectItem[],
+  classExams: Array<{ subject: string }> = []
+): string {
+  if (availableClassSubjects.length === 0) {
+    return 'Mathematik';
+  }
+  if (availableClassSubjects.length === 1) {
+    return availableClassSubjects[0].value;
+  }
+
+  for (const ex of classExams) {
+    const norm = normalizeSubjectValue(ex.subject);
+    if (!norm) continue;
+    const match = availableClassSubjects.find(
+      (opt) => opt.value.toLowerCase() === norm.toLowerCase()
+    );
+    if (match) {
+      return match.value;
+    }
+  }
+
+  return availableClassSubjects[0].value;
+}
+
+/**
+ * Computes per-subject exam counts, graded submission counts, and weighted grade averages for a class
+ * using existing exam data (Issue #81).
+ */
+export function computeClassSubjectBreakdown(
+  classExams: Array<{
+    subject: string;
+    submissionsCount?: number;
+    gradeRawSum?: number;
+    averageGrade?: string;
+  }>,
+  classSubjects?: string[] | null
+): ClassSubjectStatItem[] {
+  const seen = new Set<string>();
+  const orderedSubjects: TeacherSubjectItem[] = [];
+
+  for (const raw of classSubjects || []) {
+    const norm = normalizeSubjectValue(raw);
+    if (!norm) continue;
+    const key = norm.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    orderedSubjects.push(toTeacherSubjectItem(norm));
+  }
+
+  for (const ex of classExams) {
+    const norm = normalizeSubjectValue(ex.subject);
+    if (!norm) continue;
+    const key = norm.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    orderedSubjects.push(toTeacherSubjectItem(norm));
+  }
+
+  const accum = new Map<
+    string,
+    { examsCount: number; submissionsCount: number; gradeSum: number; gradeCount: number }
+  >();
+  for (const s of orderedSubjects) {
+    accum.set(s.value.toLowerCase(), {
+      examsCount: 0,
+      submissionsCount: 0,
+      gradeSum: 0,
+      gradeCount: 0,
+    });
+  }
+
+  for (const ex of classExams) {
+    const norm = normalizeSubjectValue(ex.subject);
+    if (!norm) continue;
+    const key = norm.toLowerCase();
+    const entry = accum.get(key) || {
+      examsCount: 0,
+      submissionsCount: 0,
+      gradeSum: 0,
+      gradeCount: 0,
+    };
+    entry.examsCount += 1;
+    const subCount = ex.submissionsCount || 0;
+    entry.submissionsCount += subCount;
+
+    if (typeof ex.gradeRawSum === 'number' && Number.isFinite(ex.gradeRawSum) && subCount > 0) {
+      entry.gradeSum += ex.gradeRawSum;
+      entry.gradeCount += subCount;
+    } else if (ex.averageGrade && ex.averageGrade !== 'N/A') {
+      const parsed = parseFloat(ex.averageGrade);
+      if (!Number.isNaN(parsed)) {
+        const weight = subCount > 0 ? subCount : 1;
+        entry.gradeSum += parsed * weight;
+        entry.gradeCount += weight;
+      }
+    }
+    accum.set(key, entry);
+  }
+
+  return orderedSubjects.map((s) => {
+    const stat = accum.get(s.value.toLowerCase()) || {
+      examsCount: 0,
+      submissionsCount: 0,
+      gradeSum: 0,
+      gradeCount: 0,
+    };
+    return {
+      ...s,
+      examsCount: stat.examsCount,
+      submissionsCount: stat.submissionsCount,
+      averageGrade: stat.gradeCount > 0 ? (stat.gradeSum / stat.gradeCount).toFixed(2) : 'N/A',
+    };
+  });
+}
+
 /**
  * Calculates the unrounded raw Swiss school grade (1.0 to 6.0) using the configured formula.
  */

@@ -35,11 +35,17 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import DashboardLayout from '@/components/DashboardLayout';
 import ErrorState from '@/components/ErrorState';
 import { useDataCache, invalidateClasses } from '@/lib/dataCache';
+import {
+  resolveTeacherSubjects,
+  getSubjectSupportInfo,
+  normalizeSubjectValue,
+} from '@/lib/grading';
 
 interface PrismaClassInfo {
   id: string;
   name: string;
   createdAt: string;
+  subjects?: string[];
   _count: {
     students: number;
   };
@@ -48,6 +54,7 @@ interface PrismaClassInfo {
 interface ClassListItem extends PrismaClassInfo {
   totalExams: number;
   averageGrade: string;
+  subjects: string[];
 }
 
 export default function ClassesPage() {
@@ -57,15 +64,45 @@ export default function ClassesPage() {
     const data = await res.json();
 
     const loadedClasses: ClassListItem[] = (data.classes || []).map(
-      (cls: PrismaClassInfo & { totalExams?: number; averageGrade?: string }) => ({
+      (
+        cls: PrismaClassInfo & {
+          totalExams?: number;
+          averageGrade?: string;
+          subjects?: string[];
+        }
+      ) => ({
         ...cls,
         totalExams: cls.totalExams ?? 0,
         averageGrade: cls.averageGrade || 'N/A',
+        subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
       })
     );
 
     return loadedClasses;
   }, []);
+
+  const fetchSubjectsApi = React.useCallback(async () => {
+    const res = await fetch('/api/subjects');
+    if (!res.ok) return { savedSubjects: null, existingExamSubjects: [] };
+    return (await res.json()) as {
+      savedSubjects?: string[] | null;
+      existingExamSubjects?: string[];
+    };
+  }, []);
+
+  const { data: cachedSubjectsData } = useDataCache<{
+    savedSubjects?: string[] | null;
+    existingExamSubjects?: string[];
+  }>('/api/subjects', fetchSubjectsApi);
+
+  const mySubjects = React.useMemo(
+    () =>
+      resolveTeacherSubjects(
+        cachedSubjectsData?.savedSubjects ?? null,
+        cachedSubjectsData?.existingExamSubjects ?? []
+      ).map((item) => item.value),
+    [cachedSubjectsData]
+  );
 
   const {
     data: cachedClasses,
@@ -79,13 +116,14 @@ export default function ClassesPage() {
 
   const classes = React.useMemo(() => {
     const raw = Array.isArray(cachedClasses) ? cachedClasses : cachedClasses?.classes || [];
-    return raw.map((cls: ClassListItem & { studentsCount?: number }) => ({
+    return raw.map((cls: ClassListItem & { studentsCount?: number; subjects?: string[] }) => ({
       ...cls,
       _count: {
         students: cls._count?.students ?? cls.studentsCount ?? 0,
       },
       totalExams: cls.totalExams ?? 0,
       averageGrade: cls.averageGrade || 'N/A',
+      subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
     }));
   }, [cachedClasses]);
 
@@ -116,22 +154,40 @@ export default function ClassesPage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
 
-  // Rename Dialog State
+  // Rename / Edit Class Dialog State
   const [openRename, setOpenRename] = useState(false);
   const [renameTargetClass, setRenameTargetClass] = useState<ClassListItem | null>(null);
   const [renamedClassName, setRenamedClassName] = useState('');
+  const [renamedClassSubjects, setRenamedClassSubjects] = useState<string[]>([]);
   const [renameLoading, setRenameLoading] = useState(false);
   const [renameError, setRenameError] = useState('');
 
   const handleOpenRename = (cls: ClassListItem) => {
     setRenameTargetClass(cls);
     setRenamedClassName(cls.name); // Prefill current class name
+    setRenamedClassSubjects(
+      Array.isArray(cls.subjects)
+        ? cls.subjects.map((s) => normalizeSubjectValue(s)).filter(Boolean)
+        : []
+    );
     if (cls.name.trim().length > 100) {
       setRenameError('Der Klassenname ist zu lang. Maximal 100 Zeichen sind erlaubt.');
     } else {
       setRenameError('');
     }
     setOpenRename(true);
+  };
+
+  const handleToggleClassSubject = (subject: string) => {
+    const normalized = normalizeSubjectValue(subject);
+    if (!normalized) return;
+    setRenamedClassSubjects((prev) => {
+      const exists = prev.some((s) => s.toLowerCase() === normalized.toLowerCase());
+      if (exists) {
+        return prev.filter((s) => s.toLowerCase() !== normalized.toLowerCase());
+      }
+      return [...prev, normalized];
+    });
   };
 
   const handleRenameSubmit = async (e: React.FormEvent) => {
@@ -151,7 +207,7 @@ export default function ClassesPage() {
       const res = await fetch(`/api/classes/${renameTargetClass.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmed }),
+        body: JSON.stringify({ name: trimmed, subjects: renamedClassSubjects }),
       });
       if (!res.ok) {
         const errorMsg = await getErrorMessage(res, 'Klassenname konnte nicht geändert werden.');
@@ -161,6 +217,7 @@ export default function ClassesPage() {
       setOpenRename(false);
       setRenameTargetClass(null);
       setRenamedClassName('');
+      setRenamedClassSubjects([]);
       invalidateClasses(renameTargetClass.id);
       await fetchClasses();
     } catch (err) {
@@ -497,6 +554,55 @@ export default function ClassesPage() {
                           )}
                         </Stack>
                       </Grid>
+                      <Grid size={{ xs: 12 }} sx={{ mt: 0.5 }}>
+                        <Stack spacing={0.5}>
+                          <Typography
+                            variant="caption"
+                            sx={{ color: 'text.secondary', fontWeight: 600 }}
+                          >
+                            Klassen-Fächer:
+                          </Typography>
+                          {cls.subjects && cls.subjects.length > 0 ? (
+                            <Stack
+                              direction="row"
+                              spacing={0.5}
+                              useFlexGap
+                              sx={{ flexWrap: 'wrap' }}
+                            >
+                              {cls.subjects.map((subj) => {
+                                const supportInfo = getSubjectSupportInfo(subj);
+                                return (
+                                  <Tooltip
+                                    key={subj}
+                                    title={`${supportInfo.supportBadge}: ${supportInfo.supportDescription}`}
+                                    arrow
+                                  >
+                                    <Chip
+                                      label={subj}
+                                      size="small"
+                                      sx={{
+                                        height: '22px',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 650,
+                                        backgroundColor: '#eff6ff',
+                                        color: '#1d4ed8',
+                                        border: '1px solid #bfdbfe',
+                                      }}
+                                    />
+                                  </Tooltip>
+                                );
+                              })}
+                            </Stack>
+                          ) : (
+                            <Typography
+                              variant="caption"
+                              sx={{ color: 'text.secondary', fontWeight: 550 }}
+                            >
+                              Keine Einschränkung (Alle „Meine Fächer“)
+                            </Typography>
+                          )}
+                        </Stack>
+                      </Grid>
                     </Grid>
                   </CardContent>
 
@@ -615,7 +721,7 @@ export default function ClassesPage() {
           </form>
         </Dialog>
 
-        {/* Dialog for Rename Class */}
+        {/* Dialog for Rename / Edit Class */}
         <Dialog
           open={openRename}
           onClose={(_e, reason) => {
@@ -623,15 +729,15 @@ export default function ClassesPage() {
             setOpenRename(false);
             setRenameTargetClass(null);
           }}
-          maxWidth="xs"
+          maxWidth="sm"
           fullWidth
         >
           <form onSubmit={handleRenameSubmit}>
             <DialogTitle sx={{ fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>
-              Klassenname ändern
+              Klasse bearbeiten
             </DialogTitle>
             <DialogContent>
-              <Stack spacing={2} sx={{ mt: 1 }}>
+              <Stack spacing={2.5} sx={{ mt: 1 }}>
                 <TextField
                   label="Klassenname"
                   fullWidth
@@ -662,6 +768,69 @@ export default function ClassesPage() {
                     },
                   }}
                 />
+
+                <Box>
+                  <Stack
+                    direction="row"
+                    sx={{
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      mb: 0.75,
+                      flexWrap: 'wrap',
+                      gap: 1,
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 750, color: '#0f172a' }}>
+                      Fächer dieser Klasse (Teilmenge aus „Meine Fächer“)
+                    </Typography>
+                    {renamedClassSubjects.length > 0 && (
+                      <Button
+                        size="small"
+                        onClick={() => setRenamedClassSubjects([])}
+                        sx={{ textTransform: 'none', fontWeight: 650, fontSize: '0.75rem', py: 0 }}
+                      >
+                        Keine Einschränkung
+                      </Button>
+                    )}
+                  </Stack>
+                  <Typography
+                    variant="caption"
+                    sx={{ color: 'text.secondary', display: 'block', mb: 1.25 }}
+                  >
+                    Wähle die für diese Klasse relevanten Fächer aus (Mehrfachauswahl). Leer = keine
+                    Einschränkung (volle Lehrerliste „Meine Fächer“ verfügbar). Organisation
+                    impliziert keine Korrekturqualität; der Unterstützungsstatus pro Fach bleibt
+                    unverändert.
+                  </Typography>
+                  <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                    {Array.from(new Set([...mySubjects, ...renamedClassSubjects])).map((subj) => {
+                      const isSelected = renamedClassSubjects.some(
+                        (s) => s.toLowerCase() === subj.toLowerCase()
+                      );
+                      const supportInfo = getSubjectSupportInfo(subj);
+                      return (
+                        <Tooltip
+                          key={subj}
+                          title={`${supportInfo.supportBadge}: ${supportInfo.supportDescription}`}
+                          arrow
+                        >
+                          <Chip
+                            label={`${subj} · ${supportInfo.supportBadge}`}
+                            clickable
+                            onClick={() => handleToggleClassSubject(subj)}
+                            color={isSelected ? 'primary' : 'default'}
+                            variant={isSelected ? 'filled' : 'outlined'}
+                            sx={{
+                              fontWeight: 650,
+                              fontSize: '0.78rem',
+                              borderRadius: '8px',
+                            }}
+                          />
+                        </Tooltip>
+                      );
+                    })}
+                  </Stack>
+                </Box>
               </Stack>
             </DialogContent>
             <DialogActions

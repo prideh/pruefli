@@ -53,6 +53,8 @@ import {
   toTeacherSubjectItem,
   resolveTeacherSubjects,
   resolveFilterAndViewSubjects,
+  resolveClassSubjectOptions,
+  resolveDefaultExamSubjectForClass,
   isSerializedDocumentPayload,
   type GradingFormula,
   type GradeRounding,
@@ -65,6 +67,7 @@ interface SimpleClass {
   studentsCount: number;
   totalExams: number;
   averageGrade: string;
+  subjects?: string[];
 }
 
 interface PrismaExamItem {
@@ -114,11 +117,9 @@ function SubjectCombobox({
   label = 'Fach (KI-Profil)',
 }: SubjectComboboxProps) {
   const effectiveOptions = React.useMemo(() => {
+    if (options.length > 0) return options;
     const trimmed = (value || '').trim();
-    if (!trimmed) return options;
-    const exists = options.some((opt) => opt.value.toLowerCase() === trimmed.toLowerCase());
-    if (exists) return options;
-    return [...options, toTeacherSubjectItem(trimmed)];
+    return [toTeacherSubjectItem(trimmed || 'Mathematik')];
   }, [options, value]);
 
   const effectiveValue = React.useMemo(() => {
@@ -217,6 +218,7 @@ export default function ExamsPage() {
         _count?: { students?: number };
         totalExams?: number;
         averageGrade?: string;
+        subjects?: string[];
       }) => ({
         ...cls,
         id: cls.id,
@@ -227,6 +229,7 @@ export default function ExamsPage() {
         studentsCount: cls._count?.students || 0,
         totalExams: cls.totalExams ?? 0,
         averageGrade: cls.averageGrade || 'N/A',
+        subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
       })
     );
   }, []);
@@ -264,12 +267,15 @@ export default function ExamsPage() {
 
   const classes = React.useMemo(() => {
     const raw = Array.isArray(cachedClasses) ? cachedClasses : cachedClasses?.classes || [];
-    return raw.map((cls: SimpleClass & { _count?: { students?: number } }) => ({
-      ...cls,
-      studentsCount: cls.studentsCount ?? cls._count?.students ?? 0,
-      totalExams: cls.totalExams ?? 0,
-      averageGrade: cls.averageGrade || 'N/A',
-    }));
+    return raw.map(
+      (cls: SimpleClass & { _count?: { students?: number }; subjects?: string[] }) => ({
+        ...cls,
+        studentsCount: cls.studentsCount ?? cls._count?.students ?? 0,
+        totalExams: cls.totalExams ?? 0,
+        averageGrade: cls.averageGrade || 'N/A',
+        subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
+      })
+    );
   }, [cachedClasses]);
   const loading = (examsLoading && !cachedExams) || (classesLoading && !cachedClasses);
   const error = examsError || classesError || '';
@@ -309,6 +315,16 @@ export default function ExamsPage() {
     }
     return activeClassId || (classes[0]?.id ?? '');
   }, [classes, dialogClassId, activeClassId]);
+
+  const selectedClass = React.useMemo(
+    () => classes.find((c) => c.id === selectedClassId) || null,
+    [classes, selectedClassId]
+  );
+
+  const createDialogSubjectOptions = React.useMemo(
+    () => resolveClassSubjectOptions(mySubjects, selectedClass?.subjects),
+    [mySubjects, selectedClass]
+  );
 
   const [classSelectionPrompt, setClassSelectionPrompt] = useState<string>('');
 
@@ -575,6 +591,26 @@ export default function ExamsPage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
 
+  const copyTargetClass = React.useMemo(
+    () => classes.find((c) => c.id === copyTargetClassId) || null,
+    [classes, copyTargetClassId]
+  );
+
+  const copyDialogSubjectOptions = React.useMemo(
+    () => resolveClassSubjectOptions(mySubjects, copyTargetClass?.subjects),
+    [mySubjects, copyTargetClass]
+  );
+
+  const genTargetClass = React.useMemo(
+    () => classes.find((c) => c.id === (genClassId || selectedClassId)) || null,
+    [classes, genClassId, selectedClassId]
+  );
+
+  const genDialogSubjectOptions = React.useMemo(
+    () => resolveClassSubjectOptions(mySubjects, genTargetClass?.subjects),
+    [mySubjects, genTargetClass]
+  );
+
   const handleOpenCreateExam = React.useCallback(() => {
     const targetClassId = activeClassId || selectedClassId || classes[0]?.id || '';
     if (!targetClassId) {
@@ -586,17 +622,15 @@ export default function ExamsPage() {
     setClassSelectionPrompt('');
     setActiveTabClassId(targetClassId);
     setDialogClassId(targetClassId);
-    if (
-      mySubjects.length > 0 &&
-      !mySubjects.some((s) => s.value.toLowerCase() === examSubject.toLowerCase())
-    ) {
-      setExamSubject(mySubjects[0].value);
-    }
+    const targetClass = classes.find((c) => c.id === targetClassId) || null;
+    const targetClassExams = exams.filter((ex) => ex.classId === targetClassId);
+    const classOptions = resolveClassSubjectOptions(mySubjects, targetClass?.subjects);
+    setExamSubject(resolveDefaultExamSubjectForClass(classOptions, targetClassExams));
     setCreateError('');
     setRubricOverrideConfirmed(false);
     setRubricOverridePrompt(null);
     setOpenCreate(true);
-  }, [activeClassId, selectedClassId, classes, mySubjects, examSubject]);
+  }, [activeClassId, selectedClassId, classes, exams, mySubjects]);
 
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -734,13 +768,21 @@ export default function ExamsPage() {
     [exams, activeClassId]
   );
 
+  const activeClass = React.useMemo(
+    () => classes.find((c) => c.id === activeClassId) || null,
+    [classes, activeClassId]
+  );
+
   const availableSubjects = React.useMemo(() => {
     const counts: Record<string, number> = {};
-    const mergedSubjects = resolveFilterAndViewSubjects(
-      savedSubjects,
-      exams.map((ex) => ex.subject)
-    );
-    mergedSubjects.forEach((s) => {
+    const hasClassSubset = Array.isArray(activeClass?.subjects) && activeClass.subjects.length > 0;
+    const baseSubjects = hasClassSubset
+      ? resolveClassSubjectOptions(mySubjects, activeClass?.subjects)
+      : resolveFilterAndViewSubjects(
+          savedSubjects,
+          exams.map((ex) => ex.subject)
+        );
+    baseSubjects.forEach((s) => {
       counts[s.value] = 0;
     });
     classExams.forEach((ex) => {
@@ -748,7 +790,7 @@ export default function ExamsPage() {
       counts[s] = (counts[s] || 0) + 1;
     });
     return Object.entries(counts).map(([name, count]) => ({ name, count }));
-  }, [savedSubjects, exams, classExams]);
+  }, [activeClass, mySubjects, savedSubjects, exams, classExams]);
 
   const effectiveSubjectFilter = React.useMemo(() => {
     if (selectedSubjectFilter === 'ALL') return 'ALL';
@@ -797,13 +839,12 @@ export default function ExamsPage() {
               disabled={loading || !!error || classes.length === 0}
               onClick={() => {
                 setGenError('');
-                setGenClassId(activeClassId || (classes[0]?.id ?? ''));
-                if (
-                  mySubjects.length > 0 &&
-                  !mySubjects.some((s) => s.value.toLowerCase() === genSubject.toLowerCase())
-                ) {
-                  setGenSubject(mySubjects[0].value);
-                }
+                const targetId = activeClassId || (classes[0]?.id ?? '');
+                setGenClassId(targetId);
+                const targetClass = classes.find((c) => c.id === targetId) || null;
+                const targetClassExams = exams.filter((ex) => ex.classId === targetId);
+                const classOptions = resolveClassSubjectOptions(mySubjects, targetClass?.subjects);
+                setGenSubject(resolveDefaultExamSubjectForClass(classOptions, targetClassExams));
                 setOpenGenerate(true);
               }}
               sx={{
@@ -1469,7 +1510,7 @@ export default function ExamsPage() {
                     <SubjectCombobox
                       id="subject-combobox"
                       value={examSubject}
-                      options={mySubjects}
+                      options={createDialogSubjectOptions}
                       onChange={setExamSubject}
                       label="Fach (KI-Profil)"
                     />
@@ -1484,7 +1525,19 @@ export default function ExamsPage() {
                         labelId="class-label"
                         value={selectedClassId}
                         label="Zielklasse"
-                        onChange={(e) => setDialogClassId(e.target.value)}
+                        onChange={(e) => {
+                          const nextClassId = e.target.value;
+                          setDialogClassId(nextClassId);
+                          const nextClass = classes.find((c) => c.id === nextClassId) || null;
+                          const nextClassExams = exams.filter((ex) => ex.classId === nextClassId);
+                          const nextOptions = resolveClassSubjectOptions(
+                            mySubjects,
+                            nextClass?.subjects
+                          );
+                          setExamSubject(
+                            resolveDefaultExamSubjectForClass(nextOptions, nextClassExams)
+                          );
+                        }}
                         required
                         sx={{ borderRadius: '8px' }}
                       >
@@ -1915,7 +1968,7 @@ export default function ExamsPage() {
                     <SubjectCombobox
                       id="copy-subject-combobox"
                       value={copySubject}
-                      options={mySubjects}
+                      options={copyDialogSubjectOptions}
                       onChange={setCopySubject}
                       label="Fach (KI-Profil)"
                     />
@@ -1930,7 +1983,25 @@ export default function ExamsPage() {
                         labelId="copy-class-label"
                         value={copyTargetClassId}
                         label="Zielklasse"
-                        onChange={(e) => setCopyTargetClassId(e.target.value)}
+                        onChange={(e) => {
+                          const nextClassId = e.target.value;
+                          setCopyTargetClassId(nextClassId);
+                          const nextClass = classes.find((c) => c.id === nextClassId) || null;
+                          const nextOptions = resolveClassSubjectOptions(
+                            mySubjects,
+                            nextClass?.subjects
+                          );
+                          if (
+                            !nextOptions.some(
+                              (opt) => opt.value.toLowerCase() === copySubject.toLowerCase()
+                            )
+                          ) {
+                            const nextClassExams = exams.filter((ex) => ex.classId === nextClassId);
+                            setCopySubject(
+                              resolveDefaultExamSubjectForClass(nextOptions, nextClassExams)
+                            );
+                          }
+                        }}
                         required
                         sx={{ borderRadius: '8px' }}
                         MenuProps={{ disablePortal: true }}
@@ -2236,7 +2307,19 @@ export default function ExamsPage() {
                         labelId="gen-class-label"
                         value={genClassId || selectedClassId}
                         label="Zielklasse *"
-                        onChange={(e) => setGenClassId(e.target.value)}
+                        onChange={(e) => {
+                          const nextClassId = e.target.value;
+                          setGenClassId(nextClassId);
+                          const nextClass = classes.find((c) => c.id === nextClassId) || null;
+                          const nextClassExams = exams.filter((ex) => ex.classId === nextClassId);
+                          const nextOptions = resolveClassSubjectOptions(
+                            mySubjects,
+                            nextClass?.subjects
+                          );
+                          setGenSubject(
+                            resolveDefaultExamSubjectForClass(nextOptions, nextClassExams)
+                          );
+                        }}
                         required
                         sx={{ borderRadius: '8px' }}
                       >
@@ -2261,7 +2344,7 @@ export default function ExamsPage() {
                     <SubjectCombobox
                       id="gen-subject-combobox"
                       value={genSubject}
-                      options={mySubjects}
+                      options={genDialogSubjectOptions}
                       onChange={setGenSubject}
                       label="Fach (KI-Profil)"
                     />

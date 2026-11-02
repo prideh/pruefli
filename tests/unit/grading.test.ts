@@ -12,10 +12,17 @@ import {
   normalizeSubjectValue,
   resolveTeacherSubjects,
   resolveFilterAndViewSubjects,
+  resolveClassSubjectOptions,
+  resolveDefaultExamSubjectForClass,
+  computeClassSubjectBreakdown,
 } from '@/lib/grading';
 import {
   getTeacherSavedSubjects,
   saveTeacherSubjects,
+  getClassSavedSubjects,
+  getMultipleClassesSavedSubjects,
+  saveClassSubjects,
+  deleteClassSubjects,
   resetTeacherSubjectsMemoryState,
 } from '@/lib/teacher-subjects';
 import { getSubjectFocusInstruction } from '@/lib/gemini';
@@ -431,9 +438,10 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
         'utf8'
       );
 
-      // 1. Alle 3 Dialoge (Manuell, Duplizieren, Generieren) bieten die Faecher aus "Meine Faecher" (options={mySubjects}) an
+      // 1. Alle 3 Dialoge (Manuell, Duplizieren, Generieren) bieten die Faecher aus "Meine Faecher" (via resolveClassSubjectOptions(mySubjects, ...)) an
       expect(examsPageSource).toContain('function SubjectCombobox');
-      expect(examsPageSource).toContain('options={mySubjects}');
+      expect(examsPageSource).toContain('resolveClassSubjectOptions(mySubjects');
+      expect(examsPageSource).toContain('options={createDialogSubjectOptions}');
       expect(examsPageSource).toContain('id="subject-combobox"');
       expect(examsPageSource).toContain('id="copy-subject-combobox"');
       expect(examsPageSource).toContain('id="gen-subject-combobox"');
@@ -525,6 +533,127 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       );
       expect(subjectsPageSource).not.toContain('ß');
       expect(examDetailPageSource).not.toContain('ß');
+    });
+
+    it('unterstuetzt Klassen-Faecher-Teilmenge, Vorauswahl pro Klasse, Klassendetail-Fachschnitte und Klassenfilter auf der Faecher-Seite (Issue #81)', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const classesPageSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/classes/page.tsx'),
+        'utf8'
+      );
+      const classDetailPageSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/classes/[id]/page.tsx'),
+        'utf8'
+      );
+      const examsPageSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/exams/page.tsx'),
+        'utf8'
+      );
+      const subjectsPageSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'app/subjects/page.tsx'),
+        'utf8'
+      );
+
+      // 1. Persistenz der Klassen-Faecher-Teilmenge (Mehrfachauswahl, leer = keine Einschraenkung)
+      resetTeacherSubjectsMemoryState();
+      const classA = 'class-81-a';
+      const classB = 'class-81-b';
+      expect(await getClassSavedSubjects(classA)).toEqual([]);
+
+      const savedA = await saveClassSubjects(classA, [
+        'Mathematik',
+        '  Französisch ',
+        'mathematik',
+      ]);
+      expect(savedA).toEqual(['Mathematik', 'Französisch']);
+      expect(await getClassSavedSubjects(classA)).toEqual(['Mathematik', 'Französisch']);
+
+      const multi = await getMultipleClassesSavedSubjects([classA, classB]);
+      expect(multi[classA]).toEqual(['Mathematik', 'Französisch']);
+      expect(multi[classB]).toEqual([]);
+
+      await deleteClassSubjects(classA);
+      expect(await getClassSavedSubjects(classA)).toEqual([]);
+
+      // 2. Teilmenge vs. volle Lehrerliste ("Meine Faecher") & sinnvolle Vorauswahl
+      const teacherSubjects = resolveTeacherSubjects(
+        ['Mathematik', 'Physik', 'Französisch', 'Geschichte'],
+        []
+      );
+
+      // Ohne Teilmenge (leer = keine Einschraenkung): volle Lehrerliste verfuegbar
+      const unrestrictedOptions = resolveClassSubjectOptions(teacherSubjects, []);
+      expect(unrestrictedOptions.map((s) => s.value)).toEqual([
+        'Mathematik',
+        'Physik',
+        'Französisch',
+        'Geschichte',
+      ]);
+
+      // Mit Teilmenge: nur relevante Faecher der Klasse verfuegbar
+      const subsetOptions = resolveClassSubjectOptions(teacherSubjects, [
+        'Französisch',
+        'Geschichte',
+      ]);
+      expect(subsetOptions.map((s) => s.value)).toEqual(['Französisch', 'Geschichte']);
+
+      // Vorauswahl: einziges Fach in der Klasse -> direkt vorbelegt
+      const singleSubset = resolveClassSubjectOptions(teacherSubjects, ['Französisch']);
+      expect(resolveDefaultExamSubjectForClass(singleSubset, [])).toBe('Französisch');
+
+      // Vorauswahl: mehrere Faecher -> zuletzt in dieser Klasse verwendetes Fach
+      expect(
+        resolveDefaultExamSubjectForClass(subsetOptions, [
+          { subject: 'Geschichte' },
+          { subject: 'Französisch' },
+        ])
+      ).toBe('Geschichte');
+
+      // Vorauswahl ohne bisherige Pruefung -> erstes Fach der Teilmenge
+      expect(resolveDefaultExamSubjectForClass(subsetOptions, [])).toBe('Französisch');
+
+      // 3. Fachbezogene Schnitte/Statistiken pro Klasse aus vorhandenen Pruefungsdaten + unveraenderter Support-Status
+      const breakdown = computeClassSubjectBreakdown(
+        [
+          { subject: 'Mathematik', submissionsCount: 2, averageGrade: '5.00' },
+          { subject: 'Mathematik', submissionsCount: 1, averageGrade: '5.60' },
+          { subject: 'Geschichte', submissionsCount: 2, averageGrade: '4.50' },
+        ],
+        ['Mathematik', 'Französisch', 'Geschichte']
+      );
+
+      expect(breakdown.map((b) => b.value)).toEqual(['Mathematik', 'Französisch', 'Geschichte']);
+      const mathStat = breakdown.find((b) => b.value === 'Mathematik')!;
+      expect(mathStat.examsCount).toBe(2);
+      expect(mathStat.submissionsCount).toBe(3);
+      // (2 * 5.00 + 1 * 5.60) / 3 = 15.60 / 3 = 5.20
+      expect(mathStat.averageGrade).toBe('5.20');
+      expect(mathStat.supportInfo.supportBadge).toBe('Verifizierte Modalität');
+
+      const frStat = breakdown.find((b) => b.value === 'Französisch')!;
+      expect(frStat.examsCount).toBe(0);
+      expect(frStat.submissionsCount).toBe(0);
+      expect(frStat.averageGrade).toBe('N/A');
+      expect(frStat.supportInfo.supportBadge).toBe('Basis-Korrektur');
+
+      const histStat = breakdown.find((b) => b.value === 'Geschichte')!;
+      expect(histStat.examsCount).toBe(1);
+      expect(histStat.submissionsCount).toBe(2);
+      expect(histStat.averageGrade).toBe('4.50');
+      expect(histStat.supportInfo.supportBadge).toBe('Basis-Korrektur');
+
+      // 4. UI-Integration in Klassenverwaltung, Klassendetail, Pruefungsverwaltung und Faecher-Seite (plus Schweizer Rechtschreibung ohne ss-Fehler)
+      expect(classesPageSource).toContain('Fächer dieser Klasse (Teilmenge aus „Meine Fächer“)');
+      expect(classesPageSource).not.toContain('ß');
+      expect(classDetailPageSource).toContain('Fächer & Fachschnitte dieser Klasse');
+      expect(classDetailPageSource).toContain('computeClassSubjectBreakdown');
+      expect(classDetailPageSource).not.toContain('ß');
+      expect(examsPageSource).toContain('resolveDefaultExamSubjectForClass');
+      expect(subjectsPageSource).toContain(
+        'resolveClassSubjectOptions(allSubjects, selectedClass.subjects)'
+      );
+      expect(subjectsPageSource).not.toContain('ß');
     });
   });
 });

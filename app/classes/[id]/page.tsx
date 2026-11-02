@@ -32,6 +32,7 @@ import {
   FormControl,
   InputLabel,
   ButtonGroup,
+  Tooltip,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { getErrorMessage } from '@/lib/api-error';
@@ -57,12 +58,20 @@ import {
   invalidateSubmissions,
   invalidateStudents,
 } from '@/lib/dataCache';
+import {
+  resolveTeacherSubjects,
+  computeClassSubjectBreakdown,
+  getSubjectSupportInfo,
+  normalizeSubjectValue,
+  type ClassSubjectStatItem,
+} from '@/lib/grading';
 
 interface ClassData {
   id: string;
   name: string;
   createdAt: string;
   teacherId: string;
+  subjects?: string[];
 }
 
 interface ClassStats {
@@ -107,6 +116,7 @@ interface BulkStudentItem {
 interface ClassDetailsApiResponse {
   class: ClassData;
   stats: ClassStats;
+  subjectStats?: ClassSubjectStatItem[];
   students: StudentRosterItem[];
   exams: ExamRosterItem[];
 }
@@ -141,8 +151,36 @@ export default function ClassDetailsPage() {
 
   const classData = cachedDetails?.class || null;
   const stats = cachedDetails?.stats || null;
-  const students = cachedDetails?.students || [];
-  const exams = cachedDetails?.exams || [];
+  const students = React.useMemo(() => cachedDetails?.students || [], [cachedDetails?.students]);
+  const exams = React.useMemo(() => cachedDetails?.exams || [], [cachedDetails?.exams]);
+
+  const fetchSubjectsApi = React.useCallback(async () => {
+    const res = await fetch('/api/subjects');
+    if (!res.ok) return { savedSubjects: null, existingExamSubjects: [] };
+    return (await res.json()) as {
+      savedSubjects?: string[] | null;
+      existingExamSubjects?: string[];
+    };
+  }, []);
+
+  const { data: cachedSubjectsData } = useDataCache<{
+    savedSubjects?: string[] | null;
+    existingExamSubjects?: string[];
+  }>('/api/subjects', fetchSubjectsApi);
+
+  const mySubjects = React.useMemo(
+    () =>
+      resolveTeacherSubjects(cachedSubjectsData?.savedSubjects ?? null, [
+        ...(cachedSubjectsData?.existingExamSubjects ?? []),
+        ...exams.map((ex) => ex.subject),
+      ]).map((item) => item.value),
+    [cachedSubjectsData, exams]
+  );
+
+  const classSubjectBreakdown = React.useMemo(
+    () => computeClassSubjectBreakdown(exams, classData?.subjects),
+    [exams, classData?.subjects]
+  );
 
   const [allClasses, setAllClasses] = useState<SimpleClassInfo[]>([]); // For student transfer selection
 
@@ -174,15 +212,33 @@ export default function ClassDetailsPage() {
   const [deleteClassError, setDeleteClassError] = useState('');
   const [openEditClass, setOpenEditClass] = useState(false);
   const [editedClassName, setEditedClassName] = useState('');
+  const [editedClassSubjects, setEditedClassSubjects] = useState<string[]>([]);
   const [editClassError, setEditClassError] = useState('');
 
   const handleOpenEditClass = () => {
     setEditClassError('');
     setEditedClassName(classData?.name || '');
+    setEditedClassSubjects(
+      Array.isArray(classData?.subjects)
+        ? classData.subjects.map((s) => normalizeSubjectValue(s)).filter(Boolean)
+        : []
+    );
     if ((classData?.name || '').trim().length > 100) {
       setEditClassError('Der Klassenname ist zu lang. Maximal 100 Zeichen sind erlaubt.');
     }
     setOpenEditClass(true);
+  };
+
+  const handleToggleEditedSubject = (subject: string) => {
+    const normalized = normalizeSubjectValue(subject);
+    if (!normalized) return;
+    setEditedClassSubjects((prev) => {
+      const exists = prev.some((s) => s.toLowerCase() === normalized.toLowerCase());
+      if (exists) {
+        return prev.filter((s) => s.toLowerCase() !== normalized.toLowerCase());
+      }
+      return [...prev, normalized];
+    });
   };
 
   // Bulk Add Dialog State
@@ -441,7 +497,7 @@ export default function ClassDetailsPage() {
       const res = await fetch(`/api/classes/${classId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmed }),
+        body: JSON.stringify({ name: trimmed, subjects: editedClassSubjects }),
       });
       if (!res.ok) {
         const errorMsg = await getErrorMessage(res, 'Klassenname konnte nicht geändert werden.');
@@ -829,6 +885,190 @@ export default function ClassDetailsPage() {
             </Card>
           </Grid>
         </Grid>
+
+        {/* 2b. Class Subjects & Subject Grade Breakdown Card */}
+        <Card sx={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none' }}>
+          <CardContent sx={{ p: 3 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                mb: 2,
+                flexWrap: 'wrap',
+                gap: 2,
+              }}
+            >
+              <Stack spacing={0.5}>
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                  <SchoolIcon sx={{ color: '#0f172a' }} />
+                  <Typography
+                    variant="h6"
+                    sx={{ fontWeight: 850, color: '#0f172a', letterSpacing: '-0.01em' }}
+                  >
+                    Fächer & Fachschnitte dieser Klasse
+                  </Typography>
+                  <Chip
+                    label={
+                      classData?.subjects && classData.subjects.length > 0
+                        ? `${classData.subjects.length} Fächer zugewiesen`
+                        : 'Keine Einschränkung (Alle „Meine Fächer“)'
+                    }
+                    size="small"
+                    sx={{
+                      fontWeight: 700,
+                      fontSize: '0.72rem',
+                      backgroundColor:
+                        classData?.subjects && classData.subjects.length > 0
+                          ? '#eff6ff'
+                          : '#f1f5f9',
+                      color:
+                        classData?.subjects && classData.subjects.length > 0
+                          ? '#1d4ed8'
+                          : '#475569',
+                      border:
+                        classData?.subjects && classData.subjects.length > 0
+                          ? '1px solid #bfdbfe'
+                          : '1px solid #cbd5e1',
+                    }}
+                  />
+                </Stack>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 550 }}>
+                  Fachbezogene Schnitte und Statistiken aus den vorhandenen Prüfungsdaten dieser
+                  Klasse. Der Unterstützungsstatus pro Fach bleibt unverändert; Organisation
+                  impliziert keine Korrekturqualität.
+                </Typography>
+              </Stack>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<EditIcon />}
+                onClick={handleOpenEditClass}
+                sx={{
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  fontWeight: 650,
+                  fontSize: '0.85rem',
+                }}
+              >
+                Fächer der Klasse bearbeiten
+              </Button>
+            </Box>
+
+            {classSubjectBreakdown.length === 0 ? (
+              <Box sx={{ py: 3, textAlign: 'center' }}>
+                <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+                  Noch keine Fächer-Teilmenge zugewiesen und noch keine Prüfungen in dieser Klasse
+                  vorhanden.
+                </Typography>
+              </Box>
+            ) : (
+              <TableContainer
+                component={Box}
+                sx={{ border: '1px solid #f1f5f9', borderRadius: '8px' }}
+              >
+                <Table size="small">
+                  <TableHead sx={{ backgroundColor: '#f8fafc' }}>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Fach</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Unterstützungsstatus</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Prüfungen in Klasse</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Bewertete Arbeiten</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Fachschnitt (Ø)</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {classSubjectBreakdown.map((item) => {
+                      const supportInfo = item.supportInfo;
+                      const isAssignedToClass = (classData?.subjects || []).some(
+                        (s) => normalizeSubjectValue(s).toLowerCase() === item.value.toLowerCase()
+                      );
+                      return (
+                        <TableRow
+                          key={item.value}
+                          sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                        >
+                          <TableCell sx={{ fontWeight: 700, color: '#0f172a' }}>
+                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                              <span>{item.label}</span>
+                              {isAssignedToClass && (
+                                <Chip
+                                  label="Klassen-Fach"
+                                  size="small"
+                                  sx={{
+                                    height: '20px',
+                                    fontSize: '0.68rem',
+                                    fontWeight: 700,
+                                    backgroundColor: '#eff6ff',
+                                    color: '#1d4ed8',
+                                  }}
+                                />
+                              )}
+                            </Stack>
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title={supportInfo.supportDescription} arrow>
+                              <Chip
+                                label={supportInfo.supportBadge}
+                                size="small"
+                                sx={{
+                                  height: '22px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  backgroundColor:
+                                    supportInfo.supportLevel === 'VERIFIED_MODALITY'
+                                      ? '#dcfce7'
+                                      : supportInfo.supportLevel === 'FOCUS_PROFILE'
+                                        ? '#e0f2fe'
+                                        : '#f1f5f9',
+                                  color:
+                                    supportInfo.supportLevel === 'VERIFIED_MODALITY'
+                                      ? '#15803d'
+                                      : supportInfo.supportLevel === 'FOCUS_PROFILE'
+                                        ? '#0369a1'
+                                        : '#475569',
+                                }}
+                              />
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell>{item.examsCount} Prüfungen</TableCell>
+                          <TableCell>{item.submissionsCount} bewertet</TableCell>
+                          <TableCell>
+                            {item.averageGrade !== 'N/A' ? (
+                              <Chip
+                                label={item.averageGrade}
+                                size="small"
+                                sx={{
+                                  backgroundColor:
+                                    parseFloat(item.averageGrade) >= 4.0 ? '#dcfce7' : '#fee2e2',
+                                  color:
+                                    parseFloat(item.averageGrade) >= 4.0 ? '#15803d' : '#b91c1c',
+                                  fontWeight: 'bold',
+                                  borderRadius: '6px',
+                                }}
+                              />
+                            ) : (
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  color: 'text.secondary',
+                                  fontStyle: 'italic',
+                                  fontSize: '0.85rem',
+                                }}
+                              >
+                                Keine Noten
+                              </Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </CardContent>
+        </Card>
 
         {/* 3. Students Roster Card */}
         <Card sx={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none' }}>
@@ -1664,13 +1904,13 @@ export default function ClassDetailsPage() {
             setOpenEditClass(false);
             setEditedClassName(classData?.name || '');
           }}
-          maxWidth="xs"
+          maxWidth="sm"
           fullWidth
         >
           <form onSubmit={handleEditClass}>
-            <DialogTitle sx={{ fontWeight: 800, color: '#0f172a' }}>Klassenname ändern</DialogTitle>
+            <DialogTitle sx={{ fontWeight: 800, color: '#0f172a' }}>Klasse bearbeiten</DialogTitle>
             <DialogContent>
-              <Stack spacing={2} sx={{ mt: 1 }}>
+              <Stack spacing={2.5} sx={{ mt: 1 }}>
                 {editClassError && (
                   <Alert severity="error" sx={{ borderRadius: '8px' }}>
                     {editClassError}
@@ -1702,6 +1942,68 @@ export default function ClassDetailsPage() {
                   autoFocus
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
                 />
+
+                <Box>
+                  <Stack
+                    direction="row"
+                    sx={{
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      mb: 0.75,
+                      flexWrap: 'wrap',
+                      gap: 1,
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 750, color: '#0f172a' }}>
+                      Fächer dieser Klasse (Teilmenge aus „Meine Fächer“)
+                    </Typography>
+                    {editedClassSubjects.length > 0 && (
+                      <Button
+                        size="small"
+                        onClick={() => setEditedClassSubjects([])}
+                        sx={{ textTransform: 'none', fontWeight: 650, fontSize: '0.75rem', py: 0 }}
+                      >
+                        Keine Einschränkung
+                      </Button>
+                    )}
+                  </Stack>
+                  <Typography
+                    variant="caption"
+                    sx={{ color: 'text.secondary', display: 'block', mb: 1.25 }}
+                  >
+                    Wähle die für diese Klasse relevanten Fächer aus deiner Liste „Meine Fächer“
+                    (Mehrfachauswahl, leer = keine Einschränkung). Der Unterstützungsstatus pro Fach
+                    bleibt unverändert.
+                  </Typography>
+                  <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                    {Array.from(new Set([...mySubjects, ...editedClassSubjects])).map((subj) => {
+                      const isSelected = editedClassSubjects.some(
+                        (s) => s.toLowerCase() === subj.toLowerCase()
+                      );
+                      const supportInfo = getSubjectSupportInfo(subj);
+                      return (
+                        <Tooltip
+                          key={subj}
+                          title={`${supportInfo.supportBadge}: ${supportInfo.supportDescription}`}
+                          arrow
+                        >
+                          <Chip
+                            label={`${subj} · ${supportInfo.supportBadge}`}
+                            clickable
+                            onClick={() => handleToggleEditedSubject(subj)}
+                            color={isSelected ? 'primary' : 'default'}
+                            variant={isSelected ? 'filled' : 'outlined'}
+                            sx={{
+                              fontWeight: 650,
+                              fontSize: '0.78rem',
+                              borderRadius: '8px',
+                            }}
+                          />
+                        </Tooltip>
+                      );
+                    })}
+                  </Stack>
+                </Box>
               </Stack>
             </DialogContent>
             <DialogActions sx={{ p: 2, pt: 0 }}>

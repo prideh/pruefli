@@ -56,8 +56,10 @@ import {
   SUBJECT_PROFILES,
   getSubjectSupportInfo,
   normalizeSubjectValue,
+  toTeacherSubjectItem,
   resolveTeacherSubjects,
   resolveFilterAndViewSubjects,
+  resolveClassSubjectOptions,
   type TeacherSubjectItem,
 } from '@/lib/grading';
 
@@ -65,6 +67,7 @@ interface SimpleClass {
   id: string;
   name: string;
   studentsCount: number;
+  subjects?: string[];
 }
 
 interface ExamItem {
@@ -149,10 +152,11 @@ export default function SubjectsPage() {
     if (!res.ok) throw new Error('Fehler beim Laden der Klassen.');
     const data = await res.json();
     return (data.classes || []).map(
-      (cls: { id: string; name: string; _count?: { students?: number } }) => ({
+      (cls: { id: string; name: string; _count?: { students?: number }; subjects?: string[] }) => ({
         id: cls.id,
         name: cls.name,
         studentsCount: cls._count?.students || 0,
+        subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
       })
     );
   }, []);
@@ -220,6 +224,39 @@ export default function SubjectsPage() {
       exams.map((ex) => ex.subject)
     );
   }, [savedSubjects, exams]);
+
+  const selectedClass = useMemo(
+    () =>
+      selectedClassId === 'ALL' ? null : classes.find((c) => c.id === selectedClassId) || null,
+    [classes, selectedClassId]
+  );
+
+  // Innerhalb einer gewählten Klasse zeigt die Fächer-Seite nur deren Fächer (sofern Teilmenge gesetzt) + evtl. bestehende Prüfungsfächer der Klasse
+  const visibleSubjects = useMemo(() => {
+    if (
+      !selectedClass ||
+      !Array.isArray(selectedClass.subjects) ||
+      selectedClass.subjects.length === 0
+    ) {
+      return allSubjects;
+    }
+
+    const baseSubset = resolveClassSubjectOptions(allSubjects, selectedClass.subjects);
+    const seen = new Set(baseSubset.map((s) => s.value.toLowerCase()));
+    const extraClassExamSubjects: TeacherSubjectItem[] = [];
+
+    for (const ex of exams) {
+      if (ex.classId !== selectedClass.id) continue;
+      const norm = normalizeSubjectValue(ex.subject);
+      if (!norm) continue;
+      const key = norm.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      extraClassExamSubjects.push(toTeacherSubjectItem(norm));
+    }
+
+    return [...baseSubset, ...extraClassExamSubjects];
+  }, [allSubjects, selectedClass, exams]);
 
   // Nicht ausgewählte Katalog-Presets (erscheinen nicht als leere 0-Prüfungen-Karten im Hauptbereich, sondern unter "Weitere Fächer hinzufügen")
   const unselectedCatalogProfiles = useMemo(() => {
@@ -527,7 +564,10 @@ export default function SubjectsPage() {
                       labelId="class-filter-label"
                       value={selectedClassId}
                       label="Klasse filtern"
-                      onChange={(e) => setSelectedClassId(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedClassId(e.target.value);
+                        setSelectedSubject('ALL');
+                      }}
                       sx={{ borderRadius: '8px' }}
                     >
                       <MenuItem value="ALL">Alle Klassen ({classes.length})</MenuItem>
@@ -603,7 +643,11 @@ export default function SubjectsPage() {
                   variant="h6"
                   sx={{ fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}
                 >
-                  Meine Fächer ({allSubjects.length})
+                  {selectedClass &&
+                  Array.isArray(selectedClass.subjects) &&
+                  selectedClass.subjects.length > 0
+                    ? `Fächer von ${selectedClass.name} (${visibleSubjects.length})`
+                    : `Meine Fächer (${visibleSubjects.length})`}
                 </Typography>
                 <Button
                   size="small"
@@ -617,7 +661,7 @@ export default function SubjectsPage() {
               </Stack>
 
               <Grid container spacing={2.5}>
-                {allSubjects.map((item) => {
+                {visibleSubjects.map((item) => {
                   const stat = subjectStats[item.value] || {
                     examsCount: 0,
                     submissionsCount: 0,
