@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getAppUrl } from '@/lib/app-url';
 import {
   type OAuthProvider,
   exchangeCodeForTokens,
@@ -22,7 +23,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     const provider = rawProvider?.toLowerCase();
 
     if (provider !== 'google' && provider !== 'microsoft') {
-      const url = new URL('/login', request.url);
+      const url = new URL('/login', getAppUrl());
       url.searchParams.set('error', 'unsupported_provider');
       return NextResponse.redirect(url);
     }
@@ -34,13 +35,13 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
 
     if (oauthError) {
       console.warn(`OAuth flow cancelled or rejected by provider (${oauthProvider}):`, oauthError);
-      const url = new URL('/login', request.url);
+      const url = new URL('/login', getAppUrl());
       url.searchParams.set('error', 'oauth_cancelled');
       return NextResponse.redirect(url);
     }
 
     if (!code || !state) {
-      const url = new URL('/login', request.url);
+      const url = new URL('/login', getAppUrl());
       url.searchParams.set('error', 'missing_code_or_state');
       return NextResponse.redirect(url);
     }
@@ -48,7 +49,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     // Cryptographically verify CSRF state token
     const statePayload = await verifyOAuthStateToken(state);
     if (!statePayload || statePayload.provider !== oauthProvider) {
-      const url = new URL('/login', request.url);
+      const url = new URL('/login', getAppUrl());
       url.searchParams.set('error', 'invalid_state');
       return NextResponse.redirect(url);
     }
@@ -65,7 +66,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     if (statePayload.action === 'link') {
       const teacherId = statePayload.teacherId;
       if (!teacherId) {
-        const url = new URL('/login', request.url);
+        const url = new URL('/login', getAppUrl());
         url.searchParams.set('error', 'invalid_link_state');
         return NextResponse.redirect(url);
       }
@@ -74,7 +75,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
         where: { id: teacherId },
       });
       if (!currentTeacher) {
-        const url = new URL('/login', request.url);
+        const url = new URL('/login', getAppUrl());
         url.searchParams.set('error', 'user_not_found');
         return NextResponse.redirect(url);
       }
@@ -87,11 +88,11 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
           email: normEmail,
         });
 
-        const url = new URL('/dashboard', request.url);
+        const url = new URL('/dashboard', getAppUrl());
         url.searchParams.set('linked', oauthProvider);
         return NextResponse.redirect(url);
       } catch (linkErr) {
-        const url = new URL('/dashboard', request.url);
+        const url = new URL('/dashboard', getAppUrl());
         url.searchParams.set(
           'error',
           linkErr instanceof Error ? linkErr.message : 'provider_link_failed'
@@ -111,7 +112,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
 
       if (teacher) {
         await createSession(teacher.id);
-        return NextResponse.redirect(new URL('/dashboard', request.url));
+        return NextResponse.redirect(new URL('/dashboard', getAppUrl()));
       }
     }
 
@@ -133,7 +134,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
         existingTeacherEmail: existingTeacher.email,
       });
 
-      const url = new URL('/auth/link-account', request.url);
+      const url = new URL('/auth/link-account', getAppUrl());
       url.searchParams.set('token', pendingToken);
       return NextResponse.redirect(url);
     }
@@ -157,10 +158,10 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     await markEmailVerified(newTeacher.id, newTeacher.email);
     await createSession(newTeacher.id);
 
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    return NextResponse.redirect(new URL('/dashboard', getAppUrl()));
   } catch (err) {
     console.error('Error during OAuth callback handling:', err);
-    const url = new URL('/login', request.url);
+    const url = new URL('/login', getAppUrl());
     url.searchParams.set('error', 'oauth_exchange_failed');
     return NextResponse.redirect(url);
   }
