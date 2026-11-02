@@ -16,6 +16,9 @@ import {
   archiveClass,
   unarchiveClass,
   deleteClassArchive,
+  formatClassDeletionConsequences,
+  formatClassDeletedCompletionMessage,
+  isClassDeleteConfirmationValid,
 } from '@/lib/class-archive';
 
 // GET: Fetch class details, students roster, and class statistics
@@ -54,6 +57,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         },
         exams: {
           include: {
+            _count: {
+              select: { submissions: true },
+            },
             submissions: {
               where: { status: 'COMPLETED', studentId: { not: null } },
             },
@@ -173,6 +179,25 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         ? new Date((schoolClass as { archivedAt?: Date | string }).archivedAt!)
         : null);
     const subjectStats = computeClassSubjectBreakdown(examsList, classSubjects);
+    const examsSubmissionsTotal = schoolClass.exams.reduce(
+      (sum, ex) =>
+        sum +
+        ((ex as { _count?: { submissions?: number } })._count?.submissions ??
+          ex.submissions?.length ??
+          0),
+      0
+    );
+    const totalCorrectionsCount = Math.max(totalSubmissions, examsSubmissionsTotal);
+    const deletionImpact = {
+      studentsCount: schoolClass.students.length,
+      examsCount: schoolClass.exams.length,
+      submissionsCount: totalCorrectionsCount,
+      summaryText: formatClassDeletionConsequences({
+        studentsCount: schoolClass.students.length,
+        examsCount: schoolClass.exams.length,
+        submissionsCount: totalCorrectionsCount,
+      }),
+    };
 
     const responsePayload = {
       class: {
@@ -182,7 +207,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         subjects: classSubjects,
         isArchived,
         archivedAt: resolvedArchivedAt ? resolvedArchivedAt.toISOString() : null,
+        deletionImpact,
       },
+      deletionImpact,
       stats,
       subjectStats,
       students: studentsRoster,
@@ -297,7 +324,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
 export const PATCH = PUT;
 
-// DELETE: Delete class (cleans up scan files in storage, then cascade deletes all students, exams, and submissions via Prisma)
+// DELETE: Delete class (only allowed for archived classes; cleans up scan files in storage, then cascade deletes all students, exams, and submissions via Prisma)
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
@@ -307,14 +334,83 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
     const { id: classId } = await params;
 
-    // Verify class ownership
+    // Verify class ownership and load current DB counts for deletion consequence verification
     const schoolClass = await db.class.findFirst({
       where: { id: classId, teacherId: session.userId },
+      include: {
+        _count: {
+          select: { students: true, exams: true },
+        },
+        exams: {
+          select: {
+            _count: {
+              select: { submissions: true },
+            },
+          },
+        },
+      },
     });
 
     if (!schoolClass) {
       return NextResponse.json({ error: 'Klasse nicht gefunden.' }, { status: 404 });
     }
+
+    // 1. Endgueltiges Klassen-Loeschen ist nur im Archiv-Bereich verfuegbar (Klasse muss zuerst archiviert sein)
+    const currentlyArchived =
+      (await isClassArchived(classId)) ||
+      Boolean((schoolClass as { archivedAt?: Date | string | null }).archivedAt);
+    if (!currentlyArchived) {
+      return NextResponse.json(
+        {
+          error:
+            'Aktive Klassen können nicht direkt gelöscht werden. Bitte archiviere die Klasse zuerst.',
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2. Tipp-Bestaetigung pruefen, sofern confirmName im Body oder Query uebergeben wurde
+    let confirmName: string | undefined;
+    const url = request?.url ? new URL(request.url) : null;
+    if (url?.searchParams.has('confirmName')) {
+      confirmName = url.searchParams.get('confirmName') ?? '';
+    } else {
+      try {
+        const rawBody = await request.text();
+        if (rawBody && rawBody.trim().length > 0) {
+          const parsed = JSON.parse(rawBody) as { confirmName?: string };
+          if ('confirmName' in parsed) {
+            confirmName = typeof parsed.confirmName === 'string' ? parsed.confirmName : '';
+          }
+        }
+      } catch {
+        // Kein JSON-Body uebergeben
+      }
+    }
+
+    if (
+      confirmName !== undefined &&
+      !isClassDeleteConfirmationValid(schoolClass.name, confirmName)
+    ) {
+      return NextResponse.json(
+        {
+          error: `Zur Bestätigung muss der exakte Klassenname „${schoolClass.name}“ eingegeben werden.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const classWithCounts = schoolClass as {
+      _count?: { students?: number; exams?: number };
+      exams?: Array<{ _count?: { submissions?: number } }>;
+    };
+    const deletedImpact = {
+      studentsCount: classWithCounts._count?.students ?? 0,
+      examsCount: classWithCounts._count?.exams ?? 0,
+      submissionsCount: Array.isArray(classWithCounts.exams)
+        ? classWithCounts.exams.reduce((sum, ex) => sum + (ex._count?.submissions ?? 0), 0)
+        : 0,
+    };
 
     // Storage-Bereinigung VOR der DB-Kaskadenloeschung ausfuehren.
     // Schlaegt das Loeschen im Storage fehl, bricht der Vorgang ab und die DB-Referenzen bleiben erhalten.
@@ -329,7 +425,16 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     await invalidateClassCache(session.userId, classId);
     await invalidateLogsCache(session.userId);
 
-    return NextResponse.json({ success: true, message: 'Klasse erfolgreich gelöscht.' });
+    const completionMessage = formatClassDeletedCompletionMessage(schoolClass.name, deletedImpact);
+
+    return NextResponse.json({
+      success: true,
+      message: completionMessage,
+      deletedImpact: {
+        ...deletedImpact,
+        summaryText: formatClassDeletionConsequences(deletedImpact),
+      },
+    });
   } catch (error) {
     if (error instanceof StorageCleanupError) {
       console.error(

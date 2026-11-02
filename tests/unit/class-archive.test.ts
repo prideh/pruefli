@@ -7,7 +7,12 @@ import {
   getArchivedClassIds,
   deleteClassArchive,
   resetClassArchiveMemoryState,
+  formatClassDeletionConsequences,
+  isClassDeleteConfirmationValid,
+  formatClassDeletedCompletionMessage,
 } from '@/lib/class-archive';
+import fs from 'fs';
+import path from 'path';
 import { GET as getClasses } from '@/app/api/classes/route';
 import {
   GET as getClassDetails,
@@ -715,6 +720,145 @@ describe('Klassen archivieren (#82): Nicht-destruktives Ablegen für den Schulja
         { params: Promise.resolve({ id: 'sub-archived' }) }
       );
       expect(postRes.status).toBe(400);
+    });
+  });
+
+  describe('5. Endgültiges Löschen im Archiv absichern (#84): Konsequenzen-Dialog & Tipp-Bestätigung', () => {
+    it('formatiert die Lösch-Konsequenzen exakt mit den aktuellen DB-Zahlen', () => {
+      expect(
+        formatClassDeletionConsequences({
+          studentsCount: 3,
+          examsCount: 5,
+          submissionsCount: 41,
+        })
+      ).toBe('3 Schüler/innen, 5 Prüfungen, 41 Korrekturen inkl. aller gespeicherten Scans');
+
+      expect(
+        formatClassDeletionConsequences({
+          studentsCount: 1,
+          examsCount: 1,
+          submissionsCount: 1,
+        })
+      ).toBe('1 Schüler/innen, 1 Prüfung, 1 Korrektur inkl. aller gespeicherten Scans');
+
+      expect(
+        formatClassDeletionConsequences({
+          studentsCount: 0,
+          examsCount: 0,
+          submissionsCount: 0,
+        })
+      ).toBe('0 Schüler/innen, 0 Prüfungen, 0 Korrekturen inkl. aller gespeicherten Scans');
+    });
+
+    it('prüft die Tipp-Bestätigung des Klassennamens strikt', () => {
+      expect(isClassDeleteConfirmationValid('3b Sek', '3b Sek')).toBe(true);
+      expect(isClassDeleteConfirmationValid('3b Sek', '  3b Sek  ')).toBe(true);
+      expect(isClassDeleteConfirmationValid('3b Sek', '3b sek')).toBe(false);
+      expect(isClassDeleteConfirmationValid('3b Sek', '3b')).toBe(false);
+      expect(isClassDeleteConfirmationValid('3b Sek', '')).toBe(false);
+      expect(isClassDeleteConfirmationValid('', '')).toBe(false);
+    });
+
+    it('blockiert direktes Löschen einer aktiven (nicht archivierten) Klasse mit HTTP 400', async () => {
+      vi.mocked(db.class.findFirst).mockResolvedValueOnce({
+        id: activeClassId,
+        name: '2a Sek (Aktiv)',
+        teacherId: mockTeacherId,
+        _count: { students: 3, exams: 5 },
+        exams: [{ _count: { submissions: 41 } }],
+      } as unknown as Awaited<ReturnType<typeof db.class.findFirst>>);
+
+      const delActiveReq = new Request(`http://localhost/api/classes/${activeClassId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: '2a Sek (Aktiv)' }),
+      });
+      const delActiveRes = await deleteClass(delActiveReq, {
+        params: Promise.resolve({ id: activeClassId }),
+      });
+
+      expect(delActiveRes.status).toBe(400);
+      const errJson = await delActiveRes.json();
+      expect(errJson.error).toContain('Aktive Klassen können nicht direkt gelöscht werden');
+      expect(db.class.delete).not.toHaveBeenCalled();
+    });
+
+    it('lehnt das Löschen einer archivierten Klasse ab, wenn die Tipp-Bestätigung falsch ist, und führt es bei exakter Bestätigung mit Abschlussmeldung aus', async () => {
+      await archiveClass(archivedClassId);
+      const mockArchivedWithCounts = {
+        id: archivedClassId,
+        name: '3b Sek (Schuljahr 2025/26)',
+        teacherId: mockTeacherId,
+        _count: { students: 3, exams: 5 },
+        exams: [{ _count: { submissions: 20 } }, { _count: { submissions: 21 } }],
+      };
+
+      // 1. Falsche Tipp-Bestätigung -> HTTP 400
+      vi.mocked(db.class.findFirst).mockResolvedValueOnce(
+        mockArchivedWithCounts as unknown as Awaited<ReturnType<typeof db.class.findFirst>>
+      );
+      const wrongReq = new Request(`http://localhost/api/classes/${archivedClassId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: 'Falscher Name' }),
+      });
+      const wrongRes = await deleteClass(wrongReq, {
+        params: Promise.resolve({ id: archivedClassId }),
+      });
+      expect(wrongRes.status).toBe(400);
+      const wrongData = await wrongRes.json();
+      expect(wrongData.error).toContain('Zur Bestätigung muss der exakte Klassenname');
+      expect(db.class.delete).not.toHaveBeenCalled();
+
+      // 2. Exakte Tipp-Bestätigung -> HTTP 200 + klare Abschlussmeldung + Bestandszahlen
+      vi.mocked(db.class.findFirst).mockResolvedValueOnce(
+        mockArchivedWithCounts as unknown as Awaited<ReturnType<typeof db.class.findFirst>>
+      );
+      vi.mocked(db.class.delete).mockResolvedValueOnce(
+        mockArchivedWithCounts as unknown as Awaited<ReturnType<typeof db.class.delete>>
+      );
+
+      const validReq = new Request(`http://localhost/api/classes/${archivedClassId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: '3b Sek (Schuljahr 2025/26)' }),
+      });
+      const validRes = await deleteClass(validReq, {
+        params: Promise.resolve({ id: archivedClassId }),
+      });
+      expect(validRes.status).toBe(200);
+      const validData = await validRes.json();
+      expect(validData.success).toBe(true);
+      expect(validData.deletedImpact).toEqual({
+        studentsCount: 3,
+        examsCount: 5,
+        submissionsCount: 41,
+        summaryText: '3 Schüler/innen, 5 Prüfungen, 41 Korrekturen inkl. aller gespeicherten Scans',
+      });
+      expect(validData.message).toBe(
+        formatClassDeletedCompletionMessage('3b Sek (Schuljahr 2025/26)', {
+          studentsCount: 3,
+          examsCount: 5,
+          submissionsCount: 41,
+        })
+      );
+      expect(db.class.delete).toHaveBeenCalledWith({ where: { id: archivedClassId } });
+    });
+
+    it('enthaelt kein Eszett in den geaenderten Dateien', () => {
+      const filesToCheck = [
+        '../../lib/class-archive.ts',
+        '../../lib/grading.ts',
+        '../../app/api/classes/route.ts',
+        '../../app/api/classes/[id]/route.ts',
+        '../../app/classes/page.tsx',
+        '../../app/classes/[id]/page.tsx',
+      ];
+      for (const rel of filesToCheck) {
+        const fullPath = path.resolve(__dirname, rel);
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        expect(content, `Datei ${rel} enthält Eszett`).not.toContain('\u00DF');
+      }
     });
   });
 });

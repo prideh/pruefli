@@ -31,6 +31,7 @@ import SchoolIcon from '@mui/icons-material/School';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import UnarchiveIcon from '@mui/icons-material/Unarchive';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { getErrorMessage } from '@/lib/api-error';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
@@ -46,6 +47,10 @@ import {
   resolveTeacherSubjects,
   getSubjectSupportInfo,
   normalizeSubjectValue,
+  formatClassDeletionConsequences,
+  isClassDeleteConfirmationValid,
+  formatClassDeletedCompletionMessage,
+  type ClassDeletionImpact,
 } from '@/lib/grading';
 
 interface PrismaClassInfo {
@@ -55,6 +60,8 @@ interface PrismaClassInfo {
   subjects?: string[];
   isArchived?: boolean;
   archivedAt?: string | null;
+  totalSubmissions?: number;
+  deletionImpact?: ClassDeletionImpact;
   _count: {
     students: number;
   };
@@ -62,6 +69,7 @@ interface PrismaClassInfo {
 
 interface ClassListItem extends PrismaClassInfo {
   totalExams: number;
+  totalSubmissions: number;
   averageGrade: string;
   subjects: string[];
   isArchived: boolean;
@@ -78,6 +86,8 @@ export default function ClassesPage() {
       (
         cls: PrismaClassInfo & {
           totalExams?: number;
+          totalSubmissions?: number;
+          gradedSubmissionsCount?: number;
           averageGrade?: string;
           subjects?: string[];
           isArchived?: boolean;
@@ -86,6 +96,7 @@ export default function ClassesPage() {
       ) => ({
         ...cls,
         totalExams: cls.totalExams ?? 0,
+        totalSubmissions: cls.totalSubmissions ?? cls.gradedSubmissionsCount ?? 0,
         averageGrade: cls.averageGrade || 'N/A',
         subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
         isArchived: Boolean(cls.isArchived),
@@ -135,6 +146,7 @@ export default function ClassesPage() {
       (
         cls: ClassListItem & {
           studentsCount?: number;
+          gradedSubmissionsCount?: number;
           subjects?: string[];
           isArchived?: boolean;
           archivedAt?: string | null;
@@ -145,6 +157,7 @@ export default function ClassesPage() {
           students: cls._count?.students ?? cls.studentsCount ?? 0,
         },
         totalExams: cls.totalExams ?? 0,
+        totalSubmissions: cls.totalSubmissions ?? cls.gradedSubmissionsCount ?? 0,
         averageGrade: cls.averageGrade || 'N/A',
         subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
         isArchived: Boolean(cls.isArchived),
@@ -156,10 +169,106 @@ export default function ClassesPage() {
   const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active');
   const [unarchiveLoadingId, setUnarchiveLoadingId] = useState<string | null>(null);
   const [unarchiveError, setUnarchiveError] = useState<string>('');
+  const [deleteSuccessNotice, setDeleteSuccessNotice] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const msg = sessionStorage.getItem('pruefli_class_deleted_notice');
+      if (msg) {
+        sessionStorage.removeItem('pruefli_class_deleted_notice');
+        return msg;
+      }
+    }
+    return '';
+  });
+
+  // Protected Archive Class Delete Dialog State
+  const [deleteTargetClass, setDeleteTargetClass] = useState<ClassListItem | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteLiveImpact, setDeleteLiveImpact] = useState<ClassDeletionImpact | null>(null);
 
   const activeClasses = React.useMemo(() => classes.filter((cls) => !cls.isArchived), [classes]);
   const archivedClasses = React.useMemo(() => classes.filter((cls) => cls.isArchived), [classes]);
   const displayedClasses = statusFilter === 'archived' ? archivedClasses : activeClasses;
+
+  const effectiveDeleteImpact: ClassDeletionImpact = React.useMemo(() => {
+    if (deleteLiveImpact) return deleteLiveImpact;
+    if (deleteTargetClass?.deletionImpact) return deleteTargetClass.deletionImpact;
+    return {
+      studentsCount: deleteTargetClass?._count?.students ?? 0,
+      examsCount: deleteTargetClass?.totalExams ?? 0,
+      submissionsCount: deleteTargetClass?.totalSubmissions ?? 0,
+    };
+  }, [deleteLiveImpact, deleteTargetClass]);
+
+  const isDeleteNameConfirmed = isClassDeleteConfirmationValid(
+    deleteTargetClass?.name || '',
+    deleteConfirmName
+  );
+
+  const handleOpenDeleteDialog = (cls: ClassListItem) => {
+    setDeleteTargetClass(cls);
+    setDeleteConfirmName('');
+    setDeleteError('');
+    setDeleteLiveImpact(
+      cls.deletionImpact || {
+        studentsCount: cls._count.students,
+        examsCount: cls.totalExams,
+        submissionsCount: cls.totalSubmissions,
+      }
+    );
+    // Load fresh counts directly from the DB
+    fetch(`/api/classes/${cls.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.deletionImpact) {
+          setDeleteLiveImpact(data.deletionImpact);
+        }
+      })
+      .catch(() => {});
+  };
+
+  const handleConfirmDeleteClass = async () => {
+    if (!deleteTargetClass) return;
+    if (!isDeleteNameConfirmed) {
+      setDeleteError(
+        `Bitte gib zur Bestätigung den exakten Klassennamen „${deleteTargetClass.name}“ ein.`
+      );
+      return;
+    }
+
+    setDeleteLoading(true);
+    setDeleteError('');
+    try {
+      const res = await fetch(`/api/classes/${deleteTargetClass.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: deleteConfirmName.trim() }),
+      });
+      if (!res.ok) {
+        const errorMsg = await getErrorMessage(res, 'Klasse konnte nicht gelöscht werden.');
+        setDeleteError(errorMsg);
+        return;
+      }
+      const resData = await res.json().catch(() => null);
+      const completionMsg =
+        resData?.message ||
+        formatClassDeletedCompletionMessage(deleteTargetClass.name, effectiveDeleteImpact);
+      const deletedId = deleteTargetClass.id;
+      setDeleteTargetClass(null);
+      setDeleteConfirmName('');
+      setDeleteLiveImpact(null);
+      setDeleteSuccessNotice(completionMsg);
+      invalidateClasses(deletedId);
+      invalidateExams(undefined, deletedId);
+      invalidateSubmissions(undefined, undefined, deletedId);
+      await fetchClasses();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Fehler beim Löschen der Klasse.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   const handleUnarchiveClass = async (classId: string) => {
     setUnarchiveLoadingId(classId);
@@ -423,6 +532,16 @@ export default function ClassesPage() {
           </Stack>
         )}
 
+        {deleteSuccessNotice && (
+          <Alert
+            severity="success"
+            onClose={() => setDeleteSuccessNotice('')}
+            sx={{ borderRadius: '8px', fontWeight: 600 }}
+          >
+            {deleteSuccessNotice}
+          </Alert>
+        )}
+
         {unarchiveError && (
           <Alert
             severity="error"
@@ -463,10 +582,11 @@ export default function ClassesPage() {
               </Typography>
               <Typography
                 variant="body2"
-                sx={{ color: 'text.secondary', maxWidth: '460px', mx: 'auto' }}
+                sx={{ color: 'text.secondary', maxWidth: '500px', mx: 'auto' }}
               >
-                Archivierte Klassen eines vergangenen Schuljahres werden hier im Lesemodus abgelegt
-                und können jederzeit wiederhergestellt werden.
+                Archivierte Klassen eines vergangenen Schuljahres werden hier zeitlich unbegrenzt im
+                Lesemodus abgelegt (kein automatischer Ablauf / keine Auto-Löschung nach Frist) und
+                können jederzeit wiederhergestellt oder bei Bedarf endgültig gelöscht werden.
               </Typography>
             </Card>
           ) : (
@@ -792,29 +912,45 @@ export default function ClassesPage() {
                     sx={{ p: 2, pt: 0, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}
                   >
                     {cls.isArchived ? (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={
-                          unarchiveLoadingId === cls.id ? (
-                            <CircularProgress size={14} color="inherit" />
-                          ) : (
-                            <UnarchiveIcon sx={{ fontSize: '1rem' }} />
-                          )
-                        }
-                        disabled={unarchiveLoadingId === cls.id}
-                        onClick={() => handleUnarchiveClass(cls.id)}
-                        sx={{
-                          textTransform: 'none',
-                          fontWeight: 700,
-                          borderRadius: '6px',
-                          borderColor: '#cbd5e1',
-                          color: '#0f172a',
-                          '&:hover': { backgroundColor: '#f1f5f9', borderColor: '#94a3b8' },
-                        }}
-                      >
-                        Wiederherstellen
-                      </Button>
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={
+                            unarchiveLoadingId === cls.id ? (
+                              <CircularProgress size={14} color="inherit" />
+                            ) : (
+                              <UnarchiveIcon sx={{ fontSize: '1rem' }} />
+                            )
+                          }
+                          disabled={unarchiveLoadingId === cls.id}
+                          onClick={() => handleUnarchiveClass(cls.id)}
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            borderRadius: '6px',
+                            borderColor: '#cbd5e1',
+                            color: '#0f172a',
+                            '&:hover': { backgroundColor: '#f1f5f9', borderColor: '#94a3b8' },
+                          }}
+                        >
+                          Wiederherstellen
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          startIcon={<DeleteIcon sx={{ fontSize: '1rem' }} />}
+                          onClick={() => handleOpenDeleteDialog(cls)}
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            borderRadius: '6px',
+                          }}
+                        >
+                          Endgültig löschen
+                        </Button>
+                      </Stack>
                     ) : (
                       <span />
                     )}
@@ -1090,6 +1226,117 @@ export default function ClassesPage() {
               </Stack>
             </DialogActions>
           </form>
+        </Dialog>
+
+        {/* Dialog for Permanent Deletion of Archived Class */}
+        <Dialog
+          open={Boolean(deleteTargetClass)}
+          onClose={(_e, reason) => {
+            if (deleteLoading || reason === 'backdropClick') return;
+            setDeleteTargetClass(null);
+            setDeleteConfirmName('');
+            setDeleteLiveImpact(null);
+          }}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle sx={{ fontWeight: 800, color: '#0f172a' }}>
+            Archivierte Klasse endgültig löschen?
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 0.5 }}>
+              {deleteError && (
+                <Alert severity="error" sx={{ borderRadius: '8px' }}>
+                  {deleteError}
+                </Alert>
+              )}
+              <Typography variant="body2" sx={{ color: 'text.primary' }}>
+                Du bist dabei, die archivierte Klasse <strong>{deleteTargetClass?.name}</strong>{' '}
+                endgültig und unwiderruflich aufzulösen.
+              </Typography>
+
+              <Alert
+                severity="error"
+                sx={{
+                  borderRadius: '10px',
+                  border: '1px solid #fecaca',
+                  backgroundColor: '#fef2f2',
+                  color: '#7f1d1d',
+                }}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.75 }}>
+                  Unwiderruflicher Datenverlust (aktuelle Bestandszahlen):
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>
+                  {formatClassDeletionConsequences(effectiveDeleteImpact)}
+                </Typography>
+                <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: '0.82rem' }}>
+                  <li>
+                    <strong>{effectiveDeleteImpact.studentsCount} Schüler/innen</strong> inklusive
+                    sämtlicher Schülerprofile und Notenverläufe
+                  </li>
+                  <li>
+                    <strong>
+                      {effectiveDeleteImpact.examsCount === 1
+                        ? '1 Prüfung'
+                        : `${effectiveDeleteImpact.examsCount} Prüfungen`}
+                    </strong>{' '}
+                    inklusive Aufgabenblätter, Musterlösungen und Bewertungsraster
+                  </li>
+                  <li>
+                    <strong>
+                      {effectiveDeleteImpact.submissionsCount === 1
+                        ? '1 Korrektur inkl. aller gespeicherten Scans'
+                        : `${effectiveDeleteImpact.submissionsCount} Korrekturen inkl. aller gespeicherten Scans`}
+                    </strong>{' '}
+                    im Dateispeicher (Storage) und in der Datenbank
+                  </li>
+                </Box>
+              </Alert>
+
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 650, color: '#0f172a', mb: 1 }}>
+                  Bitte tippe zur Bestätigung den Klassennamen{' '}
+                  <strong>{deleteTargetClass?.name}</strong> ein:
+                </Typography>
+                <TextField
+                  label="Klassenname zur Bestätigung"
+                  placeholder={deleteTargetClass?.name || ''}
+                  fullWidth
+                  size="small"
+                  value={deleteConfirmName}
+                  onChange={(e) => {
+                    setDeleteConfirmName(e.target.value);
+                    if (deleteError) setDeleteError('');
+                  }}
+                  autoFocus
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+                />
+              </Box>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ p: 2, pt: 0 }}>
+            <Button
+              onClick={() => {
+                setDeleteTargetClass(null);
+                setDeleteConfirmName('');
+                setDeleteLiveImpact(null);
+              }}
+              disabled={deleteLoading}
+              sx={{ textTransform: 'none', fontWeight: 650 }}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              onClick={handleConfirmDeleteClass}
+              variant="contained"
+              color="error"
+              disabled={deleteLoading || !isDeleteNameConfirmed}
+              sx={{ textTransform: 'none', fontWeight: 700, borderRadius: '8px' }}
+            >
+              {deleteLoading ? <CircularProgress size={20} /> : 'Endgültig löschen'}
+            </Button>
+          </DialogActions>
         </Dialog>
       </Box>
     </DashboardLayout>

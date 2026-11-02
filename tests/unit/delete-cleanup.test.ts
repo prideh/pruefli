@@ -186,6 +186,7 @@ describe('Datenschutz: Scan-Dateien bei Kaskadenloeschung bereinigen', () => {
         id: mockClassId,
         name: 'Klasse 9b',
         teacherId: mockTeacherId,
+        archivedAt: new Date('2026-06-01T00:00:00Z'),
       } as unknown as Awaited<ReturnType<typeof db.class.findFirst>>);
 
       vi.mocked(db.submission.findMany).mockResolvedValueOnce([
@@ -212,6 +213,7 @@ describe('Datenschutz: Scan-Dateien bei Kaskadenloeschung bereinigen', () => {
         id: mockClassId,
         name: 'Klasse 9b',
         teacherId: mockTeacherId,
+        archivedAt: new Date('2026-06-01T00:00:00Z'),
       } as unknown as Awaited<ReturnType<typeof db.class.findFirst>>);
 
       vi.mocked(db.submission.findMany).mockResolvedValueOnce([

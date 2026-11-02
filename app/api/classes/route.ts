@@ -4,7 +4,11 @@ import { getSession } from '@/lib/session';
 import { serverCache, CacheTags, invalidateClassCache } from '@/lib/cache';
 import { validateClassName } from '@/lib/payload-limits';
 import { getMultipleClassesSavedSubjects, saveClassSubjects } from '@/lib/teacher-subjects';
-import { getArchivedClassIds, getClassArchivedAt } from '@/lib/class-archive';
+import {
+  getArchivedClassIds,
+  getClassArchivedAt,
+  formatClassDeletionConsequences,
+} from '@/lib/class-archive';
 
 export async function GET(request?: Request) {
   try {
@@ -33,6 +37,9 @@ export async function GET(request?: Request) {
         },
         exams: {
           select: {
+            _count: {
+              select: { submissions: true },
+            },
             submissions: {
               where: { status: 'COMPLETED', studentId: { not: null } },
               select: { gradeRaw: true, studentId: true },
@@ -56,6 +63,14 @@ export async function GET(request?: Request) {
             .filter((s) => !('studentId' in s) || Boolean(s.studentId))
             .map((s) => s.gradeRaw)
         );
+        const totalSubmissions = cls.exams.reduce(
+          (sum, ex) =>
+            sum +
+            ((ex as { _count?: { submissions?: number } })._count?.submissions ??
+              ex.submissions?.length ??
+              0),
+          0
+        );
         const gradeRawSum = allGrades.reduce((sum, g) => sum + g, 0);
         const avg = allGrades.length > 0 ? (gradeRawSum / allGrades.length).toFixed(2) : 'N/A';
         const isArchived =
@@ -77,6 +92,17 @@ export async function GET(request?: Request) {
           archivedAt: archivedAtDate ? archivedAtDate.toISOString() : null,
           _count: { students: cls._count.students },
           totalExams: cls._count.exams,
+          totalSubmissions,
+          deletionImpact: {
+            studentsCount: cls._count.students,
+            examsCount: cls._count.exams,
+            submissionsCount: totalSubmissions,
+            summaryText: formatClassDeletionConsequences({
+              studentsCount: cls._count.students,
+              examsCount: cls._count.exams,
+              submissionsCount: totalSubmissions,
+            }),
+          },
           averageGrade: avg,
           gradedSubmissionsCount: allGrades.length,
           gradeRawSum,

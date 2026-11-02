@@ -943,3 +943,62 @@ export function computeAssignedGradeAverage(submissions: GradeAverageSubmissionI
     sum,
   };
 }
+
+export interface ClassDeletionImpact {
+  studentsCount: number;
+  examsCount: number;
+  submissionsCount: number;
+}
+
+/**
+ * Formatiert die konkreten Konsequenzen einer endgueltigen Klassenloeschung
+ * mit aktuellen Zahlen aus der Datenbank (z. B. "3 Schüler/innen, 5 Prüfungen, 41 Korrekturen inkl. aller gespeicherten Scans").
+ */
+export function formatClassDeletionConsequences(impact: ClassDeletionImpact): string {
+  const studentsCount = Math.max(0, Math.trunc(Number(impact.studentsCount) || 0));
+  const examsCount = Math.max(0, Math.trunc(Number(impact.examsCount) || 0));
+  const submissionsCount = Math.max(0, Math.trunc(Number(impact.submissionsCount) || 0));
+
+  const studentsLabel = `${studentsCount} Schüler/innen`;
+  const examsLabel = examsCount === 1 ? '1 Prüfung' : `${examsCount} Prüfungen`;
+  const submissionsLabel =
+    submissionsCount === 1
+      ? '1 Korrektur inkl. aller gespeicherten Scans'
+      : `${submissionsCount} Korrekturen inkl. aller gespeicherten Scans`;
+
+  return `${studentsLabel}, ${examsLabel}, ${submissionsLabel}`;
+}
+
+/**
+ * Prueft die Tipp-Bestaetigung fuer das endgueltige Loeschen einer archivierten Klasse.
+ * Der eingegebene Name muss exakt (nach Trimming) mit dem Klassennamen uebereinstimmen.
+ */
+export function isClassDeleteConfirmationValid(
+  className: string,
+  typedConfirmation: string
+): boolean {
+  if (typeof className !== 'string' || typeof typedConfirmation !== 'string') {
+    return false;
+  }
+  const expected = className.trim();
+  const actual = typedConfirmation.trim();
+  if (!expected) {
+    return false;
+  }
+  return actual === expected;
+}
+
+/**
+ * Erzeugt die klare Abschlussmeldung nach dem endgueltigen Loeschen einer archivierten Klasse.
+ */
+export function formatClassDeletedCompletionMessage(
+  className: string,
+  impact?: ClassDeletionImpact
+): string {
+  const cleanName = (className || '').trim();
+  if (impact) {
+    const details = formatClassDeletionConsequences(impact);
+    return `Die archivierte Klasse „${cleanName}“ (${details}) wurde endgültig und unwiderruflich gelöscht.`;
+  }
+  return `Die archivierte Klasse „${cleanName}“ wurde endgültig und unwiderruflich gelöscht.`;
+}
