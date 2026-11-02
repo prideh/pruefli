@@ -582,6 +582,17 @@ function extractRangeFromParsedPdf(
   const keptObjectIds = new Set<number>([catalogId, rootPagesId, ...selectedPageIds]);
   const queue: number[] = [catalogId, rootPagesId, ...selectedPageIds];
 
+  if (parsed.inheritedResources) {
+    const inhMatch = parsed.inheritedResources.match(/^(\d+)\s+\d+\s+R$/);
+    if (inhMatch) {
+      const inhId = parseInt(inhMatch[1], 10);
+      if (parsed.objects.has(inhId) && !keptObjectIds.has(inhId)) {
+        keptObjectIds.add(inhId);
+        queue.push(inhId);
+      }
+    }
+  }
+
   while (queue.length > 0) {
     const currentId = queue.shift()!;
     if (currentId === rootPagesId) continue;
@@ -758,7 +769,7 @@ function decodePdfHexString(hexRaw: string): string {
 }
 
 function extractStreamPayloadBytes(obj: ParsedPdfObject): Uint8Array | null {
-  const startMatch = /stream\r?\n/.exec(obj.bodyStr);
+  const startMatch = /stream(?:\r\n|\n|\r)/.exec(obj.bodyStr);
   if (!startMatch) return null;
   const streamDataStart = startMatch.index + startMatch[0].length;
   const endMatch = obj.bodyStr.lastIndexOf('endstream');
@@ -775,7 +786,405 @@ function extractStreamPayloadBytes(obj: ParsedPdfObject): Uint8Array | null {
   return obj.bodyBytes.subarray(streamDataStart, streamDataEnd);
 }
 
-async function decompressFlateBytesAsync(payload: Uint8Array): Promise<Uint8Array | null> {
+function normalizePdfFilterName(rawName: string): string {
+  const clean = rawName.replace(/^\//, '').trim();
+  if (clean === 'Fl') return 'FlateDecode';
+  if (clean === 'A85') return 'ASCII85Decode';
+  if (clean === 'AHx') return 'ASCIIHexDecode';
+  if (clean === 'DCT') return 'DCTDecode';
+  if (clean === 'RL') return 'RunLengthDecode';
+  return clean;
+}
+
+/**
+ * Liest die geordnete Filter-Pipeline eines PDF-Stream-Dictionaries aus.
+ * Unterstuetzt sowohl einzelne Filter (`/Filter /FlateDecode`) als auch
+ * Filter-Arrays (`/Filter [ /ASCII85Decode /FlateDecode ]`, `/Filter [ /ASCII85Decode /DCTDecode ]`).
+ */
+export function parsePdfFilters(dictStr: string): string[] {
+  const arrayMatch = dictStr.match(/\/Filter\s*\[([\s\S]*?)\]/);
+  if (arrayMatch) {
+    const names: string[] = [];
+    const nameRegex = /\/([^\s/[\]()<>]+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = nameRegex.exec(arrayMatch[1])) !== null) {
+      names.push(normalizePdfFilterName(m[1]));
+    }
+    return names;
+  }
+  const singleMatch = dictStr.match(/\/Filter\s*\/([^\s/[\]()<>]+)/);
+  if (singleMatch) {
+    return [normalizePdfFilterName(singleMatch[1])];
+  }
+  return [];
+}
+
+/**
+ * Dekodiert Adobe/PDF ASCII85Decode-Streams (z. B. von ReportLab erzeugte Text- und Bild-Streams).
+ */
+export function decodeAscii85(input: Uint8Array): Uint8Array {
+  const out: number[] = [];
+  let start = 0;
+  // Optionales <~ Praefix ueberspringen
+  while (
+    start < input.length &&
+    (input[start] === 0x20 ||
+      input[start] === 0x09 ||
+      input[start] === 0x0a ||
+      input[start] === 0x0d ||
+      input[start] === 0x0c ||
+      input[start] === 0x00)
+  ) {
+    start++;
+  }
+  if (start + 1 < input.length && input[start] === 0x3c && input[start + 1] === 0x7e) {
+    start += 2;
+  }
+
+  const tuple: number[] = [];
+  for (let i = start; i < input.length; i++) {
+    const b = input[i];
+    // Ende-Markierung ~>
+    if (b === 0x7e) {
+      break;
+    }
+    // PDF-Whitespace ignorieren
+    if (b === 0x00 || b === 0x09 || b === 0x0a || b === 0x0c || b === 0x0d || b === 0x20) {
+      continue;
+    }
+    // 'z' steht fuer 4 Null-Bytes
+    if (b === 0x7a && tuple.length === 0) {
+      out.push(0, 0, 0, 0);
+      continue;
+    }
+    if (b >= 33 && b <= 117) {
+      tuple.push(b - 33);
+      if (tuple.length === 5) {
+        const val =
+          tuple[0] * 52200625 + tuple[1] * 614125 + tuple[2] * 7225 + tuple[3] * 85 + tuple[4];
+        out.push((val >>> 24) & 0xff, (val >>> 16) & 0xff, (val >>> 8) & 0xff, val & 0xff);
+        tuple.length = 0;
+      }
+    }
+  }
+
+  if (tuple.length >= 2) {
+    const count = tuple.length;
+    while (tuple.length < 5) {
+      tuple.push(84); // mit 'u' (84) auffuellen
+    }
+    const val =
+      tuple[0] * 52200625 + tuple[1] * 614125 + tuple[2] * 7225 + tuple[3] * 85 + tuple[4];
+    const bytes = [(val >>> 24) & 0xff, (val >>> 16) & 0xff, (val >>> 8) & 0xff, val & 0xff];
+    for (let j = 0; j < count - 1; j++) {
+      out.push(bytes[j]);
+    }
+  }
+
+  return new Uint8Array(out);
+}
+
+/**
+ * Dekodiert PDF ASCIIHexDecode-Streams.
+ */
+export function decodeAsciiHex(input: Uint8Array): Uint8Array {
+  const nibbles: number[] = [];
+  for (let i = 0; i < input.length; i++) {
+    const b = input[i];
+    if (b === 0x3e) break; // '>' EOD
+    if (b >= 0x30 && b <= 0x39) nibbles.push(b - 0x30);
+    else if (b >= 0x41 && b <= 0x46) nibbles.push(b - 0x41 + 10);
+    else if (b >= 0x61 && b <= 0x66) nibbles.push(b - 0x61 + 10);
+  }
+  if (nibbles.length % 2 === 1) nibbles.push(0);
+  const out = new Uint8Array(nibbles.length / 2);
+  for (let i = 0; i < nibbles.length; i += 2) {
+    out[i / 2] = (nibbles[i] << 4) | nibbles[i + 1];
+  }
+  return out;
+}
+
+const FIXED_LIT_LENGTHS = (() => {
+  const lengths = new Uint8Array(288);
+  for (let i = 0; i <= 143; i++) lengths[i] = 8;
+  for (let i = 144; i <= 255; i++) lengths[i] = 9;
+  for (let i = 256; i <= 279; i++) lengths[i] = 7;
+  for (let i = 280; i <= 287; i++) lengths[i] = 8;
+  return lengths;
+})();
+
+const FIXED_DIST_LENGTHS = (() => {
+  const lengths = new Uint8Array(32);
+  lengths.fill(5);
+  return lengths;
+})();
+
+const LENGTH_BASE = [
+  3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
+  163, 195, 227, 258,
+];
+const LENGTH_EXTRA = [
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+];
+const DIST_BASE = [
+  1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049,
+  3073, 4097, 6145, 8193, 12289, 16385, 24577,
+];
+const DIST_EXTRA = [
+  0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
+];
+const CLEN_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
+interface HuffmanTable {
+  maxBits: number;
+  counts: Int32Array;
+  symbols: Int32Array;
+}
+
+function buildHuffmanTable(lengths: Uint8Array): HuffmanTable {
+  let maxBits = 0;
+  for (let i = 0; i < lengths.length; i++) {
+    if (lengths[i] > maxBits) maxBits = lengths[i];
+  }
+  if (maxBits === 0) maxBits = 1;
+  const counts = new Int32Array(maxBits + 1);
+  for (let i = 0; i < lengths.length; i++) {
+    if (lengths[i] > 0) counts[lengths[i]]++;
+  }
+  const offsets = new Int32Array(maxBits + 1);
+  let total = 0;
+  for (let bits = 1; bits <= maxBits; bits++) {
+    offsets[bits] = total;
+    total += counts[bits];
+  }
+  const symbols = new Int32Array(total);
+  for (let sym = 0; sym < lengths.length; sym++) {
+    const len = lengths[sym];
+    if (len > 0) {
+      symbols[offsets[len]++] = sym;
+    }
+  }
+  return { maxBits, counts, symbols };
+}
+
+function inflateRawDeflateSync(data: Uint8Array, startOffset = 0): Uint8Array | null {
+  let bytePos = startOffset;
+  let bitBuf = 0;
+  let bitCount = 0;
+
+  const readBits = (n: number): number => {
+    while (bitCount < n) {
+      if (bytePos >= data.length) {
+        throw new Error('Unexpected EOF in DEFLATE stream');
+      }
+      bitBuf |= data[bytePos++] << bitCount;
+      bitCount += 8;
+    }
+    const val = bitBuf & ((1 << n) - 1);
+    bitBuf >>>= n;
+    bitCount -= n;
+    return val;
+  };
+
+  const decodeSymbol = (table: HuffmanTable): number => {
+    let code = 0;
+    let first = 0;
+    let index = 0;
+    for (let len = 1; len <= table.maxBits; len++) {
+      code |= readBits(1);
+      const count = table.counts[len];
+      if (code - count < first) {
+        return table.symbols[index + (code - first)];
+      }
+      index += count;
+      first = (first + count) << 1;
+      code <<= 1;
+    }
+    throw new Error('Invalid Huffman code');
+  };
+
+  const out: number[] = [];
+  let bfinal = 0;
+
+  try {
+    do {
+      bfinal = readBits(1);
+      const btype = readBits(2);
+
+      if (btype === 0) {
+        // Uncompressed block
+        bitBuf = 0;
+        bitCount = 0;
+        if (bytePos + 4 > data.length) return null;
+        const len = data[bytePos] | (data[bytePos + 1] << 8);
+        bytePos += 4;
+        if (bytePos + len > data.length) return null;
+        for (let i = 0; i < len; i++) {
+          out.push(data[bytePos++]);
+        }
+      } else if (btype === 1 || btype === 2) {
+        let litTable: HuffmanTable;
+        let distTable: HuffmanTable;
+
+        if (btype === 1) {
+          litTable = buildHuffmanTable(FIXED_LIT_LENGTHS);
+          distTable = buildHuffmanTable(FIXED_DIST_LENGTHS);
+        } else {
+          const hlit = readBits(5) + 257;
+          const hdist = readBits(5) + 1;
+          const hclen = readBits(4) + 4;
+          const clenLengths = new Uint8Array(19);
+          for (let i = 0; i < hclen; i++) {
+            clenLengths[CLEN_ORDER[i]] = readBits(3);
+          }
+          const clenTable = buildHuffmanTable(clenLengths);
+          const allLengths = new Uint8Array(hlit + hdist);
+          let idx = 0;
+          while (idx < hlit + hdist) {
+            const sym = decodeSymbol(clenTable);
+            if (sym < 16) {
+              allLengths[idx++] = sym;
+            } else if (sym === 16) {
+              const prev = idx > 0 ? allLengths[idx - 1] : 0;
+              const repeat = readBits(2) + 3;
+              for (let r = 0; r < repeat && idx < allLengths.length; r++) {
+                allLengths[idx++] = prev;
+              }
+            } else if (sym === 17) {
+              const repeat = readBits(3) + 3;
+              for (let r = 0; r < repeat && idx < allLengths.length; r++) {
+                allLengths[idx++] = 0;
+              }
+            } else if (sym === 18) {
+              const repeat = readBits(7) + 11;
+              for (let r = 0; r < repeat && idx < allLengths.length; r++) {
+                allLengths[idx++] = 0;
+              }
+            }
+          }
+          litTable = buildHuffmanTable(allLengths.subarray(0, hlit));
+          distTable = buildHuffmanTable(allLengths.subarray(hlit));
+        }
+
+        while (true) {
+          const sym = decodeSymbol(litTable);
+          if (sym < 256) {
+            out.push(sym);
+          } else if (sym === 256) {
+            break;
+          } else {
+            const lenIdx = sym - 257;
+            if (lenIdx < 0 || lenIdx >= LENGTH_BASE.length) return null;
+            const length = LENGTH_BASE[lenIdx] + readBits(LENGTH_EXTRA[lenIdx]);
+            const distSym = decodeSymbol(distTable);
+            if (distSym < 0 || distSym >= DIST_BASE.length) return null;
+            const dist = DIST_BASE[distSym] + readBits(DIST_EXTRA[distSym]);
+            const startCopy = out.length - dist;
+            if (startCopy < 0) return null;
+            for (let i = 0; i < length; i++) {
+              out.push(out[startCopy + i]);
+            }
+          }
+        }
+      } else {
+        return null;
+      }
+    } while (bfinal === 0);
+
+    return new Uint8Array(out);
+  } catch {
+    return out.length > 0 ? new Uint8Array(out) : null;
+  }
+}
+
+function applyPngPredictorIfNeeded(raw: Uint8Array, dictStr?: string): Uint8Array {
+  if (!dictStr) return raw;
+  const predMatch = dictStr.match(/\/Predictor\s+(\d+)/);
+  if (!predMatch) return raw;
+  const predictor = parseInt(predMatch[1], 10);
+  if (predictor < 10) return raw;
+
+  const colMatch = dictStr.match(/\/Columns\s+(\d+)/);
+  const colorsMatch = dictStr.match(/\/Colors\s+(\d+)/);
+  const bpcMatch = dictStr.match(/\/BitsPerComponent\s+(\d+)/);
+  const columns = colMatch ? parseInt(colMatch[1], 10) : 1;
+  const colors = colorsMatch ? parseInt(colorsMatch[1], 10) : 1;
+  const bpc = bpcMatch ? parseInt(bpcMatch[1], 10) : 8;
+  const bytesPerPixel = Math.max(1, Math.ceil((colors * bpc) / 8));
+  const rowBytes = Math.max(1, Math.ceil((columns * colors * bpc) / 8));
+  const stride = rowBytes + 1;
+  if (raw.length < stride) return raw;
+
+  const rows = Math.floor(raw.length / stride);
+  const out = new Uint8Array(rows * rowBytes);
+  for (let r = 0; r < rows; r++) {
+    const filterType = raw[r * stride];
+    const srcStart = r * stride + 1;
+    const dstStart = r * rowBytes;
+    const prevStart = (r - 1) * rowBytes;
+
+    for (let i = 0; i < rowBytes; i++) {
+      const x = raw[srcStart + i];
+      const a = i >= bytesPerPixel ? out[dstStart + i - bytesPerPixel] : 0;
+      const b = r > 0 ? out[prevStart + i] : 0;
+      const c = r > 0 && i >= bytesPerPixel ? out[prevStart + i - bytesPerPixel] : 0;
+      if (filterType === 1) {
+        out[dstStart + i] = (x + a) & 0xff;
+      } else if (filterType === 2) {
+        out[dstStart + i] = (x + b) & 0xff;
+      } else if (filterType === 3) {
+        out[dstStart + i] = (x + ((a + b) >>> 1)) & 0xff;
+      } else if (filterType === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        const pr = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+        out[dstStart + i] = (x + pr) & 0xff;
+      } else {
+        out[dstStart + i] = x;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Dekomprimiert einen zlib- oder raw-DEFLATE-Stream synchron im Browser und in Node.
+ */
+export function inflateFlateSync(payload: Uint8Array, dictStr?: string): Uint8Array | null {
+  if (payload.length === 0) return null;
+  // Pruefe auf RFC 1950 2-Byte-zlib-Header (z. B. 0x78 0x9C, 0x78 0x01, 0x78 0xDA)
+  const hasZlibHeader =
+    payload.length > 2 &&
+    (payload[0] & 0x0f) === 8 &&
+    payload[0] >>> 4 <= 7 &&
+    ((payload[0] << 8) + payload[1]) % 31 === 0;
+
+  if (hasZlibHeader) {
+    const fdict = (payload[1] & 0x20) !== 0;
+    const offset = fdict ? 6 : 2;
+    const inflated = inflateRawDeflateSync(payload, offset);
+    if (inflated) {
+      return applyPngPredictorIfNeeded(inflated, dictStr);
+    }
+  }
+
+  const rawInflated = inflateRawDeflateSync(payload, 0);
+  if (rawInflated) {
+    return applyPngPredictorIfNeeded(rawInflated, dictStr);
+  }
+  return null;
+}
+
+async function decompressFlateBytesAsync(
+  payload: Uint8Array,
+  dictStr?: string
+): Promise<Uint8Array | null> {
+  const syncResult = inflateFlateSync(payload, dictStr);
+  if (syncResult && syncResult.length > 0) {
+    return syncResult;
+  }
   if (typeof DecompressionStream === 'undefined') {
     return null;
   }
@@ -789,9 +1198,186 @@ async function decompressFlateBytesAsync(payload: Uint8Array): Promise<Uint8Arra
       await writer.close();
       const response = new Response(ds.readable);
       const ab = await response.arrayBuffer();
-      return new Uint8Array(ab);
+      return applyPngPredictorIfNeeded(new Uint8Array(ab), dictStr);
     } catch {
-      // Nächstes Format versuchen
+      // Naechstes Format versuchen
+    }
+  }
+  return null;
+}
+
+/**
+ * Fuehrt die Filter-Kette eines PDF-Streams der Reihe nach aus (synchron).
+ * Wenn `stopBeforeFilter` angegeben ist (z. B. `'DCTDecode'`), stoppt die Dekodierung
+ * unmittelbar vor diesem Filter und gibt die bis dahin entpackten Bytes (z. B. das JPEG) zurueck.
+ */
+function decodePdfFilterPipelineSync(
+  payload: Uint8Array,
+  dictStr: string,
+  stopBeforeFilter?: string
+): { bytes: Uint8Array; stoppedAt: string | null } | null {
+  const filters = parsePdfFilters(dictStr);
+  let current = payload;
+
+  for (const filter of filters) {
+    if (stopBeforeFilter && filter === stopBeforeFilter) {
+      return { bytes: current, stoppedAt: filter };
+    }
+    if (filter === 'ASCII85Decode') {
+      current = decodeAscii85(current);
+    } else if (filter === 'ASCIIHexDecode') {
+      current = decodeAsciiHex(current);
+    } else if (filter === 'FlateDecode') {
+      const inflated = inflateFlateSync(current, dictStr);
+      if (!inflated) return null;
+      current = inflated;
+    } else if (filter === 'DCTDecode') {
+      return { bytes: current, stoppedAt: 'DCTDecode' };
+    } else {
+      return null;
+    }
+  }
+
+  return { bytes: current, stoppedAt: null };
+}
+
+async function decodePdfFilterPipelineAsync(
+  payload: Uint8Array,
+  dictStr: string,
+  stopBeforeFilter?: string
+): Promise<{ bytes: Uint8Array; stoppedAt: string | null } | null> {
+  const syncRes = decodePdfFilterPipelineSync(payload, dictStr, stopBeforeFilter);
+  if (syncRes) return syncRes;
+
+  const filters = parsePdfFilters(dictStr);
+  let current = payload;
+
+  for (const filter of filters) {
+    if (stopBeforeFilter && filter === stopBeforeFilter) {
+      return { bytes: current, stoppedAt: filter };
+    }
+    if (filter === 'ASCII85Decode') {
+      current = decodeAscii85(current);
+    } else if (filter === 'ASCIIHexDecode') {
+      current = decodeAsciiHex(current);
+    } else if (filter === 'FlateDecode') {
+      const inflated = await decompressFlateBytesAsync(current, dictStr);
+      if (!inflated) return null;
+      current = inflated;
+    } else if (filter === 'DCTDecode') {
+      return { bytes: current, stoppedAt: 'DCTDecode' };
+    } else {
+      return null;
+    }
+  }
+
+  return { bytes: current, stoppedAt: null };
+}
+
+/**
+ * Kodiert rohe RGB- oder Graustufen-Pixeldaten (aus einem FlateDecode-Bild-XObject)
+ * als standardkonforme 24-Bit-BMP-Data-URL, damit auch nicht-JPEG-Scan-Bilder im `<img>` rendern.
+ */
+function encodeRawPixelsToBmpDataUrl(
+  width: number,
+  height: number,
+  pixels: Uint8Array,
+  channels: 1 | 3 | 4
+): string | null {
+  if (width <= 0 || height <= 0 || width > 4096 || height > 4096) return null;
+  const rowStride = (width * 3 + 3) & ~3;
+  const pixelArraySize = rowStride * height;
+  const fileSize = 54 + pixelArraySize;
+  const bmp = new Uint8Array(fileSize);
+  const view = new DataView(bmp.buffer);
+
+  // BITMAPFILEHEADER (14 Bytes)
+  bmp[0] = 0x42; // 'B'
+  bmp[1] = 0x4d; // 'M'
+  view.setUint32(2, fileSize, true);
+  view.setUint32(10, 54, true);
+
+  // BITMAPINFOHEADER (40 Bytes, top-down negative height)
+  view.setUint32(14, 40, true);
+  view.setInt32(18, width, true);
+  view.setInt32(22, -height, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 24, true);
+  view.setUint32(34, pixelArraySize, true);
+
+  let srcIdx = 0;
+  for (let y = 0; y < height; y++) {
+    let dstIdx = 54 + y * rowStride;
+    for (let x = 0; x < width; x++) {
+      if (channels === 1) {
+        const g = srcIdx < pixels.length ? pixels[srcIdx++] : 255;
+        bmp[dstIdx] = g;
+        bmp[dstIdx + 1] = g;
+        bmp[dstIdx + 2] = g;
+      } else if (channels === 3) {
+        const r = srcIdx < pixels.length ? pixels[srcIdx++] : 255;
+        const g = srcIdx < pixels.length ? pixels[srcIdx++] : 255;
+        const b = srcIdx < pixels.length ? pixels[srcIdx++] : 255;
+        bmp[dstIdx] = b;
+        bmp[dstIdx + 1] = g;
+        bmp[dstIdx + 2] = r;
+      } else {
+        const c = srcIdx < pixels.length ? pixels[srcIdx++] : 0;
+        const m = srcIdx < pixels.length ? pixels[srcIdx++] : 0;
+        const yk = srcIdx < pixels.length ? pixels[srcIdx++] : 0;
+        const k = srcIdx < pixels.length ? pixels[srcIdx++] : 0;
+        const r = Math.max(0, Math.min(255, 255 - Math.min(255, c + k)));
+        const g = Math.max(0, Math.min(255, 255 - Math.min(255, m + k)));
+        const b = Math.max(0, Math.min(255, 255 - Math.min(255, yk + k)));
+        bmp[dstIdx] = b;
+        bmp[dstIdx + 1] = g;
+        bmp[dstIdx + 2] = r;
+      }
+      dstIdx += 3;
+    }
+  }
+
+  return `data:image/bmp;base64,${bytesToBase64(bmp)}`;
+}
+
+function extractImageDataUrlFromPdfObjectSync(
+  obj: ParsedPdfObject,
+  payload: Uint8Array
+): string | null {
+  const filters = parsePdfFilters(obj.dictStr);
+  // 1. DCTDecode (auch in Filter-Arrays wie /Filter [ /ASCII85Decode /DCTDecode ])
+  if (filters.includes('DCTDecode')) {
+    const decoded = decodePdfFilterPipelineSync(payload, obj.dictStr, 'DCTDecode');
+    if (decoded && decoded.bytes.length > 4) {
+      return `data:image/jpeg;base64,${bytesToBase64(decoded.bytes)}`;
+    }
+  }
+  // 2. Direkter JPEG-Magic-Header (0xFF 0xD8 0xFF)
+  if (payload.length > 4 && payload[0] === 0xff && payload[1] === 0xd8 && payload[2] === 0xff) {
+    return `data:image/jpeg;base64,${bytesToBase64(payload)}`;
+  }
+  // 3. FlateDecode / ASCII85Decode / Rohpixel-Rasterbild (/Subtype /Image)
+  if (/\/Subtype\s*\/Image\b/.test(obj.dictStr)) {
+    const decoded = decodePdfFilterPipelineSync(payload, obj.dictStr);
+    if (decoded && decoded.bytes.length > 0) {
+      if (
+        decoded.bytes.length > 4 &&
+        decoded.bytes[0] === 0xff &&
+        decoded.bytes[1] === 0xd8 &&
+        decoded.bytes[2] === 0xff
+      ) {
+        return `data:image/jpeg;base64,${bytesToBase64(decoded.bytes)}`;
+      }
+      const wMatch = obj.dictStr.match(/\/Width\s+(\d+)/);
+      const hMatch = obj.dictStr.match(/\/Height\s+(\d+)/);
+      if (wMatch && hMatch) {
+        const w = parseInt(wMatch[1], 10);
+        const h = parseInt(hMatch[1], 10);
+        const isGray = /\/ColorSpace\s*\/DeviceGray\b/.test(obj.dictStr);
+        const isCmyk = /\/ColorSpace\s*\/DeviceCMYK\b/.test(obj.dictStr);
+        const channels: 1 | 3 | 4 = isGray ? 1 : isCmyk ? 4 : 3;
+        return encodeRawPixelsToBmpDataUrl(w, h, decoded.bytes, channels);
+      }
     }
   }
   return null;
@@ -809,7 +1395,7 @@ function parseTjArrayToken(arrayBody: string): string {
       out += decodePdfHexString(tok.slice(1, -1));
     } else if (m[1] !== undefined) {
       const kern = parseFloat(m[1]);
-      if (Number.isFinite(kern) && kern < -180 && !out.endsWith(' ')) {
+      if (Number.isFinite(kern) && kern < -120 && !out.endsWith(' ')) {
         out += ' ';
       }
     }
@@ -827,7 +1413,7 @@ function parseContentStreamIntoVisuals(
 ) {
   // 1. Vektor-Rechtecke (x y w h re) und Linien (x1 y1 m x2 y2 l)
   const rectRegex =
-    /(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+re\b/g;
+    /(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+re(?=\s|[()/[\]<>]|$)/g;
   let rm: RegExpExecArray | null;
   while ((rm = rectRegex.exec(streamText)) !== null) {
     const rx = parseFloat(rm[1]);
@@ -848,7 +1434,7 @@ function parseContentStreamIntoVisuals(
   }
 
   const lineRegex =
-    /(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+m\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+l\b/g;
+    /(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+m\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+l(?=\s|[()/[\]<>]|$)/g;
   let lm: RegExpExecArray | null;
   while ((lm = lineRegex.exec(streamText)) !== null) {
     const x1 = parseFloat(lm[1]);
@@ -860,15 +1446,17 @@ function parseContentStreamIntoVisuals(
     }
   }
 
-  // 2. Text-Bloecke (BT ... ET)
+  // 2. Text-Bloecke (BT ... ET). FontSize (Tf) und Leading (TL) gehoeren in PDF zum Graphics State
+  // und bleiben ueber mehrere BT..ET-Bloecke hinweg erhalten (wichtig fuer ReportLab!).
+  let fontSize = 12;
+  let leading = 14.4;
+
   const btRegex = /\bBT\b([\s\S]*?)\bET\b/g;
   let btm: RegExpExecArray | null;
   let foundBtBlock = false;
 
   const processTextBlock = (block: string, defaultYStart: number) => {
-    let fontSize = 12;
     let matrixScale = 1;
-    let leading = 14;
     let lineX = 48;
     let lineY = defaultYStart;
     let curX = lineX;
@@ -876,7 +1464,7 @@ function parseContentStreamIntoVisuals(
     let hasExplicitPos = false;
 
     const opRegex =
-      /\/[^\s/[\]()<>]+\s+(-?\d+(?:\.\d+)?)\s+Tf\b|(-?\d+(?:\.\d+)?)\s+TL\b|(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(Td|TD)\b|(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+Tm\b|\bT\*\b|\(((?:\\.|[^\\()])*)\)\s*(Tj|')\b|<([0-9a-fA-F\s]+)>\s*Tj\b|\[([\s\S]*?)\]\s*TJ\b/g;
+      /\/[^\s/[\]()<>]+\s+(-?\d+(?:\.\d+)?)\s+Tf(?=\s|[()/[\]<>]|$)|(-?\d+(?:\.\d+)?)\s+TL(?=\s|[()/[\]<>]|$)|(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(Td|TD)(?=\s|[()/[\]<>]|$)|(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+Tm(?=\s|[()/[\]<>]|$)|(?:^|\s)T\*(?=\s|[()/[\]<>]|$)|\(((?:\\.|[^\\()])*)\)\s*(Tj|'|")(?=\s|[()/[\]<>]|$)|<([0-9a-fA-F\s]+)>\s*Tj(?=\s|[()/[\]<>]|$)|\[([\s\S]*?)\]\s*TJ(?=\s|[()/[\]<>]|$)/g;
 
     let op: RegExpExecArray | null;
     while ((op = opRegex.exec(block)) !== null) {
@@ -884,7 +1472,6 @@ function parseContentStreamIntoVisuals(
         const fs = Math.abs(parseFloat(op[1]));
         if (Number.isFinite(fs) && fs > 0) {
           fontSize = fs;
-          if (leading === 14) leading = Math.max(12, fs * 1.2);
         }
       } else if (op[2] !== undefined) {
         const tl = Math.abs(parseFloat(op[2]));
@@ -926,12 +1513,12 @@ function parseContentStreamIntoVisuals(
         curX = e;
         curY = f;
         hasExplicitPos = true;
-      } else if (op[0] === 'T*') {
+      } else if (op[0].trim() === 'T*') {
         lineY -= leading * matrixScale;
         curX = lineX;
         curY = lineY;
       } else if (op[12] !== undefined) {
-        if (op[13] === "'") {
+        if (op[13] === "'" || op[13] === '"') {
           lineY -= leading * matrixScale;
           curX = lineX;
           curY = lineY;
@@ -987,12 +1574,20 @@ function parseContentStreamIntoVisuals(
   }
 }
 
+function isNonContentStreamObject(dictStr: string): boolean {
+  return (
+    /\/Type\s*\/(?:Metadata|XRef|ObjStm)\b/.test(dictStr) ||
+    /\/Subtype\s*\/(?:XML|Type1C|CIDFontType0C|OpenType)\b/.test(dictStr) ||
+    /\/Length1\s+\d+/.test(dictStr)
+  );
+}
+
 function collectPageVisualsFromObjects(
   parsed: InternalParsedPdf,
   pageNumber: number,
   width: number,
   height: number,
-  decompressedStreams?: Map<number, string>
+  asyncDecodedStreams?: Map<number, string>
 ): PdfPageVisuals {
   const textRuns: PdfTextRun[] = [];
   const rects: PdfRectVisual[] = [];
@@ -1003,28 +1598,33 @@ function collectPageVisualsFromObjects(
     const payload = extractStreamPayloadBytes(obj);
     if (!payload || payload.length === 0) continue;
 
-    // Eingebettete Scan-Bilder (/Subtype /Image mit /DCTDecode oder JPEG-Header 0xFF 0xD8)
+    const filters = parsePdfFilters(obj.dictStr);
     const isImageObj =
       /\/Subtype\s*\/Image\b/.test(obj.dictStr) ||
-      /\/Filter\s*(?:\[\s*)?\/DCTDecode\b/.test(obj.dictStr) ||
+      filters.includes('DCTDecode') ||
       (payload.length > 4 && payload[0] === 0xff && payload[1] === 0xd8 && payload[2] === 0xff);
 
     if (isImageObj) {
-      if (
-        !embeddedJpegDataUrl &&
-        (/\/DCTDecode\b/.test(obj.dictStr) || (payload[0] === 0xff && payload[1] === 0xd8))
-      ) {
-        embeddedJpegDataUrl = `data:image/jpeg;base64,${bytesToBase64(payload)}`;
+      if (!embeddedJpegDataUrl) {
+        embeddedJpegDataUrl = extractImageDataUrlFromPdfObjectSync(obj, payload);
       }
       continue;
     }
 
-    const decompressedText = decompressedStreams?.get(objId);
-    if (decompressedText !== undefined) {
-      parseContentStreamIntoVisuals(decompressedText, width, height, textRuns, rects, lines);
-    } else if (!/\/Filter\s*(?:\[\s*)?\/FlateDecode\b/.test(obj.dictStr)) {
-      const rawStreamText = bytesToLatin1(payload);
-      parseContentStreamIntoVisuals(rawStreamText, width, height, textRuns, rects, lines);
+    if (isNonContentStreamObject(obj.dictStr)) {
+      continue;
+    }
+
+    const preDecoded = asyncDecodedStreams?.get(objId);
+    if (preDecoded !== undefined) {
+      parseContentStreamIntoVisuals(preDecoded, width, height, textRuns, rects, lines);
+      continue;
+    }
+
+    const decoded = decodePdfFilterPipelineSync(payload, obj.dictStr);
+    if (decoded && decoded.bytes.length > 0) {
+      const streamText = bytesToLatin1(decoded.bytes);
+      parseContentStreamIntoVisuals(streamText, width, height, textRuns, rects, lines);
     }
   }
 
@@ -1047,8 +1647,8 @@ function collectPageVisualsFromObjects(
 }
 
 /**
- * Extrahiert synchron die visuellen Seiteninhalte (Textlaeufe, Vektoren, eingebettete Scan-JPEGs)
- * aus einem 1-seitigen PDF fuer das lokale Thumbnail-Rendering.
+ * Extrahiert synchron die visuellen Seiteninhalte (Textlaeufe, Vektoren, eingebettete Scan-Bilder)
+ * inkl. Filter-Arrays (/ASCII85Decode, /FlateDecode, /DCTDecode) fuer das lokale Thumbnail-Rendering.
  */
 export function extractPdfPageVisuals(
   singlePagePdfInput: Uint8Array | ArrayBuffer,
@@ -1074,7 +1674,7 @@ export function extractPdfPageVisuals(
 }
 
 /**
- * Extrahiert asynchron die visuellen Seiteninhalte inklusive /FlateDecode-komprimierter PDF-Streams.
+ * Extrahiert asynchron die visuellen Seiteninhalte inklusive aller Filter-Arrays.
  */
 export async function extractPdfPageVisualsAsync(
   singlePagePdfInput: Uint8Array | ArrayBuffer,
@@ -1099,13 +1699,15 @@ export async function extractPdfPageVisualsAsync(
 
   const decompressedStreams = new Map<number, string>();
   for (const [objId, obj] of parsed.objects.entries()) {
-    if (!/\/Filter\s*(?:\[\s*)?\/FlateDecode\b/.test(obj.dictStr)) continue;
-    if (/\/Subtype\s*\/Image\b/.test(obj.dictStr)) continue;
+    const filters = parsePdfFilters(obj.dictStr);
+    if (filters.length === 0) continue;
+    if (/\/Subtype\s*\/Image\b/.test(obj.dictStr) || filters.includes('DCTDecode')) continue;
+    if (isNonContentStreamObject(obj.dictStr)) continue;
     const payload = extractStreamPayloadBytes(obj);
     if (!payload || payload.length === 0) continue;
-    const inflated = await decompressFlateBytesAsync(payload);
-    if (inflated && inflated.length > 0) {
-      decompressedStreams.set(objId, bytesToLatin1(inflated));
+    const decoded = await decodePdfFilterPipelineAsync(payload, obj.dictStr);
+    if (decoded && decoded.bytes.length > 0) {
+      decompressedStreams.set(objId, bytesToLatin1(decoded.bytes));
     }
   }
 
@@ -1133,7 +1735,7 @@ export function renderPdfPageThumbnailSvgDataUrl(visuals: PdfPageVisuals): strin
   // Papier-Hintergrund
   parts.push(`<rect x="0" y="0" width="${w}" height="${h}" fill="#ffffff" />`);
   // Dezente Kopfzeilen-Markierung wie auf einem Pruefungsbogen
-  parts.push(`<rect x="36" y="28" width="${w - 72}" height="4" rx="2" fill="#e2e8f0" />`);
+  parts.push(`<rect x="36" y="24" width="${w - 72}" height="3" rx="1.5" fill="#e2e8f0" />`);
 
   if (visuals.embeddedJpegDataUrl) {
     parts.push(
@@ -1142,69 +1744,47 @@ export function renderPdfPageThumbnailSvgDataUrl(visuals: PdfPageVisuals): strin
   }
 
   // Vektor-Rechtecke und Tabellenlinien
-  for (const r of visuals.rects.slice(0, 60)) {
+  for (const r of visuals.rects.slice(0, 80)) {
     const rx = Math.min(r.x, r.x + r.width);
     const rw = Math.abs(r.width);
     const rh = Math.abs(r.height);
     const topY = Math.max(0, Math.min(h - rh, h - Math.max(r.y, r.y + r.height)));
     parts.push(
-      `<rect x="${rx.toFixed(1)}" y="${topY.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" fill="none" stroke="#cbd5e1" stroke-width="1.2" />`
+      `<rect x="${rx.toFixed(1)}" y="${topY.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" fill="none" stroke="#94a3b8" stroke-width="1.2" />`
     );
   }
 
-  for (const l of visuals.lines.slice(0, 80)) {
+  for (const l of visuals.lines.slice(0, 100)) {
     const y1 = Math.max(0, Math.min(h, h - l.y1));
     const y2 = Math.max(0, Math.min(h, h - l.y2));
     parts.push(
-      `<line x1="${l.x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${l.x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#cbd5e1" stroke-width="1.2" />`
+      `<line x1="${l.x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${l.x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#94a3b8" stroke-width="1.2" />`
     );
   }
 
   if (visuals.textRuns.length > 0) {
-    // Sortiere Textlaeufe von oben nach unten fuer saubere Lesbarkeit
     const sortedRuns = [...visuals.textRuns].sort((a, b) => b.y - a.y || a.x - b.x);
-    // Hebe den Kopfbereich (erste Textzeilen, z. B. Schuelername / Titel) optisch als Lesebereich hervor
-    parts.push(
-      `<rect x="36" y="44" width="${w - 72}" height="58" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2" />`
-    );
 
-    sortedRuns.slice(0, 45).forEach((run, idx) => {
+    sortedRuns.slice(0, 60).forEach((run, idx) => {
       const rawTopY = h - run.y;
-      const topY = Math.max(68, Math.min(h - 24, rawTopY));
-      const x = Math.max(44, Math.min(w - 60, run.x));
-      // Fuer gute Lesbarkeit im Thumbnail skalieren wir sehr kleine Schriften leicht an
-      const displayFontSize = Math.max(18, Math.min(30, run.fontSize * 1.45));
-      const isHeaderLine = idx === 0 || topY <= 115;
+      const topY = Math.max(36, Math.min(h - 28, rawTopY));
+      const x = Math.max(32, Math.min(w - 48, run.x));
+      const displayFontSize = Math.max(16, Math.min(28, run.fontSize * 1.35));
+      const isHeaderLine = idx === 0 || topY <= 110;
       const fontWeight = isHeaderLine ? 700 : 500;
-      const fill = isHeaderLine ? '#0f172a' : '#334155';
+      const fill = isHeaderLine ? '#0f172a' : '#1e293b';
       parts.push(
         `<text x="${x.toFixed(1)}" y="${topY.toFixed(1)}" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="${displayFontSize.toFixed(1)}" font-weight="${fontWeight}" fill="${fill}">${escapeXml(run.text)}</text>`
       );
     });
-
-    // Dezent angedeutete Aufgaben-/Antwortzeilen im unteren Teil des Blatts, falls nur Kopfzeilen vorhanden sind
-    if (sortedRuns.length <= 3 && !visuals.embeddedJpegDataUrl) {
-      for (let lineIdx = 0; lineIdx < 6; lineIdx++) {
-        const lineY = 175 + lineIdx * 42;
-        const lineW = lineIdx % 2 === 0 ? w - 96 : w - 160;
-        parts.push(
-          `<rect x="48" y="${lineY}" width="${lineW}" height="8" rx="4" fill="#e2e8f0" />`
-        );
-      }
-    }
   } else if (!visuals.embeddedJpegDataUrl) {
-    // Fallback-Blattdarstellung fuer Seiten ohne extrahierbaren Text-/JPEG-Stream
+    // Fallback-Blattdarstellung fuer komplett leere Seiten ohne Text-/Bild-Streams
     parts.push(
       `<rect x="36" y="48" width="${w - 72}" height="54" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2" />`
     );
     parts.push(
       `<text x="52" y="82" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#0f172a">Blatt ${visuals.pageNumber}</text>`
     );
-    for (let lineIdx = 0; lineIdx < 7; lineIdx++) {
-      const lineY = 145 + lineIdx * 44;
-      const lineW = lineIdx % 2 === 0 ? w - 96 : w - 150;
-      parts.push(`<rect x="48" y="${lineY}" width="${lineW}" height="8" rx="4" fill="#e2e8f0" />`);
-    }
   }
 
   // Fusszeile mit Seitenzahl
@@ -1296,33 +1876,18 @@ export async function rasterizePdfPageToDataUrl(page: PdfPageInfo): Promise<stri
     // 4. Textlaeufe (Schuelername, Seitenkopf, Aufgaben) klar lesbar zeichnen
     if (visuals.textRuns.length > 0) {
       const sortedRuns = [...visuals.textRuns].sort((a, b) => b.y - a.y || a.x - b.x);
-      if (!visuals.embeddedJpegDataUrl) {
-        ctx.fillStyle = '#f8fafc';
-        ctx.fillRect(28 * scaleX, 38 * scaleY, (w - 56) * scaleX, 56 * scaleY);
-        ctx.strokeStyle = '#cbd5e1';
-        ctx.strokeRect(28 * scaleX, 38 * scaleY, (w - 56) * scaleX, 56 * scaleY);
-      }
 
-      sortedRuns.slice(0, 45).forEach((run, idx) => {
+      sortedRuns.slice(0, 60).forEach((run, idx) => {
         const rawTopY = h - run.y;
-        const clampedTopY = Math.max(66, Math.min(h - 28, rawTopY));
-        const pxX = Math.max(36 * scaleX, Math.min((w - 60) * scaleX, run.x * scaleX));
+        const clampedTopY = Math.max(36, Math.min(h - 28, rawTopY));
+        const pxX = Math.max(24 * scaleX, Math.min((w - 48) * scaleX, run.x * scaleX));
         const pxY = clampedTopY * scaleY;
-        const isHeaderLine = idx === 0 || clampedTopY <= 115;
-        const pxFontSize = Math.max(12, Math.min(20, Math.round(run.fontSize * scaleX * 1.45)));
+        const isHeaderLine = idx === 0 || clampedTopY <= 110;
+        const pxFontSize = Math.max(12, Math.min(20, Math.round(run.fontSize * scaleX * 1.35)));
         ctx.font = `${isHeaderLine ? 700 : 500} ${pxFontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-        ctx.fillStyle = isHeaderLine ? '#0f172a' : '#334155';
-        ctx.fillText(run.text, pxX, pxY, targetWidth - pxX - 16);
+        ctx.fillStyle = isHeaderLine ? '#0f172a' : '#1e293b';
+        ctx.fillText(run.text, pxX, pxY, targetWidth - pxX - 12);
       });
-
-      if (sortedRuns.length <= 3 && !visuals.embeddedJpegDataUrl) {
-        ctx.fillStyle = '#e2e8f0';
-        for (let lineIdx = 0; lineIdx < 6; lineIdx++) {
-          const lineY = (175 + lineIdx * 42) * scaleY;
-          const lineW = (lineIdx % 2 === 0 ? w - 96 : w - 160) * scaleX;
-          ctx.fillRect(42 * scaleX, lineY, lineW, 6 * scaleY);
-        }
-      }
     } else if (!visuals.embeddedJpegDataUrl) {
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(28 * scaleX, 42 * scaleY, (w - 56) * scaleX, 52 * scaleY);

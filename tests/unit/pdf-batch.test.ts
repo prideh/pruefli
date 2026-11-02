@@ -16,6 +16,9 @@ import {
   extractPdfPageVisualsAsync,
   renderPdfPageThumbnailSvgDataUrl,
   rasterizePdfPageToDataUrl,
+  parsePdfFilters,
+  decodeAscii85,
+  inflateFlateSync,
 } from '@/lib/pdf-batch';
 import { extractDocumentText } from '@/lib/document-validation';
 import { GET as getSubmissions } from '@/app/api/submissions/route';
@@ -214,6 +217,101 @@ describe('Batch-Scan (#83): PDF-Klassensatz lokal zerlegen und mit Namens-Vorsch
       expect(dialogSource).not.toContain('URL.createObjectURL');
       expect(dialogSource).toContain('pdf-page-thumbnail-img-');
       expect(dialogSource).toContain('rasterizePdfPageToDataUrl');
+    });
+
+    it('rendert extern erzeugte ReportLab-Text- und Scan-PDF-Fixtures (inkl. /Filter [ /ASCII85Decode /FlateDecode ] und /Filter [ /ASCII85Decode /DCTDecode ]) lesbar ohne Platzhalter', async () => {
+      // Prüfe Filter-Array-Parser und ASCII85 + FlateDecode-Pipeline
+      expect(parsePdfFilters('<< /Filter [ /ASCII85Decode /FlateDecode ] /Length 120 >>')).toEqual([
+        'ASCII85Decode',
+        'FlateDecode',
+      ]);
+      expect(
+        parsePdfFilters('<< /Filter [ /ASCII85Decode /DCTDecode ] /Subtype /Image >>')
+      ).toEqual(['ASCII85Decode', 'DCTDecode']);
+      expect(
+        Buffer.from(decodeAscii85(Buffer.from('87cURD]i,"Ebo7~>', 'latin1'))).toString('utf8')
+      ).toBe('Hello World');
+      const sampleCompressed = zlib.deflateSync(Buffer.from('Test-Inhalt 123', 'latin1'));
+      const sampleInflated = inflateFlateSync(new Uint8Array(sampleCompressed));
+      expect(sampleInflated).not.toBeNull();
+      expect(Buffer.from(sampleInflated!).toString('latin1')).toBe('Test-Inhalt 123');
+
+      // 1. Externes ReportLab-Text-PDF Fixture (4 Seiten, /Filter [ /ASCII85Decode /FlateDecode ])
+      const textFixturePath = path.join(
+        process.cwd(),
+        'tests',
+        'fixtures',
+        'reportlab-text-batch.pdf'
+      );
+      const textFixtureBytes = new Uint8Array(fs.readFileSync(textFixturePath));
+      const textInspection = inspectPdfBytes(textFixtureBytes);
+      expect(textInspection.isPdf).toBe(true);
+      expect(textInspection.pageCount).toBe(4);
+      expect(textInspection.pages).toHaveLength(4);
+
+      const expectedPageTexts = [
+        ['Schueler: Lukas Mueller - Klasse 2a', 'Blatt 1 von 2', 'Aufgabe 1: 3/4 + 1/4 = 1'],
+        ['Schueler: Lukas Mueller - Klasse 2a', 'Blatt 2 von 2', 'Aufgabe 2: 5 * 8 = 40'],
+        ['Schueler: Anna Meier - Klasse 2a', 'Blatt 1 von 2', 'Aufgabe 1: 1/2 + 1/2 = 1'],
+        ['Schueler: Anna Meier - Klasse 2a', 'Blatt 2 von 2', 'Aufgabe 2: 6 * 7 = 42'],
+      ];
+
+      for (let i = 0; i < 4; i++) {
+        const page = textInspection.pages[i];
+        for (const snippet of expectedPageTexts[i]) {
+          expect(page.extractedTextPreview).toContain(snippet);
+        }
+        const svgContent = Buffer.from(
+          page.thumbnailDataUrl.replace(/^data:image\/svg\+xml;base64,/, ''),
+          'base64'
+        ).toString('utf8');
+        for (const snippet of expectedPageTexts[i]) {
+          expect(svgContent).toContain(snippet);
+        }
+        // Darf NICHT auf den generischen "Blatt N"-Platzhalter zurückfallen
+        expect(svgContent).not.toContain(`>Blatt ${i + 1}<`);
+      }
+
+      // 2. Externes ReportLab-Scan-PDF Fixture (2 Seiten, /Filter [ /ASCII85Decode /DCTDecode ])
+      const scanFixturePath = path.join(
+        process.cwd(),
+        'tests',
+        'fixtures',
+        'reportlab-scan-batch.pdf'
+      );
+      const scanFixtureBytes = new Uint8Array(fs.readFileSync(scanFixturePath));
+      const scanInspection = inspectPdfBytes(scanFixtureBytes);
+      expect(scanInspection.isPdf).toBe(true);
+      expect(scanInspection.pageCount).toBe(2);
+      expect(scanInspection.pages).toHaveLength(2);
+
+      for (let i = 0; i < 2; i++) {
+        const page = scanInspection.pages[i];
+        const visuals = await extractPdfPageVisualsAsync(
+          page.singlePagePdfBytes,
+          page.pageNumber,
+          page.width,
+          page.height
+        );
+        expect(visuals.embeddedJpegDataUrl).not.toBeNull();
+        expect(visuals.embeddedJpegDataUrl).toMatch(/^data:image\/jpeg;base64,\/9j\//);
+
+        const decodedJpeg = Buffer.from(
+          visuals.embeddedJpegDataUrl!.replace(/^data:image\/jpeg;base64,/, ''),
+          'base64'
+        );
+        // Echter JPEG-Header 0xFF 0xD8 0xFF
+        expect(decodedJpeg[0]).toBe(0xff);
+        expect(decodedJpeg[1]).toBe(0xd8);
+        expect(decodedJpeg[2]).toBe(0xff);
+
+        const svgContent = Buffer.from(
+          page.thumbnailDataUrl.replace(/^data:image\/svg\+xml;base64,/, ''),
+          'base64'
+        ).toString('utf8');
+        expect(svgContent).toContain('<image href="data:image/jpeg;base64,/9j/');
+        expect(svgContent).not.toContain(`>Blatt ${i + 1}<`);
+      }
     });
   });
 
