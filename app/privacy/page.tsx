@@ -127,13 +127,13 @@ export default function PrivacyPage() {
                     variant="caption"
                     sx={{ fontWeight: 700, color: '#64748b', display: 'block', mb: 0.5 }}
                   >
-                    ANSPRECHPARTNER & IDENTITÄT (PLATZHALTER)
+                    ANSPRECHPARTNER & KONTAKT
                   </Typography>
                   <Typography variant="body2" sx={{ color: '#0f172a', fontWeight: 600 }}>
-                    [Name / Rechtliche Identität der Lehrperson oder Schule bzw. des Betreibers]
+                    Mahdi Nasserzadeh
                   </Typography>
                   <Typography variant="body2" sx={{ color: '#475569' }}>
-                    [Kontaktadresse / E-Mail für Datenschutzanfragen]
+                    support@pruefli.ch
                   </Typography>
                 </Box>
               </Box>

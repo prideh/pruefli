@@ -46,8 +46,12 @@ describe('Privacy, Cookie Audit & Datenschutzerklaerung (Issue #18)', () => {
     expect(privacyContent).toContain('Schülerdaten');
   });
 
-  it('Datenschutzerklaerung enthaelt den Verantwortlichen-Platzhalter und DSG-Rechte', () => {
-    expect(privacyContent).toContain('ANSPRECHPARTNER & IDENTITÄT (PLATZHALTER)');
+  it('Datenschutzerklaerung enthaelt die freigegebene Betreiber-Identitaet + Kontaktadresse ohne Platzhalter sowie DSG-Rechte', () => {
+    expect(privacyContent).toContain('Mahdi Nasserzadeh');
+    expect(privacyContent).toContain('support@pruefli.ch');
+    expect(privacyContent).not.toContain('PLATZHALTER');
+    expect(privacyContent).not.toContain('[Name / Rechtliche Identität');
+    expect(privacyContent).not.toContain('[Kontaktadresse');
     expect(privacyContent).toContain('Schweizer Bundesgesetz über den Datenschutz (DSG)');
     expect(privacyContent).toContain('Auskunft');
   });
