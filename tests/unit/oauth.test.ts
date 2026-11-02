@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   isProviderConfigured,
+  isProviderUiFlagEnabled,
+  isProviderUiEnabled,
+  getConfiguredProviders,
+  getUiEnabledProviders,
   getEnabledProviders,
   getProviderDisplayName,
   getAuthorizationUrl,
@@ -12,6 +16,8 @@ import {
   generateOauthDisabledPasswordHash,
   isOauthOnlyAccount,
 } from '@/lib/oauth';
+import { GET as getProvidersRoute } from '@/app/api/auth/oauth/providers/route';
+import { GET as getOAuthStartRoute } from '@/app/api/auth/oauth/[provider]/route';
 import {
   signOAuthStateToken,
   verifyOAuthStateToken,
@@ -32,6 +38,8 @@ describe('OAuth Social Sign-in & Account Linking (lib/oauth.ts & lib/jwt.ts)', (
     delete process.env.MICROSOFT_CLIENT_ID;
     delete process.env.MICROSOFT_CLIENT_SECRET;
     delete process.env.MICROSOFT_TENANT_ID;
+    delete process.env.OAUTH_UI_GOOGLE_ENABLED;
+    delete process.env.OAUTH_UI_MICROSOFT_ENABLED;
     resetOAuthMemoryState();
   });
 
@@ -40,46 +48,300 @@ describe('OAuth Social Sign-in & Account Linking (lib/oauth.ts & lib/jwt.ts)', (
     resetOAuthMemoryState();
   });
 
-  describe('Configuration-driven Provider Activation', () => {
+  describe('Configuration-driven Provider Activation (Credentials)', () => {
     it('returns false for all providers when environment variables are not set', () => {
       expect(isProviderConfigured('google')).toBe(false);
       expect(isProviderConfigured('microsoft')).toBe(false);
-      expect(getEnabledProviders()).toEqual({ google: false, microsoft: false });
+      expect(getConfiguredProviders()).toEqual({ google: false, microsoft: false });
     });
 
-    it('activates Google only when both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set', () => {
+    it('activates Google configuration only when both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set', () => {
       process.env.GOOGLE_CLIENT_ID = 'google-client-id-123';
       expect(isProviderConfigured('google')).toBe(false);
 
       process.env.GOOGLE_CLIENT_SECRET = 'google-client-secret-xyz';
       expect(isProviderConfigured('google')).toBe(true);
-      expect(getEnabledProviders()).toEqual({ google: true, microsoft: false });
+      expect(getConfiguredProviders()).toEqual({ google: true, microsoft: false });
     });
 
-    it('activates Microsoft only when both MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET are set', () => {
+    it('activates Microsoft configuration only when both MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET are set', () => {
       process.env.MICROSOFT_CLIENT_ID = 'ms-client-id-456';
       expect(isProviderConfigured('microsoft')).toBe(false);
 
       process.env.MICROSOFT_CLIENT_SECRET = 'ms-client-secret-abc';
       expect(isProviderConfigured('microsoft')).toBe(true);
-      expect(getEnabledProviders()).toEqual({ google: false, microsoft: true });
+      expect(getConfiguredProviders()).toEqual({ google: false, microsoft: true });
     });
 
-    it('activates both providers in expected priority order (Google first, then Microsoft)', () => {
+    it('activates both provider configurations in expected priority order', () => {
       process.env.GOOGLE_CLIENT_ID = 'gid';
       process.env.GOOGLE_CLIENT_SECRET = 'gsecret';
       process.env.MICROSOFT_CLIENT_ID = 'msid';
       process.env.MICROSOFT_CLIENT_SECRET = 'mssecret';
 
-      const enabled = getEnabledProviders();
-      expect(enabled.google).toBe(true);
-      expect(enabled.microsoft).toBe(true);
-      expect(Object.keys(enabled)).toEqual(['google', 'microsoft']);
+      const configured = getConfiguredProviders();
+      expect(configured.google).toBe(true);
+      expect(configured.microsoft).toBe(true);
+      expect(Object.keys(configured)).toEqual(['google', 'microsoft']);
     });
 
     it('ensures Apple is never activated or supported', () => {
       // @ts-expect-error Apple is rejected by types and runtime
       expect(isProviderConfigured('apple')).toBe(false);
+    });
+  });
+
+  describe('UI Visibility Flags (OAUTH_UI_GOOGLE_ENABLED & OAUTH_UI_MICROSOFT_ENABLED)', () => {
+    it('defaults to false for all providers when UI flags are unset', () => {
+      expect(isProviderUiFlagEnabled('google')).toBe(false);
+      expect(isProviderUiFlagEnabled('microsoft')).toBe(false);
+    });
+
+    it('parses truthy values case-insensitively (true, TRUE, 1)', () => {
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+      expect(isProviderUiFlagEnabled('google')).toBe(true);
+
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'TRUE';
+      expect(isProviderUiFlagEnabled('google')).toBe(true);
+
+      process.env.OAUTH_UI_GOOGLE_ENABLED = ' 1 ';
+      expect(isProviderUiFlagEnabled('google')).toBe(true);
+    });
+
+    it('parses falsy and invalid values as false', () => {
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'false';
+      expect(isProviderUiFlagEnabled('google')).toBe(false);
+
+      process.env.OAUTH_UI_GOOGLE_ENABLED = '0';
+      expect(isProviderUiFlagEnabled('google')).toBe(false);
+
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'random-value';
+      expect(isProviderUiFlagEnabled('google')).toBe(false);
+    });
+
+    it('operates flags independently between providers', () => {
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+      delete process.env.OAUTH_UI_MICROSOFT_ENABLED;
+
+      expect(isProviderUiFlagEnabled('google')).toBe(true);
+      expect(isProviderUiFlagEnabled('microsoft')).toBe(false);
+
+      process.env.OAUTH_UI_MICROSOFT_ENABLED = 'true';
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'false';
+
+      expect(isProviderUiFlagEnabled('google')).toBe(false);
+      expect(isProviderUiFlagEnabled('microsoft')).toBe(true);
+    });
+  });
+
+  describe('UI Visibility Gate (isProviderUiEnabled, getUiEnabledProviders, getEnabledProviders)', () => {
+    describe('Zustand 1: Nicht konfiguriert', () => {
+      it('returns false when neither configured nor UI flag set', () => {
+        expect(isProviderUiEnabled('google')).toBe(false);
+        expect(isProviderUiEnabled('microsoft')).toBe(false);
+        expect(getUiEnabledProviders()).toEqual({ google: false, microsoft: false });
+        expect(getEnabledProviders()).toEqual({ google: false, microsoft: false });
+      });
+
+      it('returns false even if UI flag is set to true when credentials are missing', () => {
+        process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+        process.env.OAUTH_UI_MICROSOFT_ENABLED = 'true';
+
+        expect(isProviderUiEnabled('google')).toBe(false);
+        expect(isProviderUiEnabled('microsoft')).toBe(false);
+        expect(getUiEnabledProviders()).toEqual({ google: false, microsoft: false });
+        expect(getEnabledProviders()).toEqual({ google: false, microsoft: false });
+      });
+    });
+
+    describe('Zustand 2: Konfiguriert ohne Flag (stille Verifikation in Production)', () => {
+      it('returns false for UI button while provider configuration is active', () => {
+        process.env.GOOGLE_CLIENT_ID = 'gid';
+        process.env.GOOGLE_CLIENT_SECRET = 'gsec';
+        process.env.MICROSOFT_CLIENT_ID = 'msid';
+        process.env.MICROSOFT_CLIENT_SECRET = 'mssec';
+
+        expect(isProviderConfigured('google')).toBe(true);
+        expect(isProviderConfigured('microsoft')).toBe(true);
+
+        // UI flags are unset, so buttons must remain hidden
+        expect(isProviderUiEnabled('google')).toBe(false);
+        expect(isProviderUiEnabled('microsoft')).toBe(false);
+        expect(getUiEnabledProviders()).toEqual({ google: false, microsoft: false });
+        expect(getEnabledProviders()).toEqual({ google: false, microsoft: false });
+      });
+
+      it('returns false when UI flag is explicitly set to false', () => {
+        process.env.GOOGLE_CLIENT_ID = 'gid';
+        process.env.GOOGLE_CLIENT_SECRET = 'gsec';
+        process.env.OAUTH_UI_GOOGLE_ENABLED = 'false';
+
+        expect(isProviderConfigured('google')).toBe(true);
+        expect(isProviderUiEnabled('google')).toBe(false);
+      });
+    });
+
+    describe('Zustand 3: Konfiguriert mit Flag (oeffentliche Freischaltung)', () => {
+      it('renders button only when provider is configured AND flag is true', () => {
+        process.env.GOOGLE_CLIENT_ID = 'gid';
+        process.env.GOOGLE_CLIENT_SECRET = 'gsec';
+        process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+
+        expect(isProviderConfigured('google')).toBe(true);
+        expect(isProviderUiFlagEnabled('google')).toBe(true);
+        expect(isProviderUiEnabled('google')).toBe(true);
+        expect(getUiEnabledProviders()).toEqual({ google: true, microsoft: false });
+        expect(getEnabledProviders()).toEqual({ google: true, microsoft: false });
+      });
+
+      it('renders both buttons when both are configured and both flags are true', () => {
+        process.env.GOOGLE_CLIENT_ID = 'gid';
+        process.env.GOOGLE_CLIENT_SECRET = 'gsec';
+        process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+
+        process.env.MICROSOFT_CLIENT_ID = 'msid';
+        process.env.MICROSOFT_CLIENT_SECRET = 'mssec';
+        process.env.OAUTH_UI_MICROSOFT_ENABLED = 'true';
+
+        expect(isProviderUiEnabled('google')).toBe(true);
+        expect(isProviderUiEnabled('microsoft')).toBe(true);
+        expect(getUiEnabledProviders()).toEqual({ google: true, microsoft: true });
+        expect(getEnabledProviders()).toEqual({ google: true, microsoft: true });
+      });
+    });
+
+    describe('Gemischte Provider-Kombinationen', () => {
+      it('allows Microsoft live while Google is still hidden in testing', () => {
+        process.env.GOOGLE_CLIENT_ID = 'gid';
+        process.env.GOOGLE_CLIENT_SECRET = 'gsec';
+        delete process.env.OAUTH_UI_GOOGLE_ENABLED;
+
+        process.env.MICROSOFT_CLIENT_ID = 'msid';
+        process.env.MICROSOFT_CLIENT_SECRET = 'mssec';
+        process.env.OAUTH_UI_MICROSOFT_ENABLED = 'true';
+
+        expect(isProviderConfigured('google')).toBe(true);
+        expect(isProviderConfigured('microsoft')).toBe(true);
+
+        expect(isProviderUiEnabled('google')).toBe(false);
+        expect(isProviderUiEnabled('microsoft')).toBe(true);
+
+        expect(getUiEnabledProviders()).toEqual({ google: false, microsoft: true });
+      });
+
+      it('allows Google live while Microsoft is still hidden in testing', () => {
+        process.env.GOOGLE_CLIENT_ID = 'gid';
+        process.env.GOOGLE_CLIENT_SECRET = 'gsec';
+        process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+
+        process.env.MICROSOFT_CLIENT_ID = 'msid';
+        process.env.MICROSOFT_CLIENT_SECRET = 'mssec';
+        delete process.env.OAUTH_UI_MICROSOFT_ENABLED;
+
+        expect(isProviderConfigured('google')).toBe(true);
+        expect(isProviderConfigured('microsoft')).toBe(true);
+
+        expect(isProviderUiEnabled('google')).toBe(true);
+        expect(isProviderUiEnabled('microsoft')).toBe(false);
+
+        expect(getUiEnabledProviders()).toEqual({ google: true, microsoft: false });
+      });
+
+      it('handles Google unconfigured with flag true, and Microsoft configured with flag true', () => {
+        delete process.env.GOOGLE_CLIENT_ID;
+        delete process.env.GOOGLE_CLIENT_SECRET;
+        process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+
+        process.env.MICROSOFT_CLIENT_ID = 'msid';
+        process.env.MICROSOFT_CLIENT_SECRET = 'mssec';
+        process.env.OAUTH_UI_MICROSOFT_ENABLED = 'true';
+
+        expect(isProviderUiEnabled('google')).toBe(false);
+        expect(isProviderUiEnabled('microsoft')).toBe(true);
+        expect(getUiEnabledProviders()).toEqual({ google: false, microsoft: true });
+      });
+    });
+  });
+
+  describe('Providers API Route (/api/auth/oauth/providers)', () => {
+    it('returns separate UI and configuration status per provider', async () => {
+      // Setup: Google configured without flag, Microsoft configured with flag
+      process.env.GOOGLE_CLIENT_ID = 'gid';
+      process.env.GOOGLE_CLIENT_SECRET = 'gsec';
+      delete process.env.OAUTH_UI_GOOGLE_ENABLED;
+
+      process.env.MICROSOFT_CLIENT_ID = 'msid';
+      process.env.MICROSOFT_CLIENT_SECRET = 'mssec';
+      process.env.OAUTH_UI_MICROSOFT_ENABLED = 'true';
+
+      const response = await getProvidersRoute();
+      expect(response.status).toBe(200);
+
+      const data = await response.json();
+      expect(data.configured).toEqual({ google: true, microsoft: true });
+      expect(data.ui).toEqual({ google: false, microsoft: true });
+      expect(data.providers).toEqual({ google: false, microsoft: true });
+      expect(data.flags).toEqual({ google: false, microsoft: true });
+    });
+
+    it('returns all false when nothing is configured and no flags set', async () => {
+      const response = await getProvidersRoute();
+      const data = await response.json();
+
+      expect(data.configured).toEqual({ google: false, microsoft: false });
+      expect(data.ui).toEqual({ google: false, microsoft: false });
+      expect(data.providers).toEqual({ google: false, microsoft: false });
+      expect(data.flags).toEqual({ google: false, microsoft: false });
+    });
+  });
+
+  describe('OAuth Flow Endpoints Work Independent of UI Flags', () => {
+    it('initiates Google OAuth flow when credentials exist even if UI flag is false or unset', async () => {
+      process.env.GOOGLE_CLIENT_ID = 'google-client-id-flow-test';
+      process.env.GOOGLE_CLIENT_SECRET = 'google-client-secret-flow-test';
+      delete process.env.OAUTH_UI_GOOGLE_ENABLED;
+
+      const req = new Request('http://localhost/api/auth/oauth/google');
+      const response = await getOAuthStartRoute(req, {
+        params: Promise.resolve({ provider: 'google' }),
+      });
+
+      // Must redirect to Google authorization URL (not error redirect)
+      expect(response.status).toBe(307);
+      const location = response.headers.get('location');
+      expect(location).toContain('https://accounts.google.com/o/oauth2/v2/auth');
+      expect(location).toContain('client_id=google-client-id-flow-test');
+    });
+
+    it('initiates Microsoft OAuth flow when credentials exist even if UI flag is false or unset', async () => {
+      process.env.MICROSOFT_CLIENT_ID = 'ms-client-id-flow-test';
+      process.env.MICROSOFT_CLIENT_SECRET = 'ms-client-secret-flow-test';
+      delete process.env.OAUTH_UI_MICROSOFT_ENABLED;
+
+      const req = new Request('http://localhost/api/auth/oauth/microsoft');
+      const response = await getOAuthStartRoute(req, {
+        params: Promise.resolve({ provider: 'microsoft' }),
+      });
+
+      expect(response.status).toBe(307);
+      const location = response.headers.get('location');
+      expect(location).toContain('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
+      expect(location).toContain('client_id=ms-client-id-flow-test');
+    });
+
+    it('redirects to error when provider credentials are not configured', async () => {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+
+      const req = new Request('http://localhost/api/auth/oauth/google');
+      const response = await getOAuthStartRoute(req, {
+        params: Promise.resolve({ provider: 'google' }),
+      });
+
+      expect(response.status).toBe(307);
+      const location = response.headers.get('location');
+      expect(location).toContain('/login?error=provider_not_configured');
     });
   });
 

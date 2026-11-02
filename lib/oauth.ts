@@ -50,6 +50,16 @@ export async function ensureFederatedIdentitiesTable(): Promise<void> {
 }
 
 /**
+ * Helper to parse boolean environment variables.
+ * Treats 'true' and '1' (case-insensitive) as true.
+ */
+function parseBooleanEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'true' || normalized === '1';
+}
+
+/**
  * Checks whether a given OAuth provider is fully configured via environment variables.
  */
 export function isProviderConfigured(provider: OAuthProvider): boolean {
@@ -69,14 +79,59 @@ export function isProviderConfigured(provider: OAuthProvider): boolean {
 }
 
 /**
- * Returns the activation status of all supported providers.
- * Apple is explicitly discarded and never enabled.
+ * Checks whether the UI visibility flag is set for a given OAuth provider.
+ * Environment variables:
+ * - Google: OAUTH_UI_GOOGLE_ENABLED
+ * - Microsoft: OAUTH_UI_MICROSOFT_ENABLED
+ * Default is false when unset.
  */
-export function getEnabledProviders(): { google: boolean; microsoft: boolean } {
+export function isProviderUiFlagEnabled(provider: OAuthProvider): boolean {
+  if (provider === 'google') {
+    return parseBooleanEnv(process.env.OAUTH_UI_GOOGLE_ENABLED);
+  }
+
+  if (provider === 'microsoft') {
+    return parseBooleanEnv(process.env.OAUTH_UI_MICROSOFT_ENABLED);
+  }
+
+  return false;
+}
+
+/**
+ * Checks whether the UI button for a given OAuth provider should be rendered.
+ * Requires the provider to be fully configured AND its specific UI flag to be enabled.
+ */
+export function isProviderUiEnabled(provider: OAuthProvider): boolean {
+  return isProviderConfigured(provider) && isProviderUiFlagEnabled(provider);
+}
+
+/**
+ * Returns the configuration status of all supported providers (credentials present).
+ */
+export function getConfiguredProviders(): { google: boolean; microsoft: boolean } {
   return {
     google: isProviderConfigured('google'),
     microsoft: isProviderConfigured('microsoft'),
   };
+}
+
+/**
+ * Returns the UI visibility status of all supported providers.
+ * Each provider is true only if fully configured AND its specific UI flag is enabled.
+ */
+export function getUiEnabledProviders(): { google: boolean; microsoft: boolean } {
+  return {
+    google: isProviderUiEnabled('google'),
+    microsoft: isProviderUiEnabled('microsoft'),
+  };
+}
+
+/**
+ * Returns the UI activation status of all supported providers.
+ * Apple is explicitly discarded and never enabled.
+ */
+export function getEnabledProviders(): { google: boolean; microsoft: boolean } {
+  return getUiEnabledProviders();
 }
 
 /**

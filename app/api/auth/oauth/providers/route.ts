@@ -1,9 +1,25 @@
 import { NextResponse } from 'next/server';
-import { getEnabledProviders } from '@/lib/oauth';
+import {
+  getConfiguredProviders,
+  getUiEnabledProviders,
+  isProviderUiFlagEnabled,
+} from '@/lib/oauth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const providers = getEnabledProviders();
-  return NextResponse.json({ providers });
+  const configured = getConfiguredProviders();
+  const ui = getUiEnabledProviders();
+  const flags = {
+    google: isProviderUiFlagEnabled('google'),
+    microsoft: isProviderUiFlagEnabled('microsoft'),
+  };
+
+  return NextResponse.json({
+    // providers reflects UI visibility for backwards compatibility
+    providers: ui,
+    ui,
+    configured,
+    flags,
+  });
 }

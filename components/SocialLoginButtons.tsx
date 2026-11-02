@@ -55,7 +55,8 @@ export default function SocialLoginButtons({ labelPrefix = 'anmelden' }: SocialL
         return { providers: { google: false, microsoft: false } };
       })
       .then((data) => {
-        setProviders(data.providers || { google: false, microsoft: false });
+        const activeProviders = data.ui || data.providers || { google: false, microsoft: false };
+        setProviders(activeProviders);
       })
       .catch(() => {
         setProviders({ google: false, microsoft: false });
@@ -66,7 +67,7 @@ export default function SocialLoginButtons({ labelPrefix = 'anmelden' }: SocialL
     };
   }, []);
 
-  // While loading or if no providers configured, render nothing
+  // While loading or if no providers are enabled for the UI, render nothing
   if (!providers || (!providers.google && !providers.microsoft)) {
     return null;
   }
