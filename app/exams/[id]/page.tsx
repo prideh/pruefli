@@ -124,18 +124,30 @@ interface ExamStats {
 interface ExamRosterStudent {
   studentId: string;
   studentName: string;
-  status: 'COMPLETED' | 'DRAFT' | 'UNSTARTED';
+  status: 'COMPLETED' | 'DRAFT' | 'PROCESSING' | 'PENDING' | 'FAILED' | 'UNSTARTED';
   earnedPoints: number | string;
   grade: string;
   date: string;
-  submissionId?: string;
+  submissionId?: string | null;
   uncertainStepsCount?: number;
+  errorMessage?: string | null;
+  failedAttemptsCount?: number;
+}
+
+interface FailedExamSubmission {
+  id: string;
+  studentId?: string | null;
+  studentName?: string | null;
+  errorMessage: string;
+  createdAt: string;
+  isAssignedInRoster?: boolean;
 }
 
 interface ExamDetailsApiResponse {
   exam: ExamData;
   stats: ExamStats;
   roster: ExamRosterStudent[];
+  failedSubmissions?: FailedExamSubmission[];
   taskAnalysis: ExamTaskAnalysis | null;
 }
 
@@ -208,7 +220,38 @@ export default function ExamDetailsPage() {
   const isClassArchived = Boolean(exam?.isClassArchived);
   const stats = cachedExamDetails?.stats || null;
   const roster = cachedExamDetails?.roster || [];
+  const failedSubmissions = cachedExamDetails?.failedSubmissions || [];
   const taskAnalysis = cachedExamDetails?.taskAnalysis || null;
+
+  const [retryingSubmissionId, setRetryingSubmissionId] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  const handleRetryFailedSubmission = async (submissionId: string) => {
+    if (!submissionId) return;
+    setRetryingSubmissionId(submissionId);
+    setRetryError(null);
+    try {
+      const res = await fetch(`/api/submissions/${submissionId}/replace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const msg = await getErrorMessage(res, 'Korrektur konnte nicht erneut gestartet werden.');
+        setRetryError(msg);
+        return;
+      }
+      invalidateSubmissions(submissionId, examId, exam?.classId);
+      invalidateExams(examId, exam?.classId);
+      fetchData();
+    } catch (err) {
+      setRetryError(
+        err instanceof Error ? err.message : 'Korrektur konnte nicht erneut gestartet werden.'
+      );
+    } finally {
+      setRetryingSubmissionId(null);
+    }
+  };
 
   const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
 
@@ -304,7 +347,15 @@ export default function ExamDetailsPage() {
     ];
     const rows = roster.map((r) => [
       `"${r.studentName.replace(/"/g, '""')}"`,
-      r.status === 'COMPLETED' ? 'Abgeschlossen' : r.status === 'DRAFT' ? 'Entwurf' : 'Ungestartet',
+      r.status === 'COMPLETED'
+        ? 'Abgeschlossen'
+        : r.status === 'DRAFT'
+          ? 'Entwurf'
+          : r.status === 'FAILED'
+            ? 'Fehlgeschlagen'
+            : r.status === 'PROCESSING' || r.status === 'PENDING'
+              ? 'In Verarbeitung'
+              : 'Ungestartet',
       r.earnedPoints !== 'N/A' ? String(r.earnedPoints) : '',
       String(exam.maxPoints || ''),
       r.status === 'COMPLETED' ? String(r.grade) : '',
@@ -2505,6 +2556,88 @@ export default function ExamDetailsPage() {
               </Button>
             </Stack>
 
+            {retryError && (
+              <Alert
+                severity="error"
+                onClose={() => setRetryError(null)}
+                sx={{ mb: 2, borderRadius: '8px' }}
+              >
+                {retryError}
+              </Alert>
+            )}
+
+            {failedSubmissions.some((f) => !f.isAssignedInRoster) && (
+              <Alert
+                severity="error"
+                sx={{
+                  mb: 2.5,
+                  borderRadius: '8px',
+                  '& .MuiAlert-message': { width: '100%' },
+                }}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+                  Fehlgeschlagene Korrekturen (noch nicht eindeutig zugeordnet)
+                </Typography>
+                <Stack spacing={1.5}>
+                  {failedSubmissions
+                    .filter((f) => !f.isAssignedInRoster)
+                    .map((failedSub) => (
+                      <Stack
+                        key={failedSub.id}
+                        direction={{ xs: 'column', sm: 'row' }}
+                        spacing={1.5}
+                        sx={{
+                          justifyContent: 'space-between',
+                          alignItems: { xs: 'flex-start', sm: 'center' },
+                          p: 1.25,
+                          borderRadius: '6px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                          border: '1px solid #fecaca',
+                        }}
+                      >
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, color: '#991b1b' }}>
+                            {failedSub.studentName || 'Nicht zugeordnete Arbeit'} (
+                            {failedSub.createdAt})
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#b91c1c', display: 'block' }}>
+                            Fehlergrund: {failedSub.errorMessage}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} sx={{ flexShrink: 0, flexWrap: 'wrap' }}>
+                          <Button
+                            variant="contained"
+                            color="error"
+                            size="small"
+                            disabled={isClassArchived || retryingSubmissionId === failedSub.id}
+                            onClick={() => void handleRetryFailedSubmission(failedSub.id)}
+                            sx={{ textTransform: 'none', fontWeight: 700 }}
+                          >
+                            {retryingSubmissionId === failedSub.id
+                              ? 'Startet neu...'
+                              : 'Erneut versuchen'}
+                          </Button>
+                          <Link
+                            href={`/correct/${failedSub.id}`}
+                            passHref
+                            style={{ textDecoration: 'none' }}
+                          >
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              size="small"
+                              sx={{ textTransform: 'none', fontWeight: 600 }}
+                            >
+                              Fehlerdetails
+                            </Button>
+                          </Link>
+                        </Stack>
+                      </Stack>
+                    ))}
+                </Stack>
+              </Alert>
+            )}
+
             {roster.length === 0 ? (
               <Box
                 sx={{
@@ -2602,13 +2735,23 @@ export default function ExamDetailsPage() {
                   <TableBody>
                     {roster.map((student) => {
                       let statusLabel = 'Ungestartet';
-                      let statusColor: 'default' | 'success' | 'warning' = 'default';
+                      let statusColor: 'default' | 'success' | 'warning' | 'error' | 'info' =
+                        'default';
                       if (student.status === 'COMPLETED') {
                         statusLabel = 'Abgeschlossen';
                         statusColor = 'success';
                       } else if (student.status === 'DRAFT') {
                         statusLabel = 'Entwurf';
                         statusColor = 'warning';
+                      } else if (student.status === 'FAILED') {
+                        statusLabel =
+                          (student.failedAttemptsCount ?? 0) > 1
+                            ? `Fehlgeschlagen (${student.failedAttemptsCount}×) – erneut versuchen`
+                            : 'Fehlgeschlagen – erneut versuchen';
+                        statusColor = 'error';
+                      } else if (student.status === 'PROCESSING' || student.status === 'PENDING') {
+                        statusLabel = 'In Verarbeitung';
+                        statusColor = 'info';
                       }
 
                       return (
@@ -2625,13 +2768,29 @@ export default function ExamDetailsPage() {
                             </Link>
                           </TableCell>
                           <TableCell>
-                            <Chip
-                              label={statusLabel}
-                              size="small"
-                              color={statusColor}
-                              variant={statusColor === 'default' ? 'outlined' : 'filled'}
-                              sx={{ fontWeight: 'bold' }}
-                            />
+                            <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+                              <Chip
+                                label={statusLabel}
+                                size="small"
+                                color={statusColor}
+                                variant={statusColor === 'default' ? 'outlined' : 'filled'}
+                                sx={{ fontWeight: 'bold' }}
+                              />
+                              {student.status === 'FAILED' && student.errorMessage && (
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    color: '#b91c1c',
+                                    fontWeight: 600,
+                                    display: 'block',
+                                    maxWidth: '340px',
+                                    lineHeight: 1.35,
+                                  }}
+                                >
+                                  Fehlergrund: {student.errorMessage}
+                                </Typography>
+                              )}
+                            </Stack>
                           </TableCell>
                           <TableCell sx={{ fontWeight: 600 }}>
                             {student.earnedPoints !== 'N/A'
@@ -2672,7 +2831,45 @@ export default function ExamDetailsPage() {
                           </TableCell>
                           <TableCell>{student.date}</TableCell>
                           <TableCell sx={{ textAlign: 'right' }}>
-                            {student.status !== 'UNSTARTED' ? (
+                            {student.status === 'FAILED' && student.submissionId ? (
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                sx={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1 }}
+                              >
+                                <Button
+                                  variant="contained"
+                                  color="error"
+                                  size="small"
+                                  disabled={
+                                    isClassArchived || retryingSubmissionId === student.submissionId
+                                  }
+                                  onClick={() => {
+                                    if (student.submissionId) {
+                                      void handleRetryFailedSubmission(student.submissionId);
+                                    }
+                                  }}
+                                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                                >
+                                  {retryingSubmissionId === student.submissionId
+                                    ? 'Startet neu...'
+                                    : 'Erneut versuchen'}
+                                </Button>
+                                <Link
+                                  href={`/correct/${student.submissionId}`}
+                                  passHref
+                                  style={{ textDecoration: 'none' }}
+                                >
+                                  <Button
+                                    variant="outlined"
+                                    size="small"
+                                    sx={{ textTransform: 'none', fontWeight: 600 }}
+                                  >
+                                    Fehlerdetails
+                                  </Button>
+                                </Link>
+                              </Stack>
+                            ) : student.status !== 'UNSTARTED' ? (
                               <Link
                                 href={`/correct/${student.submissionId}`}
                                 passHref

@@ -116,17 +116,59 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       lowestGrade = 0;
     }
 
+    // Sort submissions newest-first so the most recent attempt is selected when multiple exist
+    const sortedSubmissions = [...exam.submissions].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    const getDirectStudentSubs = (studentId: string) =>
+      sortedSubmissions.filter(
+        (s) =>
+          s.studentId === studentId ||
+          s.targetStudentId === studentId ||
+          s.suggestedStudentId === studentId
+      );
+
+    const unassignedSubmissions = sortedSubmissions.filter(
+      (s) => !s.studentId && !s.targetStudentId && !s.suggestedStudentId
+    );
+
+    const studentsWithoutDirectSub = exam.class.students.filter(
+      (st) => getDirectStudentSubs(st.id).length === 0
+    );
+
     // 2. Track submission status for ALL class students (to identify who has NOT taken/completed the exam)
     const submissionsTracker = exam.class.students.map((student) => {
-      const existingSub = exam.submissions.find((s) => s.studentId === student.id);
+      let studentSubs = getDirectStudentSubs(student.id);
+      if (
+        studentSubs.length === 0 &&
+        unassignedSubmissions.length > 0 &&
+        (exam.class.students.length === 1 || studentsWithoutDirectSub.length === 1)
+      ) {
+        studentSubs = unassignedSubmissions;
+      }
+
+      const existingSub =
+        studentSubs.find((s) => s.status === 'COMPLETED') || studentSubs[0] || null;
+
+      const failedSubs = studentSubs.filter((s) => s.status === 'FAILED');
+      const latestFailedSub = failedSubs[0] || null;
 
       return {
         studentId: student.id,
         studentName: student.name,
         submissionId: existingSub?.id || null,
-        status: existingSub ? existingSub.status : 'UNSTARTED', // COMPLETED, DRAFT, UNSTARTED
+        status: existingSub ? existingSub.status : 'UNSTARTED', // COMPLETED, DRAFT, PROCESSING, PENDING, FAILED, UNSTARTED
+        errorMessage:
+          existingSub?.status === 'FAILED'
+            ? existingSub.errorMessage || 'KI-Korrektur fehlgeschlagen.'
+            : latestFailedSub?.errorMessage || null,
+        failedAttemptsCount: failedSubs.length,
         grade: existingSub && existingSub.status === 'COMPLETED' ? existingSub.gradeRounded : 'N/A',
-        earnedPoints: existingSub ? existingSub.earnedPoints.toFixed(1) : 'N/A',
+        earnedPoints:
+          existingSub && existingSub.status === 'COMPLETED'
+            ? existingSub.earnedPoints.toFixed(1)
+            : 'N/A',
         date: existingSub ? existingSub.createdAt.toLocaleDateString('de-CH') : 'N/A',
         uncertainStepsCount: existingSub
           ? existingSub.tasks.reduce(
@@ -136,6 +178,28 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
           : 0,
       };
     });
+
+    const assignedSubmissionIds = new Set(
+      submissionsTracker.map((r) => r.submissionId).filter(Boolean)
+    );
+    const failedSubmissions = sortedSubmissions
+      .filter((s) => s.status === 'FAILED')
+      .map((s) => {
+        const matchedStudentId = s.studentId || s.targetStudentId || s.suggestedStudentId || null;
+        const matchedStudent = matchedStudentId
+          ? exam.class.students.find((st) => st.id === matchedStudentId)
+          : exam.class.students.length === 1
+            ? exam.class.students[0]
+            : null;
+        return {
+          id: s.id,
+          studentId: matchedStudent?.id || matchedStudentId,
+          studentName: matchedStudent?.name || s.student?.name || null,
+          errorMessage: s.errorMessage || 'KI-Korrektur fehlgeschlagen.',
+          createdAt: s.createdAt.toLocaleDateString('de-CH'),
+          isAssignedInRoster: assignedSubmissionIds.has(s.id),
+        };
+      });
 
     const stats = {
       averageGrade: averageGrade > 0 ? averageGrade.toFixed(2) : 'N/A',
@@ -185,6 +249,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       },
       stats,
       roster: submissionsTracker,
+      failedSubmissions,
       taskAnalysis,
     };
 
