@@ -612,21 +612,13 @@ export async function POST(request: Request) {
             Boolean(result.istNameUnsicher)
           );
           suggestedStudentId = matchResult.suggestedStudentId;
-
-          if (matchResult.confidence === 'HIGH' && matchResult.matchedStudentId) {
-            matchedStudentId = matchResult.matchedStudentId;
-            isStudentMatchUncertain = false;
-            const matchedRec = classStudentsList.find((s) => s.id === matchedStudentId);
-            if (matchedRec) {
-              finalStudentName = matchedRec.name;
-            }
-          } else {
-            matchedStudentId = null;
-            isStudentMatchUncertain = true;
-            finalStudentName = extractedStudentName
-              ? `${extractedStudentName} (Nicht zugeordnet)`
-              : 'Nicht zugeordnet';
-          }
+          // Keine Auto-Zuordnung ohne explizite Bestätigung durch die Lehrperson:
+          // Vorschläge (suggestedStudentId) werden vorbefüllt, aber erst bei Bestätigung übernommen.
+          matchedStudentId = null;
+          isStudentMatchUncertain = true;
+          finalStudentName = extractedStudentName
+            ? `${extractedStudentName} (Nicht zugeordnet)`
+            : 'Nicht zugeordnet';
         }
 
         resolvedMatchedStudentId = matchedStudentId;

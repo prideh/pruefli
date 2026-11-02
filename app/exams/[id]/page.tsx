@@ -57,11 +57,14 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import LockIcon from '@mui/icons-material/Lock';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import type { ExamTaskAnalysis } from '@/lib/task-analysis';
 import { BarChart } from '@mui/x-charts/BarChart';
 import DashboardLayout from '@/components/DashboardLayout';
 import ErrorState from '@/components/ErrorState';
 import QrScannerDialog from '@/components/QrScannerDialog';
+import PdfBatchSplitDialog from '@/components/PdfBatchSplitDialog';
+import { isPdfFile, inspectPdfBytes, type PdfPageInfo } from '@/lib/pdf-batch';
 import {
   useDataCache,
   invalidateExams,
@@ -325,6 +328,110 @@ export default function ExamDetailsPage() {
   const [addStudentName, setAddStudentName] = useState('');
   const [addStudentLoading, setAddStudentLoading] = useState(false);
   const [addStudentError, setAddStudentError] = useState('');
+
+  // Batch / Multi-page PDF Upload State on Exam Detail Page
+  const [examPdfSplitQueue, setExamPdfSplitQueue] = useState<
+    Array<{ file: File; pages: PdfPageInfo[] }>
+  >([]);
+  const [batchUploading, setBatchUploading] = useState(false);
+  const [batchUploadStep, setBatchUploadStep] = useState('');
+  const [batchUploadMessage, setBatchUploadMessage] = useState<{
+    type: 'success' | 'warning' | 'error';
+    text: string;
+  } | null>(null);
+
+  const uploadExamBatchWorks = async (filesToUpload: File[]) => {
+    if (!exam?.id || !exam?.classId || filesToUpload.length === 0) return;
+    setBatchUploading(true);
+    setBatchUploadMessage(null);
+
+    let successCount = 0;
+    const failedFiles: { fileName: string; error: string }[] = [];
+
+    for (let idx = 0; idx < filesToUpload.length; idx++) {
+      const f = filesToUpload[idx];
+      setBatchUploadStep(`Lade Arbeit ${idx + 1} von ${filesToUpload.length} hoch...`);
+      try {
+        const formData = new FormData();
+        formData.append('classId', exam.classId);
+        formData.append('examId', exam.id);
+        formData.append('studentExam', f);
+
+        const res = await fetch('/api/correct', {
+          method: 'POST',
+          body: formData,
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Fehler beim Upload von ${f.name}`);
+        }
+        successCount++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Upload fehlgeschlagen';
+        failedFiles.push({ fileName: f.name, error: msg });
+      }
+    }
+
+    setBatchUploading(false);
+    setBatchUploadStep('');
+
+    if (successCount > 0) {
+      invalidateSubmissions(undefined, exam.id, exam.classId);
+      invalidateExams(exam.id, exam.classId);
+      fetchData();
+    }
+
+    if (failedFiles.length === 0) {
+      setBatchUploadMessage({
+        type: 'success',
+        text: `${successCount} ${successCount === 1 ? 'Arbeit' : 'Arbeiten'} erfolgreich zur Korrektur eingereicht. Namens-Vorschläge stehen auf dem Dashboard zur Bestätigung bereit.`,
+      });
+    } else if (successCount > 0) {
+      setBatchUploadMessage({
+        type: 'warning',
+        text: `${successCount} von ${filesToUpload.length} Arbeiten hochgeladen. Fehler bei: ${failedFiles
+          .map((item) => `${item.fileName} (${item.error})`)
+          .join(', ')}`,
+      });
+    } else {
+      setBatchUploadMessage({
+        type: 'error',
+        text: failedFiles[0]?.error || 'Upload fehlgeschlagen.',
+      });
+    }
+  };
+
+  const handleExamFilesSelected = async (incomingFiles: File[]) => {
+    if (!incomingFiles || incomingFiles.length === 0) return;
+    setBatchUploadMessage(null);
+
+    const directFiles: File[] = [];
+    const multiPageQueue: Array<{ file: File; pages: PdfPageInfo[] }> = [];
+
+    for (const file of incomingFiles) {
+      if (isPdfFile(file)) {
+        try {
+          const bytes = await file.arrayBuffer();
+          const inspection = inspectPdfBytes(bytes);
+          if (inspection.isPdf && inspection.pageCount > 1) {
+            multiPageQueue.push({ file, pages: inspection.pages });
+            continue;
+          }
+        } catch {
+          // Fallback auf Einzeldatei
+        }
+      }
+      directFiles.push(file);
+    }
+
+    if (directFiles.length > 0) {
+      await uploadExamBatchWorks(directFiles);
+    }
+
+    if (multiPageQueue.length > 0) {
+      setExamPdfSplitQueue((prev) => [...prev, ...multiPageQueue]);
+    }
+  };
 
   const handleAddStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -700,6 +807,41 @@ export default function ExamDetailsPage() {
                 Prüfung duplizieren
               </Button>
               <Button
+                variant="outlined"
+                startIcon={
+                  batchUploading ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : (
+                    <CloudUploadIcon />
+                  )
+                }
+                disabled={exam?.isApproved === false || isClassArchived || batchUploading}
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.multiple = true;
+                  input.accept = 'application/pdf,image/*';
+                  input.onchange = (e: Event) => {
+                    const target = e.target as HTMLInputElement;
+                    if (target.files) {
+                      void handleExamFilesSelected(Array.from(target.files));
+                    }
+                  };
+                  input.click();
+                }}
+                sx={{
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  color: '#1b77d1',
+                  borderColor: '#1b77d1',
+                }}
+              >
+                {batchUploading
+                  ? batchUploadStep || 'Lädt hoch...'
+                  : 'Klassensatz / Arbeiten hochladen'}
+              </Button>
+              <Button
                 variant="contained"
                 startIcon={<QrCodeScannerIcon />}
                 disabled={exam?.isApproved === false || isClassArchived}
@@ -748,6 +890,16 @@ export default function ExamDetailsPage() {
             )}
           </Box>
         </Stack>
+
+        {batchUploadMessage && (
+          <Alert
+            severity={batchUploadMessage.type}
+            onClose={() => setBatchUploadMessage(null)}
+            sx={{ borderRadius: '12px' }}
+          >
+            {batchUploadMessage.text}
+          </Alert>
+        )}
 
         {isClassArchived && (
           <Alert
@@ -2622,6 +2774,19 @@ export default function ExamDetailsPage() {
             );
             setRubricText(payload);
             fetchData();
+          }}
+        />
+
+        <PdfBatchSplitDialog
+          open={examPdfSplitQueue.length > 0}
+          file={examPdfSplitQueue[0]?.file || null}
+          pages={examPdfSplitQueue[0]?.pages || []}
+          onCancel={() => {
+            setExamPdfSplitQueue((prev) => prev.slice(1));
+          }}
+          onConfirmSplit={({ files }) => {
+            setExamPdfSplitQueue((prev) => prev.slice(1));
+            void uploadExamBatchWorks(files);
           }}
         />
 

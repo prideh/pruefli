@@ -57,6 +57,8 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import DashboardLayout from '@/components/DashboardLayout';
 import QrScannerDialog from '@/components/QrScannerDialog';
+import PdfBatchSplitDialog from '@/components/PdfBatchSplitDialog';
+import { isPdfFile, inspectPdfBytes, type PdfPageInfo } from '@/lib/pdf-batch';
 import { getCachedTeacher, setCachedTeacher } from '@/lib/sessionCache';
 import {
   fetchWithCache,
@@ -414,6 +416,9 @@ export default function Dashboard() {
 
   // Correction configs
   const [studentFiles, setStudentFiles] = useState<File[]>([]); // Supports bulk uploads
+  const [pdfSplitQueue, setPdfSplitQueue] = useState<Array<{ file: File; pages: PdfPageInfo[] }>>(
+    []
+  );
   const [assignState, setAssignState] = useState<Record<string, string>>({}); // Inline student assignments
   const [examAssignState, setExamAssignState] = useState<Record<string, string>>({}); // Inline exam reassignments
   const [allExams, setAllExams] = useState<GlobalExamOption[]>([]);
@@ -764,6 +769,47 @@ export default function Dashboard() {
     }
   };
 
+  const handleIncomingStudentFiles = async (incomingFiles: File[]) => {
+    if (!incomingFiles || incomingFiles.length === 0) return;
+    setError('');
+
+    const directFiles: File[] = [];
+    const multiPageQueue: Array<{ file: File; pages: PdfPageInfo[] }> = [];
+
+    for (const file of incomingFiles) {
+      if (isPdfFile(file)) {
+        try {
+          const bytes = await file.arrayBuffer();
+          const inspection = inspectPdfBytes(bytes);
+          if (inspection.isPdf && inspection.pageCount > 1) {
+            multiPageQueue.push({ file, pages: inspection.pages });
+            continue;
+          }
+        } catch {
+          // Falls PDF-Inspektion fehlschlägt, wie reguläre Einzeldatei behandeln
+        }
+      }
+      directFiles.push(file);
+    }
+
+    if (directFiles.length > 0) {
+      if (selectedStudentId === 'AUTO' || directFiles.length > 1) {
+        if (selectedStudentId !== 'AUTO' && directFiles.length > 1) {
+          setSelectedStudentId('AUTO');
+        }
+        setStudentFiles((prev) => [...prev, ...directFiles]);
+      } else if (multiPageQueue.length === 0) {
+        setStudentFiles([directFiles[0]]);
+      } else {
+        setStudentFiles((prev) => [...prev, ...directFiles]);
+      }
+    }
+
+    if (multiPageQueue.length > 0) {
+      setPdfSplitQueue((prev) => [...prev, ...multiPageQueue]);
+    }
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
   };
@@ -772,12 +818,7 @@ export default function Dashboard() {
     e.preventDefault();
     if (e.dataTransfer.files) {
       const files = Array.from(e.dataTransfer.files);
-      if (selectedStudentId === 'AUTO') {
-        setStudentFiles((prev) => [...prev, ...files]);
-      } else if (files[0]) {
-        setStudentFiles([files[0]]);
-      }
-      setError('');
+      void handleIncomingStudentFiles(files);
     }
   };
 
@@ -998,25 +1039,49 @@ export default function Dashboard() {
         return await res.json();
       };
 
-      setLoadingStep(`Lade Arbeit 1 von ${studentFiles.length} hoch...`);
-      const firstResult = await uploadFile(studentFiles[0], true);
-      resolvedExamId = firstResult.examId;
+      let successCount = 0;
+      const failedUploads: { fileName: string; error: string }[] = [];
 
-      if (studentFiles.length > 1) {
-        setLoadingStep(`Lade verbleibende ${studentFiles.length - 1} Arbeiten hoch...`);
-        const uploadPromises = studentFiles.slice(1).map((file) => {
-          return uploadFile(file, false).catch((err) => {
-            console.error(`Swallowed individual upload error for ${file.name}:`, err);
-            return { error: err.message, fileName: file.name };
-          });
-        });
+      for (let idx = 0; idx < studentFiles.length; idx++) {
+        const currentFile = studentFiles[idx];
+        setLoadingStep(`Lade Arbeit ${idx + 1} von ${studentFiles.length} hoch...`);
+        const isCreatingNewExamNow = resolvedExamId === 'NEW';
 
-        await Promise.all(uploadPromises);
+        try {
+          const uploadRes = await uploadFile(currentFile, isCreatingNewExamNow);
+          if (uploadRes?.examId) {
+            resolvedExamId = uploadRes.examId;
+          }
+          successCount++;
+        } catch (fileErr) {
+          if (
+            studentFiles.length === 1 ||
+            (fileErr instanceof Error &&
+              (fileErr.message === 'DUPLICATE_SUBMISSION' ||
+                fileErr.message === 'NON_EXAM_DOCUMENT'))
+          ) {
+            throw fileErr;
+          }
+          const errMessage = fileErr instanceof Error ? fileErr.message : 'Upload fehlgeschlagen';
+          console.error(`Swallowed individual upload error for ${currentFile.name}:`, fileErr);
+          failedUploads.push({ fileName: currentFile.name, error: errMessage });
+        }
+      }
+
+      if (successCount === 0 && failedUploads.length > 0) {
+        throw new Error(failedUploads[0].error);
       }
 
       setStudentFiles([]);
       setLoading(false);
       setNonExamOverridePrompt(null);
+      if (failedUploads.length > 0) {
+        setError(
+          `${successCount} von ${studentFiles.length} Arbeiten hochgeladen. Fehler bei: ${failedUploads
+            .map((f) => `${f.fileName} (${f.error})`)
+            .join(', ')}`
+        );
+      }
       invalidateSubmissions(undefined, resolvedExamId, selectedClassId);
       if (selectedExamId === 'NEW') {
         invalidateExams(resolvedExamId, selectedClassId);
@@ -2372,12 +2437,7 @@ export default function Dashboard() {
                           const target = e.target as HTMLInputElement;
                           if (target.files) {
                             const files = Array.from(target.files);
-                            if (selectedStudentId === 'AUTO') {
-                              setStudentFiles((prev) => [...prev, ...files]);
-                            } else if (files[0]) {
-                              setStudentFiles([files[0]]);
-                            }
-                            setError('');
+                            void handleIncomingStudentFiles(files);
                           }
                         };
                         input.click();
@@ -2496,7 +2556,7 @@ export default function Dashboard() {
                                     const target = evt.target as HTMLInputElement;
                                     if (target.files) {
                                       const files = Array.from(target.files);
-                                      setStudentFiles((prev) => [...prev, ...files]);
+                                      void handleIncomingStudentFiles(files);
                                     }
                                   };
                                   input.click();
@@ -3116,6 +3176,27 @@ export default function Dashboard() {
             setExamTemplateScannedPayload(payload);
             setExamTemplateScannedPages(pageCount);
           }
+        }}
+      />
+
+      <PdfBatchSplitDialog
+        open={pdfSplitQueue.length > 0}
+        file={pdfSplitQueue[0]?.file || null}
+        pages={pdfSplitQueue[0]?.pages || []}
+        onCancel={() => {
+          setPdfSplitQueue((prev) => prev.slice(1));
+        }}
+        onConfirmSplit={({ files }) => {
+          if (files.length > 1 && selectedStudentId !== 'AUTO') {
+            setSelectedStudentId('AUTO');
+          }
+          setStudentFiles((prev) => {
+            if (selectedStudentId !== 'AUTO' && files.length === 1 && prev.length === 0) {
+              return [files[0]];
+            }
+            return [...prev, ...files];
+          });
+          setPdfSplitQueue((prev) => prev.slice(1));
         }}
       />
 
