@@ -798,7 +798,7 @@ export function getSubjectFocusInstruction(subject?: string): string {
     return 'FACHFOKUS MATHEMATIK: Achte besonders auf äquivalente Gleichungsumformungen, Vorzeichenregeln, Klammerauflösungen und eine lückenlose Überprüfung von Folgefehlern mit dem fehlerhaften Zwischenwert.';
   }
   if (norm.includes('physik')) {
-    return 'FACHFOKUS PHYSIK: Achte besonders auf korrekte physikalische Formeln, Einheitenumrechnungen, Grössenordnungen und Vorzeichen. Fehlt im Endresultat nur die physikalische Einheit bei ansonsten perfektem Rechenweg, ziehe maximal 0.5 Punkte im letzten Schritt ab.';
+    return 'FACHFOKUS PHYSIK: Achte besonders auf korrekte physikalische Formeln, Einheitenumrechnungen, Grössenordnungen, Vorzeichen und physikalische Einheiten. Gibt die Musterlösung oder das Aufgaben-Template eine explizite Punkteverteilung für die Einheit vor (z. B. 1 Punkt für die Einheit), halte dich strikt an diese Vorgabe; nur falls die Musterlösung keine eigene Punktzahl für die Einheit festlegt, ziehe bei einer fehlenden Einheit im Endresultat maximal 0.5 Punkte ab.';
   }
   if (norm.includes('chemie')) {
     return 'FACHFOKUS CHEMIE: Achte besonders auf korrekt ausgeglichene Reaktionsgleichungen (Stöchiometrie), Ladungszahlen, Stoffmengenverhältnisse und präzise Fachbegriffe.';
@@ -1217,10 +1217,10 @@ Verbindliche Template-Regeln:
           responseMimeType: 'application/json',
           responseSchema: CORRECTION_RESPONSE_SCHEMA,
           thinkingConfig: {
-            thinkingLevel: ThinkingLevel.HIGH,
+            thinkingLevel: ThinkingLevel.LOW,
           },
           temperature: 0.0,
-          seed: 42,
+          ...(attempt === 1 ? { seed: 42 } : {}),
           abortSignal: AbortSignal.timeout(GEMINI_CLIENT_TIMEOUT_MS),
           httpOptions: { timeout: GEMINI_CLIENT_TIMEOUT_MS },
         };
@@ -1283,6 +1283,7 @@ Verbindliche Template-Regeln:
         const categorized = categorizeGeminiError(err);
 
         const isTransient =
+          categorized.category === 'TIMEOUT' ||
           categorized.category === 'UPSTREAM_SERVICE' ||
           categorized.category === 'RATE_LIMIT' ||
           categorized.category === 'NETWORK';
