@@ -134,6 +134,48 @@ describe('LLM Result Content-Hash Cache (lib/llm-cache.ts)', () => {
       expect(hash1).not.toBe(hash2);
       expect(hash1).not.toBe(hash3);
     });
+
+    it('erzeugt unterschiedliche Hashes bei geaenderten Ausfuehrungsparametern (thinkingLevel, seed, temperature)', () => {
+      const baseHash = computeGradingHash({
+        teacherId: teacherAlpha,
+        modelName: DEFAULT_GEMINI_MODEL,
+        studentPages: sampleStudentExam,
+        rubric: sampleRubric,
+      });
+
+      const highThinkingHash = computeGradingHash({
+        teacherId: teacherAlpha,
+        modelName: DEFAULT_GEMINI_MODEL,
+        studentPages: sampleStudentExam,
+        rubric: sampleRubric,
+        executionConfig: { thinkingLevel: 'HIGH' },
+      });
+
+      const differentSeedHash = computeGradingHash({
+        teacherId: teacherAlpha,
+        modelName: DEFAULT_GEMINI_MODEL,
+        studentPages: sampleStudentExam,
+        rubric: sampleRubric,
+        executionConfig: { seed: 999 },
+      });
+
+      const differentTempHash = computeGradingHash({
+        teacherId: teacherAlpha,
+        modelName: DEFAULT_GEMINI_MODEL,
+        studentPages: sampleStudentExam,
+        rubric: sampleRubric,
+        executionConfig: { temperature: 0.7 },
+      });
+
+      expect(baseHash).not.toBe(highThinkingHash);
+      expect(baseHash).not.toBe(differentSeedHash);
+      expect(baseHash).not.toBe(differentTempHash);
+    });
+
+    it('nutzt Version v6 fuer deterministische Grading-Prompt-Invalidierung', () => {
+      expect(LLM_PROMPT_VERSIONS.grading).toContain('v6');
+      expect(LLM_PROMPT_VERSIONS.grading).toBe('2026-11-02-grading-v6-deterministic-repeatability');
+    });
   });
 
   describe('2. Scope 1: Same input twice -> exactly one model call', () => {

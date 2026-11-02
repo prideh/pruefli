@@ -21,13 +21,25 @@ export interface LlmCacheEntry<T> {
 }
 
 export const LLM_PROMPT_VERSIONS = {
-  grading: '2026-11-01-grading-v5-step-consistency',
+  grading: '2026-11-02-grading-v6-deterministic-repeatability',
   rubricParse: '2026-11-01-rubric-v3',
   scanIdentification: '2026-10-30-scan-v1',
   examGeneration: '2026-10-30-generation-v1',
   taskRegeneration: '2026-10-30-task-regen-v1',
   documentClassification: '2026-11-01-doc-class-v1',
 } as const;
+
+export interface GradingExecutionConfig {
+  thinkingLevel?: string;
+  temperature?: number;
+  seed?: number;
+}
+
+export const DEFAULT_GRADING_EXECUTION_CONFIG: Required<GradingExecutionConfig> = {
+  thinkingLevel: 'LOW',
+  temperature: 0.0,
+  seed: 42,
+};
 
 /**
  * Erzeugt einen deterministischen, sortierten JSON-String unabhaengig von Key-Reihenfolgen.
@@ -116,10 +128,11 @@ export function normalizeMaterialForHash(material: unknown): unknown {
 
 /**
  * Berechnet den Content-Hash fuer einen Grading-Aufruf.
- * Beruecksichtigt saemtliche Eingaben, die das Modell-Ergebnis beeinflussen:
+ * Beruecksichtigt saemtliche Eingaben und Ausfuehrungsparameter, die das Modell-Ergebnis beeinflussen:
  * - Mandanten-ID (teacherId zur strikten Mandantentrennung)
  * - Modell-Name (z. B. gemini-3.8-flash)
  * - Prompt-Template-Version
+ * - Ausfuehrungsparameter (executionConfig: thinkingLevel, temperature, seed)
  * - Seiten der Schuelerarbeit (MIME + Base64-Daten)
  * - Musterloesung / Erwartungshorizont (rubric)
  * - Vorlagenpruefung (examTemplate)
@@ -137,11 +150,21 @@ export function computeGradingHash(params: {
   gradingNotes?: string | null;
   predefinedTasks?: { taskId: string; title: string; maxPoints: number }[];
   subject?: string | null;
+  executionConfig?: GradingExecutionConfig;
 }): string {
+  const executionConfig = {
+    thinkingLevel:
+      params.executionConfig?.thinkingLevel ?? DEFAULT_GRADING_EXECUTION_CONFIG.thinkingLevel,
+    temperature:
+      params.executionConfig?.temperature ?? DEFAULT_GRADING_EXECUTION_CONFIG.temperature,
+    seed: params.executionConfig?.seed ?? DEFAULT_GRADING_EXECUTION_CONFIG.seed,
+  };
+
   const canonical = canonicalizeJson({
     teacherId: params.teacherId,
     modelName: params.modelName,
     promptVersion: params.promptVersion || LLM_PROMPT_VERSIONS.grading,
+    executionConfig,
     studentPages: params.studentPages.map((p) => ({
       mimeType: p.mimeType,
       dataHash: computeSha256(p.data),

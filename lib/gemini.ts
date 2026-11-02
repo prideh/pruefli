@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type, ThinkingLevel, type Schema } from '@google/genai';
+import { calculateSwissGrade } from '@/lib/grading';
 import {
   computeSha256,
   computeScanIdentificationHash,
@@ -1094,15 +1095,40 @@ export function enforceStepFeedbackConsistency(result: ExamCorrectionResult): Ex
       status = 'Fehler';
     }
 
+    const stepEarnedTotal =
+      Math.round(
+        normalizedSteps.reduce((sum, s) => sum + (Number(s.erreichtePunkte) || 0), 0) * 10
+      ) / 10;
+
     return {
       ...task,
+      erzieltePunkte: stepEarnedTotal,
       status,
       schritte: normalizedSteps,
     };
   });
 
+  const recalculatedEarned =
+    Math.round(normalizedTasks.reduce((sum, t) => sum + (Number(t.erzieltePunkte) || 0), 0) * 10) /
+    10;
+
+  const maxPoints = Math.max(
+    Number(result.gesamtmaximalPunkte || 0),
+    normalizedTasks.reduce((sum, t) => sum + (Number(t.maximalPunkte) || 0), 0)
+  );
+
+  const updatedNote = calculateSwissGrade(
+    recalculatedEarned,
+    maxPoints,
+    result.gradingFormula || 'LINEAR_60',
+    result.gradeRounding || '0.1'
+  );
+
   return {
     ...result,
+    gesamterzieltePunkte: recalculatedEarned,
+    gesamtmaximalPunkte: maxPoints,
+    note: updatedNote,
     aufgaben: normalizedTasks,
   };
 }
