@@ -862,9 +862,28 @@ export default function CorrectWorkspace() {
   const activeTask = data.aufgaben[activeTaskIndex];
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        width: '100%',
+        maxWidth: '100vw',
+        overflowX: 'hidden',
+      }}
+    >
       {/* 1. Normal Web UI View (Hidden during printing) */}
-      <Box className="no-print" sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      <Box
+        className="no-print"
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: { xs: 'auto', md: '100vh' },
+          minHeight: '100vh',
+          width: '100%',
+          minWidth: 0,
+        }}
+      >
         {sessionExpiredDuringWork && (
           <Alert
             severity="warning"
@@ -892,18 +911,27 @@ export default function CorrectWorkspace() {
         <Box
           component="header"
           sx={{
-            padding: '12px 24px',
+            padding: { xs: '10px 12px', md: '12px 24px' },
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '16px',
+            flexWrap: 'wrap',
+            gap: { xs: '8px', md: '16px' },
             borderBottom: '1px solid #e2e8f0',
             background: '#ffffff',
-            height: '64px',
+            minHeight: '64px',
+            height: { xs: 'auto', md: '64px' },
+            width: '100%',
+            minWidth: 0,
             zIndex: 10,
           }}
         >
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+          <Stack
+            direction="row"
+            spacing={{ xs: 1, md: 2 }}
+            useFlexGap
+            sx={{ alignItems: 'center', flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}
+          >
             <Link href="/dashboard" passHref style={{ textDecoration: 'none' }}>
               <Button
                 variant="outlined"
@@ -930,7 +958,11 @@ export default function CorrectWorkspace() {
                 </Button>
               </Link>
             )}
-            <Divider orientation="vertical" flexItem sx={{ borderColor: '#e2e8f0' }} />
+            <Divider
+              orientation="vertical"
+              flexItem
+              sx={{ borderColor: '#e2e8f0', display: { xs: 'none', sm: 'block' } }}
+            />
 
             {/* Continuous Speed-Grading Student Navigation Bar */}
             {(() => {
@@ -940,7 +972,7 @@ export default function CorrectWorkspace() {
                 const prevSib = currentIdx > 0 ? siblings[currentIdx - 1] : null;
                 const nextSib = currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
                 return (
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
                     <Tooltip
                       title={
                         prevSib
@@ -982,6 +1014,7 @@ export default function CorrectWorkspace() {
                         cursor: 'pointer',
                         outline: 'none',
                         fontFamily: 'inherit',
+                        maxWidth: '180px',
                       }}
                     >
                       {siblings.map((sib, idx) => (
@@ -1025,11 +1058,20 @@ export default function CorrectWorkspace() {
                 );
               }
               return (
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
                   <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                     Schüler:
                   </Typography>
-                  <Typography variant="subtitle2" sx={{ color: '#0f172a', fontWeight: 'bold' }}>
+                  <Typography
+                    variant="subtitle2"
+                    sx={{
+                      color: '#0f172a',
+                      fontWeight: 'bold',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {data.schuelerName}
                   </Typography>
                 </Stack>
@@ -1054,7 +1096,18 @@ export default function CorrectWorkspace() {
             )}
           </Stack>
 
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexShrink: 0 }}>
+          <Stack
+            direction="row"
+            spacing={{ xs: 1, md: 2 }}
+            useFlexGap
+            sx={{
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              width: { xs: '100%', sm: 'auto' },
+              justifyContent: { xs: 'space-between', sm: 'flex-end' },
+              minWidth: 0,
+            }}
+          >
             <Stack
               direction="row"
               spacing={1}
@@ -1075,7 +1128,7 @@ export default function CorrectWorkspace() {
               </Typography>
             </Stack>
 
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography
                 variant="body2"
                 sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}
@@ -1116,7 +1169,7 @@ export default function CorrectWorkspace() {
               })()}
             </Stack>
 
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography
                 variant="body2"
                 sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}
@@ -1142,7 +1195,7 @@ export default function CorrectWorkspace() {
               variant="contained"
               size="small"
               startIcon={<PrintIcon />}
-              sx={{ borderRadius: '8px', padding: '8px 16px' }}
+              sx={{ borderRadius: '8px', padding: { xs: '6px 12px', md: '8px 16px' } }}
             >
               Feedback drucken
             </Button>
@@ -1150,21 +1203,45 @@ export default function CorrectWorkspace() {
         </Box>
 
         {/* Split container layout */}
-        <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', height: 'calc(100vh - 64px)' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', md: 'row' },
+            flex: 1,
+            overflow: { xs: 'visible', md: 'hidden' },
+            height: { xs: 'auto', md: 'calc(100vh - 64px)' },
+            width: '100%',
+            minWidth: 0,
+          }}
+        >
           {/* Left panel: Visual Exam Sheet rendering */}
           <Box
             sx={{
-              flex: 1.1,
+              flex: { xs: '0 0 auto', md: 1.1 },
+              width: { xs: '100%', md: 'auto' },
+              minWidth: 0,
+              maxWidth: '100%',
               background: '#e2e8f0',
-              borderRight: '1px solid #cbd5e1',
-              padding: '24px',
-              overflowY: 'auto',
+              borderRight: { xs: 'none', md: '1px solid #cbd5e1' },
+              borderBottom: { xs: '1px solid #cbd5e1', md: 'none' },
+              padding: { xs: '16px', md: '24px' },
+              overflowY: { xs: 'visible', md: 'auto' },
               display: 'flex',
               flexDirection: 'column',
               gap: '20px',
             }}
           >
-            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <Stack
+              direction="row"
+              useFlexGap
+              sx={{
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 1,
+                minWidth: 0,
+              }}
+            >
               <Typography variant="subtitle1" sx={{ color: 'text.primary', fontWeight: 700 }}>
                 Schülerarbeit
               </Typography>
@@ -1310,8 +1387,8 @@ export default function CorrectWorkspace() {
                       background: '#f1f5f9',
                       borderRadius: '8px',
                       padding: '12px',
-                      minHeight: '680px',
-                      height: '750px',
+                      minHeight: { xs: '320px', md: '680px' },
+                      height: { xs: '420px', md: '750px' },
                       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                       display: 'flex',
                       justifyContent: 'center',
@@ -1355,8 +1432,8 @@ export default function CorrectWorkspace() {
                   backgroundSize: '24px 24px',
                   color: '#0f172a',
                   borderRadius: '8px',
-                  padding: '30px',
-                  minHeight: '680px',
+                  padding: { xs: '16px', md: '30px' },
+                  minHeight: { xs: '320px', md: '680px' },
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                   position: 'relative',
                   fontFamily: '"Architects Daughter", "Comic Sans MS", cursive, sans-serif',
@@ -1382,9 +1459,11 @@ export default function CorrectWorkspace() {
                   sx={{
                     display: 'flex',
                     justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 1,
                     borderBottom: '1px solid #94a3b8',
                     paddingBottom: '10px',
-                    marginBottom: '30px',
+                    marginBottom: { xs: '20px', md: '30px' },
                     fontFamily: 'sans-serif',
                     fontSize: '0.85rem',
                     color: '#475569',
@@ -1555,11 +1634,14 @@ export default function CorrectWorkspace() {
           {/* Right panel: AI Grading & Feedback Workspace */}
           <Box
             sx={{
-              flex: 1,
+              flex: { xs: '1 1 auto', md: 1 },
+              width: { xs: '100%', md: 'auto' },
+              minWidth: 0,
+              maxWidth: '100%',
               background: 'background.default',
               display: 'flex',
               flexDirection: 'column',
-              overflow: 'hidden',
+              overflow: { xs: 'visible', md: 'hidden' },
             }}
           >
             {/* Task selector Tabs */}
@@ -1569,6 +1651,8 @@ export default function CorrectWorkspace() {
                 alignItems: 'center',
                 borderBottom: '1px solid #e2e8f0',
                 background: '#ffffff',
+                minWidth: 0,
+                maxWidth: '100%',
               }}
             >
               <Tabs
@@ -1578,6 +1662,7 @@ export default function CorrectWorkspace() {
                 scrollButtons="auto"
                 sx={{
                   flex: 1,
+                  minWidth: 0,
                   '& .MuiTabs-indicator': {
                     backgroundColor: '#1b77d1',
                     height: '3px',
@@ -1691,8 +1776,10 @@ export default function CorrectWorkspace() {
             <Box
               sx={{
                 flex: 1,
-                overflowY: 'auto',
-                padding: '24px 24px 80px 24px',
+                minWidth: 0,
+                maxWidth: '100%',
+                overflowY: { xs: 'visible', md: 'auto' },
+                padding: { xs: '16px 16px 32px 16px', md: '24px 24px 80px 24px' },
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '24px',
@@ -1739,7 +1826,13 @@ export default function CorrectWorkspace() {
                       backgroundColor: '#fef2f2',
                       color: '#991b1b',
                       flexShrink: 0,
-                      alignItems: 'center',
+                      alignItems: { xs: 'flex-start', sm: 'center' },
+                      flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                      '& .MuiAlert-message': {
+                        minWidth: 0,
+                        overflowWrap: 'break-word',
+                        wordBreak: 'normal',
+                      },
                     }}
                     action={
                       firstSecurityTaskIdx !== -1 && firstSecurityTaskIdx !== activeTaskIndex ? (
@@ -1785,7 +1878,13 @@ export default function CorrectWorkspace() {
                       backgroundColor: '#fffbeb',
                       color: '#92400e',
                       flexShrink: 0,
-                      alignItems: 'center',
+                      alignItems: { xs: 'flex-start', sm: 'center' },
+                      flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                      '& .MuiAlert-message': {
+                        minWidth: 0,
+                        overflowWrap: 'break-word',
+                        wordBreak: 'normal',
+                      },
                     }}
                     action={
                       firstUncertainTaskIdx !== -1 && firstUncertainTaskIdx !== activeTaskIndex ? (
@@ -1926,8 +2025,13 @@ export default function CorrectWorkspace() {
                           </Stack>
                         )}
                         <Stack
-                          direction="row"
-                          sx={{ justifyContent: 'space-between', alignItems: 'center' }}
+                          direction={{ xs: 'column', sm: 'row' }}
+                          spacing={1}
+                          sx={{
+                            justifyContent: 'space-between',
+                            alignItems: { xs: 'flex-start', sm: 'center' },
+                            minWidth: 0,
+                          }}
                         >
                           <Typography
                             variant="subtitle2"
@@ -1936,7 +2040,10 @@ export default function CorrectWorkspace() {
                               fontWeight: 700,
                               display: 'flex',
                               alignItems: 'center',
+                              flexWrap: 'wrap',
                               gap: 1,
+                              minWidth: 0,
+                              maxWidth: '100%',
                             }}
                           >
                             Schritt {s.schrittIndex + 1}:
@@ -1950,6 +2057,8 @@ export default function CorrectWorkspace() {
                                 borderRadius: '4px',
                                 fontSize: '0.9rem',
                                 color: '#0f172a',
+                                wordBreak: 'break-word',
+                                overflowWrap: 'anywhere',
                               }}
                             >
                               {s.schrittText}
@@ -2171,12 +2280,14 @@ export default function CorrectWorkspace() {
             {/* Persistent Save status */}
             <Box
               sx={{
-                padding: '16px 24px',
+                padding: { xs: '12px 16px', md: '16px 24px' },
                 borderTop: '1px solid #e2e8f0',
                 background: '#ffffff',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 1.5,
               }}
             >
               <Typography
