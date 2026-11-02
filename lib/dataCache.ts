@@ -170,7 +170,8 @@ export async function fetchWithCache<T>(
 export async function mutateCache<T>(
   key: string,
   dataOrUpdater?: T | ((prev: T | undefined) => T),
-  shouldRevalidate = true
+  shouldRevalidate = true,
+  fetcher?: (url: string) => Promise<T>
 ): Promise<T | undefined> {
   if (dataOrUpdater !== undefined) {
     let nextData: T;
@@ -184,7 +185,7 @@ export async function mutateCache<T>(
   }
 
   if (shouldRevalidate) {
-    return fetchWithCache<T>(key);
+    return fetchWithCache<T>(key, fetcher);
   }
 
   return getCachedData<T>(key);
@@ -356,10 +357,16 @@ export function useDataCache<T>(
       shouldRevalidate = true
     ): Promise<T | undefined> => {
       if (!key) return undefined;
-      return mutateCache<T>(key, newData, shouldRevalidate);
+      return mutateCache<T>(key, newData, shouldRevalidate, fetcher);
     },
-    [key]
+    [key, fetcher]
   );
+
+  const isUnfetchedOrInvalidated =
+    entry.timestamp === 0 &&
+    entry.data === undefined &&
+    !entry.isValidating &&
+    entry.error === null;
 
   useEffect(() => {
     if (!key || options?.enabled === false) {
@@ -369,7 +376,7 @@ export function useDataCache<T>(
     if (options?.revalidateOnMount !== false) {
       revalidate().catch(() => {});
     }
-  }, [key, options?.enabled, options?.revalidateOnMount, revalidate]);
+  }, [key, isUnfetchedOrInvalidated, options?.enabled, options?.revalidateOnMount, revalidate]);
 
   return {
     data: entry.data,

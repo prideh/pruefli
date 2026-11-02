@@ -51,7 +51,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import DashboardLayout from '@/components/DashboardLayout';
 import ErrorState from '@/components/ErrorState';
-import { useDataCache, invalidateSubjects } from '@/lib/dataCache';
+import { useDataCache } from '@/lib/dataCache';
 import {
   SUBJECT_PROFILES,
   getSubjectSupportInfo,
@@ -324,8 +324,26 @@ export default function SubjectsPage() {
       if (!res.ok) {
         throw new Error(data.error || 'Fehler beim Speichern der Fächerliste.');
       }
-      await mutateSubjects(data, false);
-      invalidateSubjects();
+      const nextSavedSubjects = Array.isArray(data?.savedSubjects)
+        ? data.savedSubjects
+        : nextSubjectsList;
+      const nextData: TeacherSubjectsResponse = {
+        ...data,
+        savedSubjects: nextSavedSubjects,
+      };
+      await mutateSubjects(nextData, false);
+      if (selectedSubject !== 'ALL') {
+        const nextAllSubjects = resolveFilterAndViewSubjects(
+          nextSavedSubjects,
+          exams.map((ex) => ex.subject)
+        );
+        const stillVisible = nextAllSubjects.some(
+          (s) => s.value.toLowerCase() === selectedSubject.toLowerCase()
+        );
+        if (!stillVisible) {
+          setSelectedSubject('ALL');
+        }
+      }
       setOpenManageSubjects(false);
     } catch (err) {
       setSubjectsSaveError(
