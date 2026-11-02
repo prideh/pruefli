@@ -692,15 +692,24 @@ export default function ExamDetailsPage() {
             sx={{
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center',
+              alignItems: { xs: 'flex-start', sm: 'center' },
               flexWrap: 'wrap',
               gap: 2,
+              width: '100%',
+              minWidth: 0,
             }}
           >
-            <Box>
+            <Box sx={{ minWidth: 0, flex: { xs: '1 1 100%', md: '1 1 300px' }, maxWidth: '100%' }}>
               <Typography
                 variant="h4"
-                sx={{ fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', mb: 0.5 }}
+                sx={{
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  letterSpacing: '-0.02em',
+                  mb: 0.5,
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
+                }}
               >
                 {exam?.title}
               </Typography>
@@ -717,7 +726,17 @@ export default function ExamDetailsPage() {
               </Typography>
             </Box>
 
-            <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1.5}
+              useFlexGap
+              sx={{
+                width: { xs: '100%', sm: 'auto' },
+                flexWrap: 'wrap',
+                alignItems: { xs: 'stretch', sm: 'center' },
+                maxWidth: '100%',
+              }}
+            >
               <Tooltip
                 title={
                   exam?.isApproved === false
@@ -725,12 +744,20 @@ export default function ExamDetailsPage() {
                     : 'Aufgabenblatt für Schülerinnen und Schüler drucken oder als PDF exportieren'
                 }
               >
-                <span>
+                <Box
+                  component="span"
+                  sx={{
+                    display: { xs: 'block', sm: 'inline-flex' },
+                    width: { xs: '100%', sm: 'auto' },
+                  }}
+                >
                   <Link
                     href={`/exams/${examId}/print-task-sheet`}
                     passHref
                     style={{
                       textDecoration: 'none',
+                      display: 'flex',
+                      width: '100%',
                       pointerEvents: exam?.isApproved === false ? 'none' : 'auto',
                     }}
                   >
@@ -739,6 +766,7 @@ export default function ExamDetailsPage() {
                       startIcon={<PrintIcon />}
                       disabled={exam?.isApproved === false}
                       sx={{
+                        width: { xs: '100%', sm: 'auto' },
                         borderRadius: '8px',
                         textTransform: 'none',
                         fontWeight: 700,
@@ -749,7 +777,7 @@ export default function ExamDetailsPage() {
                       Aufgabenblatt drucken (PDF)
                     </Button>
                   </Link>
-                </span>
+                </Box>
               </Tooltip>
 
               <Tooltip
@@ -761,12 +789,20 @@ export default function ExamDetailsPage() {
                       : 'Feedback-Blätter für die gesamte Klasse drucken'
                 }
               >
-                <span>
+                <Box
+                  component="span"
+                  sx={{
+                    display: { xs: 'block', sm: 'inline-flex' },
+                    width: { xs: '100%', sm: 'auto' },
+                  }}
+                >
                   <Link
                     href={`/exams/${examId}/print`}
                     passHref
                     style={{
                       textDecoration: 'none',
+                      display: 'flex',
+                      width: '100%',
                       pointerEvents: completedCount === 0 ? 'none' : 'auto',
                     }}
                   >
@@ -775,6 +811,7 @@ export default function ExamDetailsPage() {
                       startIcon={<PrintIcon />}
                       disabled={completedCount === 0}
                       sx={{
+                        width: { xs: '100%', sm: 'auto' },
                         borderRadius: '8px',
                         textTransform: 'none',
                         fontWeight: 700,
@@ -786,13 +823,14 @@ export default function ExamDetailsPage() {
                       Feedback für alle drucken
                     </Button>
                   </Link>
-                </span>
+                </Box>
               </Tooltip>
               <Button
                 variant="outlined"
                 startIcon={<ContentCopyIcon />}
                 onClick={handleOpenDuplicate}
                 sx={{
+                  width: { xs: '100%', sm: 'auto' },
                   borderRadius: '8px',
                   textTransform: 'none',
                   fontWeight: 650,
@@ -830,6 +868,7 @@ export default function ExamDetailsPage() {
                   input.click();
                 }}
                 sx={{
+                  width: { xs: '100%', sm: 'auto' },
                   borderRadius: '8px',
                   textTransform: 'none',
                   fontWeight: 700,
@@ -851,6 +890,7 @@ export default function ExamDetailsPage() {
                   setQrOpen(true);
                 }}
                 sx={{
+                  width: { xs: '100%', sm: 'auto' },
                   borderRadius: '8px',
                   textTransform: 'none',
                   fontWeight: 700,
@@ -868,7 +908,12 @@ export default function ExamDetailsPage() {
                   setDeleteError('');
                   setOpenDelete(true);
                 }}
-                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 650 }}
+                sx={{
+                  width: { xs: '100%', sm: 'auto' },
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  fontWeight: 650,
+                }}
               >
                 Prüfung löschen
               </Button>
@@ -882,6 +927,7 @@ export default function ExamDetailsPage() {
                   display: 'block',
                   mt: 0.5,
                   textAlign: { xs: 'left', sm: 'right' },
+                  width: '100%',
                 }}
               >
                 {ungradedCount} von {totalStudentsCount} noch nicht bewertet – nicht enthalten (
