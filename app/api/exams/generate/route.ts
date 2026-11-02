@@ -8,6 +8,7 @@ import { getStorageAdapter } from '@/lib/storage';
 import { checkAiRateLimit, createRateLimitResponse } from '@/lib/rate-limit';
 import { validateMaterialPayload, createPayloadErrorResponse } from '@/lib/payload-limits';
 import { validateExamMaterialInput } from '@/lib/document-validation';
+import { isClassArchived } from '@/lib/class-archive';
 
 export async function POST(request: Request) {
   try {
@@ -110,6 +111,19 @@ export async function POST(request: Request) {
 
     if (!schoolClass) {
       return NextResponse.json({ error: 'Klasse nicht gefunden.' }, { status: 404 });
+    }
+
+    if (
+      (await isClassArchived(classId)) ||
+      Boolean((schoolClass as { archivedAt?: Date | string | null }).archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Es können keine neuen Prüfungen generiert werden.',
+        },
+        { status: 400 }
+      );
     }
 
     // Generate complete package via Gemini and content-hash cache

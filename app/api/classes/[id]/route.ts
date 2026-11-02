@@ -10,6 +10,13 @@ import {
   saveClassSubjects,
   deleteClassSubjects,
 } from '@/lib/teacher-subjects';
+import {
+  isClassArchived,
+  getClassArchivedAt,
+  archiveClass,
+  unarchiveClass,
+  deleteClassArchive,
+} from '@/lib/class-archive';
 
 // GET: Fetch class details, students roster, and class statistics
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -153,7 +160,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       gradeDistribution,
     };
 
-    const classSubjects = await getClassSavedSubjects(classId);
+    const [classSubjects, archivedAtDate] = await Promise.all([
+      getClassSavedSubjects(classId),
+      getClassArchivedAt(classId),
+    ]);
+    const isArchived =
+      Boolean(archivedAtDate) ||
+      Boolean((schoolClass as { archivedAt?: Date | string | null }).archivedAt);
+    const resolvedArchivedAt =
+      archivedAtDate ||
+      ((schoolClass as { archivedAt?: Date | string | null }).archivedAt
+        ? new Date((schoolClass as { archivedAt?: Date | string }).archivedAt!)
+        : null);
     const subjectStats = computeClassSubjectBreakdown(examsList, classSubjects);
 
     const responsePayload = {
@@ -162,6 +180,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         name: schoolClass.name,
         createdAt: schoolClass.createdAt.toLocaleDateString('de-CH'),
         subjects: classSubjects,
+        isArchived,
+        archivedAt: resolvedArchivedAt ? resolvedArchivedAt.toISOString() : null,
       },
       stats,
       subjectStats,
@@ -184,7 +204,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-// PUT: Update class name
+// PUT: Update class name, subjects, or archive status
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
@@ -194,11 +214,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
     const { id: classId } = await params;
     const body = await request.json();
-    const { name } = body;
+    const { name, archived } = body;
 
-    const validation = validateClassName(name);
-    if (!validation.valid) {
-      return NextResponse.json({ error: validation.error }, { status: validation.status || 400 });
+    const isPureArchiveToggle =
+      typeof archived === 'boolean' && name === undefined && body.subjects === undefined;
+
+    if (!isPureArchiveToggle) {
+      const validation = validateClassName(name);
+      if (!validation.valid) {
+        return NextResponse.json({ error: validation.error }, { status: validation.status || 400 });
+      }
     }
 
     // Verify class ownership
@@ -208,6 +233,43 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
     if (!schoolClass) {
       return NextResponse.json({ error: 'Klasse nicht gefunden.' }, { status: 404 });
+    }
+
+    // Handle pure archive / unarchive toggle
+    if (isPureArchiveToggle) {
+      let archivedAtIso: string | null = null;
+      if (archived) {
+        const archivedAt = await archiveClass(classId);
+        archivedAtIso = archivedAt.toISOString();
+      } else {
+        await unarchiveClass(classId);
+      }
+      await invalidateClassCache(session.userId, classId);
+      return NextResponse.json({
+        success: true,
+        class: {
+          ...schoolClass,
+          isArchived: archived,
+          archivedAt: archivedAtIso,
+        },
+      });
+    }
+
+    const currentlyArchived =
+      (await isClassArchived(classId)) ||
+      Boolean((schoolClass as { archivedAt?: Date | string | null }).archivedAt);
+    if (currentlyArchived && archived !== false) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt und können nicht bearbeitet werden. Stelle die Klasse zuerst wieder her.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (archived === false) {
+      await unarchiveClass(classId);
     }
 
     const trimmedName = (name as string).trim();
@@ -262,6 +324,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       where: { id: classId },
     });
     await deleteClassSubjects(classId);
+    await deleteClassArchive(classId);
 
     await invalidateClassCache(session.userId, classId);
     await invalidateLogsCache(session.userId);

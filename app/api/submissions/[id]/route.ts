@@ -10,6 +10,7 @@ import {
   invalidateSubmissionCache,
   invalidateLogsCache,
 } from '@/lib/cache';
+import { isClassArchived } from '@/lib/class-archive';
 
 // GET: Fetch a submission by ID and map to standard ExamCorrectionResult
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -95,11 +96,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     });
     const isReused = latestLog?.actionType === 'WIEDERVERWENDET';
 
+    const isArchived =
+      (await isClassArchived(submission.exam.classId)) ||
+      Boolean((submission.exam.class as { archivedAt?: Date | string | null })?.archivedAt);
+
     // Map DB relational model to ExamCorrectionResult frontend format
     const responseData = {
       id: submission.id,
       examId: submission.examId,
       examTitle: submission.exam.title,
+      isClassArchived: isArchived,
       siblingSubmissions,
       isReused: Boolean(isReused),
       status: submission.status,
@@ -208,6 +214,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     // Verify teacher ownership
     if (submission.exam.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(submission.exam.classId)) ||
+      Boolean((submission.exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Korrekturen können nicht bearbeitet werden.',
+        },
+        { status: 400 }
+      );
     }
 
     // Run dynamic point updates and Swiss grade recalculation in a single transaction
@@ -386,6 +405,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
     }
 
+    if (
+      (await isClassArchived(submission.exam.classId)) ||
+      Boolean((submission.exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Zuordnungen können nicht geändert werden.',
+        },
+        { status: 400 }
+      );
+    }
+
     let targetExamId = submission.examId;
     let targetClassId = submission.exam.classId;
     let examChanged = false;
@@ -405,6 +437,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       targetExamId = targetExam.id;
       targetClassId = targetExam.classId;
       examChanged = true;
+
+      if (await isClassArchived(targetClassId)) {
+        return NextResponse.json(
+          {
+            error:
+              'Archivierte Klassen sind schreibgeschützt. Zuordnungen können nicht in eine archivierte Klasse verschoben werden.',
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Verify student exists in the target class
@@ -613,6 +655,19 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     // Verify ownership
     if (submission.exam.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(submission.exam.classId)) ||
+      Boolean((submission.exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Korrekturen können nicht gelöscht werden.',
+        },
+        { status: 400 }
+      );
     }
 
     // Storage-Bereinigung VOR der DB-Loeschung ausfuehren.

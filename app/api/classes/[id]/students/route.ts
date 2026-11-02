@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { serverCache, CacheTags, invalidateStudentCache } from '@/lib/cache';
+import { isClassArchived } from '@/lib/class-archive';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -71,6 +72,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     if (!schoolClass) {
       return NextResponse.json({ error: 'Klasse nicht gefunden.' }, { status: 404 });
+    }
+
+    if (
+      (await isClassArchived(classId)) ||
+      Boolean((schoolClass as { archivedAt?: Date | string | null }).archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Es können keine neuen Schüler/innen hinzugefügt werden.',
+        },
+        { status: 400 }
+      );
     }
 
     const student = await db.student.create({

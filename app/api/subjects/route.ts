@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { getTeacherSavedSubjects, saveTeacherSubjects } from '@/lib/teacher-subjects';
 import { resolveTeacherSubjects, resolveFilterAndViewSubjects } from '@/lib/grading';
+import { getArchivedClassIds } from '@/lib/class-archive';
 
 // GET: Fetch the teacher's "Meine Fächer" configuration and resolved subject lists
 export async function GET() {
@@ -12,7 +13,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
 
-    const [savedSubjects, teacherExams] = await Promise.all([
+    const [savedSubjects, teacherExams, archivedIds] = await Promise.all([
       getTeacherSavedSubjects(session.userId),
       db.exam.findMany({
         where: {
@@ -22,11 +23,16 @@ export async function GET() {
         },
         select: {
           subject: true,
+          classId: true,
         },
       }),
+      getArchivedClassIds(),
     ]);
 
-    const existingExamSubjects = teacherExams.map((ex) => ex.subject).filter(Boolean);
+    const existingExamSubjects = teacherExams
+      .filter((ex) => !ex.classId || !archivedIds.has(ex.classId))
+      .map((ex) => ex.subject)
+      .filter(Boolean);
     const mySubjects = resolveTeacherSubjects(savedSubjects, existingExamSubjects);
     const filterAndViewSubjects = resolveFilterAndViewSubjects(savedSubjects, existingExamSubjects);
 
@@ -57,17 +63,24 @@ export async function PUT(request: Request) {
     }
 
     const saved = await saveTeacherSubjects(session.userId, body.subjects);
-    const teacherExams = await db.exam.findMany({
-      where: {
-        class: {
-          teacherId: session.userId,
+    const [teacherExams, archivedIds] = await Promise.all([
+      db.exam.findMany({
+        where: {
+          class: {
+            teacherId: session.userId,
+          },
         },
-      },
-      select: {
-        subject: true,
-      },
-    });
-    const existingExamSubjects = teacherExams.map((ex) => ex.subject).filter(Boolean);
+        select: {
+          subject: true,
+          classId: true,
+        },
+      }),
+      getArchivedClassIds(),
+    ]);
+    const existingExamSubjects = teacherExams
+      .filter((ex) => !ex.classId || !archivedIds.has(ex.classId))
+      .map((ex) => ex.subject)
+      .filter(Boolean);
     const mySubjects = resolveTeacherSubjects(saved, existingExamSubjects);
     const filterAndViewSubjects = resolveFilterAndViewSubjects(saved, existingExamSubjects);
 

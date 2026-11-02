@@ -6,6 +6,7 @@ import { parseExamMetadata, embedExamMetadata, isExamApproved } from '@/lib/exam
 import { invalidateExamCache } from '@/lib/cache';
 import { getStorageAdapter } from '@/lib/storage';
 import { checkAiRateLimit, createRateLimitResponse } from '@/lib/rate-limit';
+import { isClassArchived } from '@/lib/class-archive';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -48,6 +49,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     if (exam.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(exam.classId)) ||
+      Boolean((exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Prüfungen können nicht bearbeitet werden.',
+        },
+        { status: 400 }
+      );
     }
 
     // Freezing gate: Cannot regenerate tasks once approved/frozen

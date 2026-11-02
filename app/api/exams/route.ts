@@ -4,50 +4,67 @@ import { getSession } from '@/lib/session';
 import { serverCache, CacheTags, invalidateExamCache } from '@/lib/cache';
 import { parseExamMetadata } from '@/lib/exam-meta';
 import { validateReferenceUpload } from '@/lib/document-validation';
+import { getArchivedClassIds, isClassArchived } from '@/lib/class-archive';
 
-// GET: Fetch all exams created by the teacher across all their classes
-export async function GET() {
+// GET: Fetch all exams created by the teacher across all their active classes (unless includeArchived=true)
+export async function GET(request?: Request) {
   try {
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
 
-    const cacheKey = `teacher:${session.userId}:exams:list`;
+    const url = request?.url ? new URL(request.url) : new URL('http://localhost/api/exams');
+    const includeArchived = url.searchParams.get('includeArchived') === 'true';
+
+    const cacheKey = includeArchived
+      ? `teacher:${session.userId}:exams:list:all`
+      : `teacher:${session.userId}:exams:list`;
     const cached = await serverCache.get<{ exams: unknown[] }>(cacheKey);
     if (cached) {
       return NextResponse.json(cached);
     }
 
-    const exams = await db.exam.findMany({
-      where: {
-        class: {
-          teacherId: session.userId,
-        },
-      },
-      include: {
-        class: true,
-        tasks: {
-          orderBy: {
-            orderIndex: 'asc',
+    const [exams, archivedIds] = await Promise.all([
+      db.exam.findMany({
+        where: {
+          class: {
+            teacherId: session.userId,
           },
         },
-        submissions: {
-          where: { status: 'COMPLETED', studentId: { not: null } },
-          select: { gradeRaw: true, studentId: true },
-        },
-        _count: {
-          select: {
-            submissions: true,
+        include: {
+          class: true,
+          tasks: {
+            orderBy: {
+              orderIndex: 'asc',
+            },
+          },
+          submissions: {
+            where: { status: 'COMPLETED', studentId: { not: null } },
+            select: { gradeRaw: true, studentId: true },
+          },
+          _count: {
+            select: {
+              submissions: true,
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
+      getArchivedClassIds(),
+    ]);
 
-    const formatted = exams.map((ex) => {
+    const visibleExams = includeArchived
+      ? exams
+      : exams.filter(
+          (ex) =>
+            !archivedIds.has(ex.classId) &&
+            !Boolean((ex.class as { archivedAt?: Date | string | null })?.archivedAt)
+        );
+
+    const formatted = visibleExams.map((ex) => {
       const completedGrades = ex.submissions
         .filter((s) => !('studentId' in s) || Boolean(s.studentId))
         .map((s) => s.gradeRaw);
@@ -140,6 +157,19 @@ export async function POST(request: Request) {
 
     if (!schoolClass) {
       return NextResponse.json({ error: 'Klasse nicht gefunden.' }, { status: 404 });
+    }
+
+    if (
+      (await isClassArchived(classId)) ||
+      Boolean((schoolClass as { archivedAt?: Date | string | null }).archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Es können keine neuen Prüfungen angelegt werden.',
+        },
+        { status: 400 }
+      );
     }
 
     if (rubricText) {

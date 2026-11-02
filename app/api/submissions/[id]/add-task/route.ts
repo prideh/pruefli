@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { calculateRawSwissGrade, calculateSwissGrade } from '@/lib/grading';
 import { invalidateSubmissionCache } from '@/lib/cache';
+import { isClassArchived } from '@/lib/class-archive';
 import crypto from 'crypto';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -38,6 +39,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     if (submission.exam.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(submission.exam.classId)) ||
+      Boolean((submission.exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Korrekturen können nicht bearbeitet werden.',
+        },
+        { status: 400 }
+      );
     }
 
     // Check if task already exists in this submission

@@ -29,12 +29,19 @@ import EditIcon from '@mui/icons-material/Edit';
 import GroupIcon from '@mui/icons-material/Group';
 import SchoolIcon from '@mui/icons-material/School';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import ArchiveIcon from '@mui/icons-material/Archive';
+import UnarchiveIcon from '@mui/icons-material/Unarchive';
 import { getErrorMessage } from '@/lib/api-error';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import DashboardLayout from '@/components/DashboardLayout';
 import ErrorState from '@/components/ErrorState';
-import { useDataCache, invalidateClasses } from '@/lib/dataCache';
+import {
+  useDataCache,
+  invalidateClasses,
+  invalidateExams,
+  invalidateSubmissions,
+} from '@/lib/dataCache';
 import {
   resolveTeacherSubjects,
   getSubjectSupportInfo,
@@ -46,6 +53,8 @@ interface PrismaClassInfo {
   name: string;
   createdAt: string;
   subjects?: string[];
+  isArchived?: boolean;
+  archivedAt?: string | null;
   _count: {
     students: number;
   };
@@ -55,11 +64,13 @@ interface ClassListItem extends PrismaClassInfo {
   totalExams: number;
   averageGrade: string;
   subjects: string[];
+  isArchived: boolean;
+  archivedAt: string | null;
 }
 
 export default function ClassesPage() {
   const fetchClassesApi = React.useCallback(async () => {
-    const res = await fetch('/api/classes');
+    const res = await fetch('/api/classes?includeArchived=true');
     if (!res.ok) throw new Error('Fehler beim Laden der Klassen.');
     const data = await res.json();
 
@@ -69,12 +80,16 @@ export default function ClassesPage() {
           totalExams?: number;
           averageGrade?: string;
           subjects?: string[];
+          isArchived?: boolean;
+          archivedAt?: string | null;
         }
       ) => ({
         ...cls,
         totalExams: cls.totalExams ?? 0,
         averageGrade: cls.averageGrade || 'N/A',
         subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
+        isArchived: Boolean(cls.isArchived),
+        archivedAt: cls.archivedAt ?? null,
       })
     );
 
@@ -110,22 +125,68 @@ export default function ClassesPage() {
     error,
     revalidate: fetchClasses,
   } = useDataCache<ClassListItem[] | { classes?: ClassListItem[] }>(
-    '/api/classes',
+    '/api/classes?includeArchived=true',
     fetchClassesApi
   );
 
   const classes = React.useMemo(() => {
     const raw = Array.isArray(cachedClasses) ? cachedClasses : cachedClasses?.classes || [];
-    return raw.map((cls: ClassListItem & { studentsCount?: number; subjects?: string[] }) => ({
-      ...cls,
-      _count: {
-        students: cls._count?.students ?? cls.studentsCount ?? 0,
-      },
-      totalExams: cls.totalExams ?? 0,
-      averageGrade: cls.averageGrade || 'N/A',
-      subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
-    }));
+    return raw.map(
+      (
+        cls: ClassListItem & {
+          studentsCount?: number;
+          subjects?: string[];
+          isArchived?: boolean;
+          archivedAt?: string | null;
+        }
+      ) => ({
+        ...cls,
+        _count: {
+          students: cls._count?.students ?? cls.studentsCount ?? 0,
+        },
+        totalExams: cls.totalExams ?? 0,
+        averageGrade: cls.averageGrade || 'N/A',
+        subjects: Array.isArray(cls.subjects) ? cls.subjects : [],
+        isArchived: Boolean(cls.isArchived),
+        archivedAt: cls.archivedAt ?? null,
+      })
+    );
   }, [cachedClasses]);
+
+  const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active');
+  const [unarchiveLoadingId, setUnarchiveLoadingId] = useState<string | null>(null);
+  const [unarchiveError, setUnarchiveError] = useState<string>('');
+
+  const activeClasses = React.useMemo(() => classes.filter((cls) => !cls.isArchived), [classes]);
+  const archivedClasses = React.useMemo(() => classes.filter((cls) => cls.isArchived), [classes]);
+  const displayedClasses = statusFilter === 'archived' ? archivedClasses : activeClasses;
+
+  const handleUnarchiveClass = async (classId: string) => {
+    setUnarchiveLoadingId(classId);
+    setUnarchiveError('');
+    try {
+      const res = await fetch(`/api/classes/${classId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: false }),
+      });
+      if (!res.ok) {
+        const msg = await getErrorMessage(res, 'Klasse konnte nicht wiederhergestellt werden.');
+        setUnarchiveError(msg);
+        return;
+      }
+      invalidateClasses(classId);
+      invalidateExams(undefined, classId);
+      invalidateSubmissions(undefined, undefined, classId);
+      await fetchClasses();
+    } catch (err) {
+      setUnarchiveError(
+        err instanceof Error ? err.message : 'Klasse konnte nicht wiederhergestellt werden.'
+      );
+    } finally {
+      setUnarchiveLoadingId(null);
+    }
+  };
 
   const [defaultClassId, setDefaultClassId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
@@ -314,6 +375,64 @@ export default function ClassesPage() {
           </Button>
         </Box>
 
+        {/* Filter Tabs: Aktive Klassen vs. Archiviert */}
+        {!loading && !error && (
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: 'center',
+              borderBottom: '1px solid #e2e8f0',
+              pb: 1.5,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Button
+              variant={statusFilter === 'active' ? 'contained' : 'text'}
+              onClick={() => setStatusFilter('active')}
+              sx={{
+                borderRadius: '8px',
+                textTransform: 'none',
+                fontWeight: 700,
+                backgroundColor: statusFilter === 'active' ? '#0f172a' : 'transparent',
+                color: statusFilter === 'active' ? '#ffffff' : '#475569',
+                '&:hover': {
+                  backgroundColor: statusFilter === 'active' ? '#1e293b' : '#f1f5f9',
+                },
+              }}
+            >
+              Aktive Klassen ({activeClasses.length})
+            </Button>
+            <Button
+              variant={statusFilter === 'archived' ? 'contained' : 'text'}
+              startIcon={<ArchiveIcon sx={{ fontSize: '1.1rem' }} />}
+              onClick={() => setStatusFilter('archived')}
+              sx={{
+                borderRadius: '8px',
+                textTransform: 'none',
+                fontWeight: 700,
+                backgroundColor: statusFilter === 'archived' ? '#0f172a' : 'transparent',
+                color: statusFilter === 'archived' ? '#ffffff' : '#475569',
+                '&:hover': {
+                  backgroundColor: statusFilter === 'archived' ? '#1e293b' : '#f1f5f9',
+                },
+              }}
+            >
+              Archiviert ({archivedClasses.length})
+            </Button>
+          </Stack>
+        )}
+
+        {unarchiveError && (
+          <Alert
+            severity="error"
+            onClose={() => setUnarchiveError('')}
+            sx={{ borderRadius: '8px' }}
+          >
+            {unarchiveError}
+          </Alert>
+        )}
+
         {error ? (
           <ErrorState
             title="Fehler beim Laden der Klassen"
@@ -326,48 +445,77 @@ export default function ClassesPage() {
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
             <CircularProgress />
           </Box>
-        ) : classes.length === 0 ? (
-          <Card
-            sx={{
-              borderRadius: '16px',
-              border: '2px dashed #cbd5e1',
-              boxShadow: 'none',
-              backgroundColor: 'transparent',
-              p: 6,
-              textAlign: 'center',
-            }}
-          >
-            <GroupIcon sx={{ fontSize: '4rem', color: '#94a3b8', mb: 2 }} />
-            <Typography variant="h6" sx={{ fontWeight: 700, color: '#475569', mb: 1 }}>
-              Keine Klassen gefunden
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{ color: 'text.secondary', maxWidth: '400px', mx: 'auto', mb: 3 }}
-            >
-              Erstelle deine erste Schulklasse, um Schüler hinzuzufügen und handschriftliche
-              Prüfungen korrigieren zu können.
-            </Typography>
-            <Button
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                setCreateError('');
-                setOpenCreate(true);
+        ) : displayedClasses.length === 0 ? (
+          statusFilter === 'archived' ? (
+            <Card
+              sx={{
+                borderRadius: '16px',
+                border: '2px dashed #cbd5e1',
+                boxShadow: 'none',
+                backgroundColor: 'transparent',
+                p: 6,
+                textAlign: 'center',
               }}
-              sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 650 }}
             >
-              Erste Klasse erstellen
-            </Button>
-          </Card>
+              <ArchiveIcon sx={{ fontSize: '4rem', color: '#94a3b8', mb: 2 }} />
+              <Typography variant="h6" sx={{ fontWeight: 700, color: '#475569', mb: 1 }}>
+                Keine archivierten Klassen vorhanden
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ color: 'text.secondary', maxWidth: '460px', mx: 'auto' }}
+              >
+                Archivierte Klassen eines vergangenen Schuljahres werden hier im Lesemodus abgelegt
+                und können jederzeit wiederhergestellt werden.
+              </Typography>
+            </Card>
+          ) : (
+            <Card
+              sx={{
+                borderRadius: '16px',
+                border: '2px dashed #cbd5e1',
+                boxShadow: 'none',
+                backgroundColor: 'transparent',
+                p: 6,
+                textAlign: 'center',
+              }}
+            >
+              <GroupIcon sx={{ fontSize: '4rem', color: '#94a3b8', mb: 2 }} />
+              <Typography variant="h6" sx={{ fontWeight: 700, color: '#475569', mb: 1 }}>
+                Keine Klassen gefunden
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ color: 'text.secondary', maxWidth: '400px', mx: 'auto', mb: 3 }}
+              >
+                Erstelle deine erste Schulklasse, um Schüler hinzuzufügen und handschriftliche
+                Prüfungen korrigieren zu können.
+              </Typography>
+              <Button
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setCreateError('');
+                  setOpenCreate(true);
+                }}
+                sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 650 }}
+              >
+                Erste Klasse erstellen
+              </Button>
+            </Card>
+          )
         ) : (
           <Grid container spacing={3}>
-            {classes.map((cls) => (
+            {displayedClasses.map((cls) => (
               <Grid size={{ xs: 12, sm: 6, md: 4 }} key={cls.id}>
                 <Card
                   sx={{
                     borderRadius: '12px',
-                    border: cls.id === defaultClassId ? '2px solid #1b77d1' : '1px solid #e2e8f0',
+                    border:
+                      !cls.isArchived && cls.id === defaultClassId
+                        ? '2px solid #1b77d1'
+                        : '1px solid #e2e8f0',
+                    backgroundColor: cls.isArchived ? '#f8fafc' : '#ffffff',
                     boxShadow: 'none',
                     transition: 'all 0.25s ease',
                     height: '100%',
@@ -411,19 +559,34 @@ export default function ClassesPage() {
                               {cls.name}
                             </Typography>
                           </Link>
-                          {cls.id === defaultClassId && (
+                          {cls.isArchived ? (
                             <Chip
-                              label="Standard"
+                              label="Archiviert"
                               size="small"
                               sx={{
                                 height: '20px',
                                 fontSize: '0.65rem',
                                 fontWeight: 700,
-                                backgroundColor: '#1b77d1',
-                                color: '#ffffff',
+                                backgroundColor: '#e2e8f0',
+                                color: '#475569',
                                 borderRadius: '4px',
                               }}
                             />
+                          ) : (
+                            cls.id === defaultClassId && (
+                              <Chip
+                                label="Standard"
+                                size="small"
+                                sx={{
+                                  height: '20px',
+                                  fontSize: '0.65rem',
+                                  fontWeight: 700,
+                                  backgroundColor: '#1b77d1',
+                                  color: '#ffffff',
+                                  borderRadius: '4px',
+                                }}
+                              />
+                            )
                           )}
                         </Stack>
                         <Typography
@@ -431,65 +594,84 @@ export default function ClassesPage() {
                           sx={{ color: 'text.secondary', fontWeight: 600 }}
                         >
                           Erstellt am {new Date(cls.createdAt).toLocaleDateString('de-CH')}
+                          {cls.isArchived && cls.archivedAt
+                            ? ` • Archiviert am ${new Date(cls.archivedAt).toLocaleDateString('de-CH')}`
+                            : ''}
                         </Typography>
                       </Box>
                       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                        <Tooltip
-                          title={
-                            cls.id === defaultClassId
-                              ? 'Standardklasse entfernen'
-                              : 'Als Standardklasse festlegen'
-                          }
-                        >
-                          <IconButton
-                            size="small"
-                            onClick={() => handleToggleDefaultClass(cls.id)}
-                            sx={{
-                              color: cls.id === defaultClassId ? '#eab308' : '#94a3b8',
-                              padding: '4px',
-                              '&:hover': {
-                                color: cls.id === defaultClassId ? '#ca8a04' : '#64748b',
-                                backgroundColor: '#f1f5f9',
-                              },
-                            }}
-                          >
-                            {cls.id === defaultClassId ? (
-                              <StarIcon sx={{ fontSize: '1.5rem' }} />
-                            ) : (
-                              <StarBorderIcon sx={{ fontSize: '1.5rem' }} />
-                            )}
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Klassenname ändern">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleOpenRename(cls)}
-                            sx={{
-                              color: '#94a3b8',
-                              padding: '4px',
-                              '&:hover': {
-                                color: '#1b77d1',
-                                backgroundColor: '#f1f5f9',
-                              },
-                            }}
-                          >
-                            <EditIcon sx={{ fontSize: '1.25rem' }} />
-                          </IconButton>
-                        </Tooltip>
+                        {!cls.isArchived && (
+                          <>
+                            <Tooltip
+                              title={
+                                cls.id === defaultClassId
+                                  ? 'Standardklasse entfernen'
+                                  : 'Als Standardklasse festlegen'
+                              }
+                            >
+                              <IconButton
+                                size="small"
+                                onClick={() => handleToggleDefaultClass(cls.id)}
+                                sx={{
+                                  color: cls.id === defaultClassId ? '#eab308' : '#94a3b8',
+                                  padding: '4px',
+                                  '&:hover': {
+                                    color: cls.id === defaultClassId ? '#ca8a04' : '#64748b',
+                                    backgroundColor: '#f1f5f9',
+                                  },
+                                }}
+                              >
+                                {cls.id === defaultClassId ? (
+                                  <StarIcon sx={{ fontSize: '1.5rem' }} />
+                                ) : (
+                                  <StarBorderIcon sx={{ fontSize: '1.5rem' }} />
+                                )}
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Klassenname ändern">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleOpenRename(cls)}
+                                sx={{
+                                  color: '#94a3b8',
+                                  padding: '4px',
+                                  '&:hover': {
+                                    color: '#1b77d1',
+                                    backgroundColor: '#f1f5f9',
+                                  },
+                                }}
+                              >
+                                <EditIcon sx={{ fontSize: '1.25rem' }} />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        )}
                         <Box
                           sx={{
                             width: '40px',
                             height: '40px',
                             borderRadius: '8px',
-                            backgroundColor: cls.id === defaultClassId ? '#fef9c3' : '#f0f7ff',
-                            color: cls.id === defaultClassId ? '#ca8a04' : '#1b77d1',
+                            backgroundColor: cls.isArchived
+                              ? '#e2e8f0'
+                              : cls.id === defaultClassId
+                                ? '#fef9c3'
+                                : '#f0f7ff',
+                            color: cls.isArchived
+                              ? '#64748b'
+                              : cls.id === defaultClassId
+                                ? '#ca8a04'
+                                : '#1b77d1',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             flexShrink: 0,
                           }}
                         >
-                          <SchoolIcon sx={{ fontSize: '1.25rem' }} />
+                          {cls.isArchived ? (
+                            <ArchiveIcon sx={{ fontSize: '1.25rem' }} />
+                          ) : (
+                            <SchoolIcon sx={{ fontSize: '1.25rem' }} />
+                          )}
                         </Box>
                       </Box>
                     </Stack>
@@ -606,7 +788,36 @@ export default function ClassesPage() {
                     </Grid>
                   </CardContent>
 
-                  <CardActions sx={{ p: 2, pt: 0, justifyContent: 'flex-end' }}>
+                  <CardActions
+                    sx={{ p: 2, pt: 0, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}
+                  >
+                    {cls.isArchived ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={
+                          unarchiveLoadingId === cls.id ? (
+                            <CircularProgress size={14} color="inherit" />
+                          ) : (
+                            <UnarchiveIcon sx={{ fontSize: '1rem' }} />
+                          )
+                        }
+                        disabled={unarchiveLoadingId === cls.id}
+                        onClick={() => handleUnarchiveClass(cls.id)}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          borderRadius: '6px',
+                          borderColor: '#cbd5e1',
+                          color: '#0f172a',
+                          '&:hover': { backgroundColor: '#f1f5f9', borderColor: '#94a3b8' },
+                        }}
+                      >
+                        Wiederherstellen
+                      </Button>
+                    ) : (
+                      <span />
+                    )}
                     <Link href={`/classes/${cls.id}`} passHref style={{ textDecoration: 'none' }}>
                       <Button
                         size="small"

@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { parseExamMetadata, embedExamMetadata } from '@/lib/exam-meta';
 import { invalidateExamCache } from '@/lib/cache';
+import { isClassArchived } from '@/lib/class-archive';
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -24,6 +25,19 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
     if (exam.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(exam.classId)) ||
+      Boolean((exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Prüfungen können nicht bearbeitet werden.',
+        },
+        { status: 400 }
+      );
     }
 
     const { metadata, cleanNotes } = parseExamMetadata(exam.gradingNotes);

@@ -83,6 +83,7 @@ interface ExamData {
   title: string;
   classId: string;
   className: string;
+  isClassArchived?: boolean;
   subject: string;
   maxPoints: number;
   rubricText?: string;
@@ -201,6 +202,7 @@ export default function ExamDetailsPage() {
   );
 
   const exam = cachedExamDetails?.exam || null;
+  const isClassArchived = Boolean(exam?.isClassArchived);
   const stats = cachedExamDetails?.stats || null;
   const roster = cachedExamDetails?.roster || [];
   const taskAnalysis = cachedExamDetails?.taskAnalysis || null;
@@ -700,7 +702,7 @@ export default function ExamDetailsPage() {
               <Button
                 variant="contained"
                 startIcon={<QrCodeScannerIcon />}
-                disabled={exam?.isApproved === false}
+                disabled={exam?.isApproved === false || isClassArchived}
                 onClick={() => {
                   setQrTargetMode('SUBMISSION');
                   setQrStudent(null);
@@ -719,6 +721,7 @@ export default function ExamDetailsPage() {
                 variant="outlined"
                 color="error"
                 startIcon={<DeleteIcon />}
+                disabled={isClassArchived}
                 onClick={() => {
                   setDeleteError('');
                   setOpenDelete(true);
@@ -745,6 +748,24 @@ export default function ExamDetailsPage() {
             )}
           </Box>
         </Stack>
+
+        {isClassArchived && (
+          <Alert
+            severity="info"
+            icon={<LockIcon sx={{ color: '#0369a1' }} />}
+            sx={{
+              borderRadius: '12px',
+              border: '1px solid #bae6fd',
+              backgroundColor: '#f0f9ff',
+              color: '#0c4a6e',
+            }}
+          >
+            <strong>Archivierte Klasse (Lesemodus):</strong> Die zugehörige Klasse ist archiviert.
+            Alle Ergebnisse, Aufgabenanalysen und KI-Rückmeldungen sind vollständig einsehbar und
+            exportierbar. Zum Bearbeiten oder für neue Korrekturen kann die Klasse in der
+            Klassenverwaltung wiederhergestellt werden.
+          </Alert>
+        )}
 
         {/* REVIEW & APPROVAL GATE BANNER */}
         {exam?.isGenerated && exam?.isApproved === false && (
@@ -796,7 +817,7 @@ export default function ExamDetailsPage() {
                 startIcon={
                   approving ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />
                 }
-                disabled={approving}
+                disabled={approving || isClassArchived}
                 onClick={handleApproveExam}
                 sx={{
                   whiteSpace: 'nowrap',
@@ -1094,6 +1115,13 @@ export default function ExamDetailsPage() {
                       <Chip
                         icon={<LockIcon sx={{ fontSize: '0.85rem !important' }} />}
                         label="Eingefroren"
+                        size="small"
+                        sx={{ fontWeight: 700, backgroundColor: '#f1f5f9' }}
+                      />
+                    ) : isClassArchived ? (
+                      <Chip
+                        icon={<LockIcon sx={{ fontSize: '0.85rem !important' }} />}
+                        label="Archiviert (Lesemodus)"
                         size="small"
                         sx={{ fontWeight: 700, backgroundColor: '#f1f5f9' }}
                       />
@@ -1627,7 +1655,7 @@ export default function ExamDetailsPage() {
                           )}
                         </TableCell>
                         <TableCell sx={{ textAlign: 'right' }}>
-                          {exam.isGenerated && !exam.isApproved ? (
+                          {exam.isGenerated && !exam.isApproved && !isClassArchived ? (
                             <Button
                               size="small"
                               variant="outlined"
@@ -2219,6 +2247,7 @@ export default function ExamDetailsPage() {
                         variant="contained"
                         size="small"
                         startIcon={<AddIcon />}
+                        disabled={isClassArchived}
                         onClick={() => {
                           setAddStudentError('');
                           setAddStudentName('');
@@ -2356,7 +2385,7 @@ export default function ExamDetailsPage() {
                                   size="small"
                                   sx={{ textTransform: 'none', fontWeight: 600 }}
                                 >
-                                  Korrektur bearbeiten
+                                  {isClassArchived ? 'Korrektur ansehen' : 'Korrektur bearbeiten'}
                                 </Button>
                               </Link>
                             ) : (
@@ -2365,7 +2394,7 @@ export default function ExamDetailsPage() {
                                 color="success"
                                 size="small"
                                 startIcon={<PlayArrowIcon />}
-                                disabled={exam?.isApproved === false}
+                                disabled={exam?.isApproved === false || isClassArchived}
                                 onClick={() => {
                                   setQrTargetMode('SUBMISSION');
                                   setQrStudent({

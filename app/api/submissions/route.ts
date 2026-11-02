@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { serverCache, CacheTags } from '@/lib/cache';
+import { getArchivedClassIds } from '@/lib/class-archive';
 
 export async function GET(request?: Request | NextRequest) {
   try {
@@ -36,6 +37,8 @@ export async function GET(request?: Request | NextRequest) {
       return NextResponse.json(cached);
     }
 
+    const archivedIds = await getArchivedClassIds();
+
     const examWhere: Record<string, unknown> = {
       class: {
         teacherId: session.userId,
@@ -44,6 +47,8 @@ export async function GET(request?: Request | NextRequest) {
 
     if (classId && classId !== 'ALL') {
       examWhere.classId = classId;
+    } else if (archivedIds.size > 0) {
+      examWhere.classId = { notIn: Array.from(archivedIds) };
     }
 
     const where: Record<string, unknown> = {
@@ -134,18 +139,30 @@ export async function GET(request?: Request | NextRequest) {
       }),
     ]);
 
-    const studentMap = new Map(teacherStudents.map((s) => [s.id, s.name]));
+    const activeStudents = teacherStudents.filter((s) => !archivedIds.has(s.classId));
+    const activeExams = teacherExams.filter((e) => !archivedIds.has(e.classId));
+
+    const studentMap = new Map(activeStudents.map((s) => [s.id, s.name]));
     const studentsByClass: Record<string, { id: string; name: string }[]> = {};
-    for (const s of teacherStudents) {
+    for (const s of activeStudents) {
       if (!studentsByClass[s.classId]) {
         studentsByClass[s.classId] = [];
       }
       studentsByClass[s.classId].push({ id: s.id, name: s.name });
     }
 
+    const visibleSubmissions =
+      classId && classId !== 'ALL'
+        ? submissions
+        : submissions.filter(
+            (sub) =>
+              !archivedIds.has(sub.exam.classId) &&
+              !Boolean((sub.exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+          );
+
     // Map database structures for client consumption
     const normExtracted = (s?: string | null) => (s || '').trim().toLowerCase();
-    const mapped = submissions.map((sub) => {
+    const mapped = visibleSubmissions.map((sub) => {
       const studentName =
         sub.student?.name ||
         (sub.targetStudentId ? studentMap.get(sub.targetStudentId) : null) ||
@@ -226,14 +243,14 @@ export async function GET(request?: Request | NextRequest) {
         nextCursor,
       },
       studentsByClass,
-      allExams: teacherExams.map((e) => ({
+      allExams: activeExams.map((e) => ({
         id: e.id,
         title: e.title,
         subject: e.subject,
         classId: e.classId,
         className: e.class.name,
       })),
-      totalExamsCount: teacherExams.length,
+      totalExamsCount: activeExams.length,
     };
 
     await serverCache.set(cacheKey, responsePayload, {

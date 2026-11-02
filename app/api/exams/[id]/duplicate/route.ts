@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { invalidateExamCache } from '@/lib/cache';
+import { isClassArchived } from '@/lib/class-archive';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -62,6 +63,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: 'Zielklasse nicht gefunden.' }, { status: 404 });
       }
       destinationClassId = targetClass.id;
+    }
+
+    if (await isClassArchived(destinationClassId)) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Prüfungen können nicht in eine archivierte Klasse dupliziert werden.',
+        },
+        { status: 400 }
+      );
     }
 
     // Title: custom or suffixed "<Titel> (Kopie)"

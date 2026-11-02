@@ -60,6 +60,7 @@ interface WorkspaceSubmission extends ExamCorrectionResult {
   errorMessage?: string | null;
   studentId?: string | null;
   classId?: string | null;
+  isClassArchived?: boolean;
   isReused?: boolean;
 }
 
@@ -567,8 +568,10 @@ export default function CorrectWorkspace() {
   };
 
   // Handle inline point adjustments by the teacher
+  const isReadOnly = Boolean(data.isClassArchived);
+
   const handlePointChange = (taskIndex: number, stepIndex: number, newPoints: number) => {
-    if (!data) return;
+    if (!data || isReadOnly) return;
 
     const updatedTasks = [...data.aufgaben];
     const task = { ...updatedTasks[taskIndex] };
@@ -1170,32 +1173,34 @@ export default function CorrectWorkspace() {
                         Seite 1 von {totalPages}
                       </Typography>
                     )}
-                    <Tooltip title="Fehlende Seite anhängen oder unscharfen Scan per Smartphone/Datei ersetzen">
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<QrCodeScannerIcon sx={{ fontSize: '0.95rem !important' }} />}
-                        onClick={() => setQrOpen(true)}
-                        sx={{
-                          textTransform: 'none',
-                          fontWeight: 700,
-                          fontSize: '0.73rem',
-                          py: 0.35,
-                          px: 1.25,
-                          borderRadius: '6px',
-                          backgroundColor: '#ffffff',
-                          borderColor: '#cbd5e1',
-                          color: '#0f172a',
-                          '&:hover': {
-                            backgroundColor: '#f8fafc',
-                            borderColor: '#1b77d1',
-                            color: '#1b77d1',
-                          },
-                        }}
-                      >
-                        + Seite / Neu scannen
-                      </Button>
-                    </Tooltip>
+                    {!isReadOnly && (
+                      <Tooltip title="Fehlende Seite anhängen oder unscharfen Scan per Smartphone/Datei ersetzen">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<QrCodeScannerIcon sx={{ fontSize: '0.95rem !important' }} />}
+                          onClick={() => setQrOpen(true)}
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            fontSize: '0.73rem',
+                            py: 0.35,
+                            px: 1.25,
+                            borderRadius: '6px',
+                            backgroundColor: '#ffffff',
+                            borderColor: '#cbd5e1',
+                            color: '#0f172a',
+                            '&:hover': {
+                              backgroundColor: '#f8fafc',
+                              borderColor: '#1b77d1',
+                              color: '#1b77d1',
+                            },
+                          }}
+                        >
+                          + Seite / Neu scannen
+                        </Button>
+                      </Tooltip>
+                    )}
                   </Stack>
                 );
               })()}
@@ -1559,34 +1564,36 @@ export default function CorrectWorkspace() {
                   );
                 })}
               </Tabs>
-              <Box
-                sx={{
-                  px: 2,
-                  borderLeft: '1px solid #e2e8f0',
-                  height: '52px',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                <Tooltip title="Fehlende Aufgabe hinzufügen">
-                  <IconButton
-                    color="primary"
-                    onClick={() => {
-                      setAddTaskError('');
-                      setOpenAddTask(true);
-                    }}
-                    sx={{
-                      backgroundColor: '#f0f7ff',
-                      '&:hover': { backgroundColor: '#e3f2fd' },
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    <AddIcon sx={{ fontSize: '1.25rem' }} />
-                  </IconButton>
-                </Tooltip>
-              </Box>
+              {!isReadOnly && (
+                <Box
+                  sx={{
+                    px: 2,
+                    borderLeft: '1px solid #e2e8f0',
+                    height: '52px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Tooltip title="Fehlende Aufgabe hinzufügen">
+                    <IconButton
+                      color="primary"
+                      onClick={() => {
+                        setAddTaskError('');
+                        setOpenAddTask(true);
+                      }}
+                      sx={{
+                        backgroundColor: '#f0f7ff',
+                        '&:hover': { backgroundColor: '#e3f2fd' },
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '8px',
+                      }}
+                    >
+                      <AddIcon sx={{ fontSize: '1.25rem' }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              )}
             </Stack>
 
             {/* Graded steps & Comments content */}
@@ -1600,6 +1607,21 @@ export default function CorrectWorkspace() {
                 gap: '24px',
               }}
             >
+              {isReadOnly && (
+                <Alert
+                  severity="info"
+                  sx={{
+                    borderRadius: '10px',
+                    border: '1px solid #bae6fd',
+                    backgroundColor: '#f0f9ff',
+                    color: '#0c4a6e',
+                    flexShrink: 0,
+                  }}
+                >
+                  <strong>Archivierte Klasse (Lesemodus):</strong> Diese Korrektur und das
+                  KI-Feedback können eingesehen und gedruckt, aber nicht verändert werden.
+                </Alert>
+              )}
               {/* Global Security Warning Banner for Prompt Injection / Manipulation Attempts */}
               {(() => {
                 const securityTasks = data.aufgaben.filter(
@@ -1790,24 +1812,26 @@ export default function CorrectWorkspace() {
                             >
                               ⚠ KI unsicher: {s.unsicherheitsGrund || 'Bitte manuell prüfen.'}
                             </Typography>
-                            <Button
-                              size="small"
-                              variant="contained"
-                              color="warning"
-                              onClick={() => handleResolveStepUncertainty(activeTaskIndex, sIdx)}
-                              sx={{
-                                textTransform: 'none',
-                                fontWeight: 700,
-                                fontSize: '0.75rem',
-                                py: 0.25,
-                                px: 1.25,
-                                borderRadius: '6px',
-                                flexShrink: 0,
-                                boxShadow: 'none',
-                              }}
-                            >
-                              Als geprüft bestätigen ✓
-                            </Button>
+                            {!isReadOnly && (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="warning"
+                                onClick={() => handleResolveStepUncertainty(activeTaskIndex, sIdx)}
+                                sx={{
+                                  textTransform: 'none',
+                                  fontWeight: 700,
+                                  fontSize: '0.75rem',
+                                  py: 0.25,
+                                  px: 1.25,
+                                  borderRadius: '6px',
+                                  flexShrink: 0,
+                                  boxShadow: 'none',
+                                }}
+                              >
+                                Als geprüft bestätigen ✓
+                              </Button>
+                            )}
                           </Stack>
                         )}
                         <Stack
@@ -1849,6 +1873,7 @@ export default function CorrectWorkspace() {
                             <TextField
                               type="number"
                               size="small"
+                              disabled={isReadOnly}
                               slotProps={{
                                 htmlInput: {
                                   step: 0.5,
@@ -1888,6 +1913,7 @@ export default function CorrectWorkspace() {
                           size="small"
                           fullWidth
                           multiline
+                          disabled={isReadOnly}
                           value={s.begruendung}
                           onChange={(e) =>
                             handleDescriptionChange(activeTaskIndex, sIdx, e.target.value)
@@ -1915,6 +1941,7 @@ export default function CorrectWorkspace() {
 
                         <Box sx={{ mt: 0.5 }}>
                           <select
+                            disabled={isReadOnly}
                             value={s.fehlerTyp === 'Rechenfehler' ? 'SonstigerFehler' : s.fehlerTyp}
                             onChange={(e) =>
                               handleErrorTypeChange(
@@ -1928,7 +1955,7 @@ export default function CorrectWorkspace() {
                               fontWeight: 700,
                               borderRadius: '16px',
                               padding: '3px 10px',
-                              cursor: 'pointer',
+                              cursor: isReadOnly ? 'default' : 'pointer',
                               border: `1.5px solid ${
                                 s.fehlerTyp === 'KeinFehler'
                                   ? theme.palette.success.main
@@ -1968,6 +1995,7 @@ export default function CorrectWorkspace() {
                 <TextField
                   multiline
                   rows={3}
+                  disabled={isReadOnly}
                   value={activeTask.lehrerKommentar}
                   onChange={(e) => handleCommentChange(activeTaskIndex, e.target.value)}
                   fullWidth
@@ -2006,6 +2034,7 @@ export default function CorrectWorkspace() {
                   <Stack spacing={2.5} sx={{ mt: 1 }}>
                     <TextField
                       label="Hilfreicher Tipp"
+                      disabled={isReadOnly}
                       value={data.schuelerFeedback.hilfreicherTipp}
                       onChange={(e) => handleFeedbackChange('hilfreicherTipp', e.target.value)}
                       fullWidth
@@ -2025,6 +2054,7 @@ export default function CorrectWorkspace() {
                     />
                     <TextField
                       label="Übungs-Empfehlung"
+                      disabled={isReadOnly}
                       value={data.schuelerFeedback.uebungsEmpfehlung}
                       onChange={(e) => handleFeedbackChange('uebungsEmpfehlung', e.target.value)}
                       fullWidth

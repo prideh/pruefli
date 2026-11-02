@@ -48,6 +48,8 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import StarsIcon from '@mui/icons-material/Stars';
 import GroupIcon from '@mui/icons-material/Group';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import ArchiveIcon from '@mui/icons-material/Archive';
+import UnarchiveIcon from '@mui/icons-material/Unarchive';
 import { BarChart } from '@mui/x-charts/BarChart';
 import DashboardLayout from '@/components/DashboardLayout';
 import ErrorState from '@/components/ErrorState';
@@ -72,6 +74,8 @@ interface ClassData {
   createdAt: string;
   teacherId: string;
   subjects?: string[];
+  isArchived?: boolean;
+  archivedAt?: string | null;
 }
 
 interface ClassStats {
@@ -210,10 +214,46 @@ export default function ClassDetailsPage() {
   const [openDeleteStudent, setOpenDeleteStudent] = useState(false);
   const [openDeleteClass, setOpenDeleteClass] = useState(false);
   const [deleteClassError, setDeleteClassError] = useState('');
+  const [openArchiveClass, setOpenArchiveClass] = useState(false);
+  const [archiveClassError, setArchiveClassError] = useState('');
   const [openEditClass, setOpenEditClass] = useState(false);
   const [editedClassName, setEditedClassName] = useState('');
   const [editedClassSubjects, setEditedClassSubjects] = useState<string[]>([]);
   const [editClassError, setEditClassError] = useState('');
+  const isArchived = Boolean(classData?.isArchived);
+
+  const handleArchiveToggle = async (archived: boolean) => {
+    setStudentActionLoading(true);
+    setArchiveClassError('');
+    try {
+      const res = await fetch(`/api/classes/${classId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived }),
+      });
+      if (!res.ok) {
+        const msg = await getErrorMessage(
+          res,
+          archived
+            ? 'Klasse konnte nicht archiviert werden.'
+            : 'Klasse konnte nicht wiederhergestellt werden.'
+        );
+        setArchiveClassError(msg);
+        return;
+      }
+      setOpenArchiveClass(false);
+      invalidateClasses(classId);
+      invalidateExams(undefined, classId);
+      invalidateSubmissions(undefined, undefined, classId);
+      await fetchData();
+    } catch (err) {
+      setArchiveClassError(
+        err instanceof Error ? err.message : 'Status konnte nicht geändert werden.'
+      );
+    } finally {
+      setStudentActionLoading(false);
+    }
+  };
 
   const handleOpenEditClass = () => {
     setEditClassError('');
@@ -582,21 +622,42 @@ export default function ClassDetailsPage() {
             }}
           >
             <Box sx={{ minWidth: 0, flex: '1 1 300px', maxWidth: '100%' }}>
-              <Typography
-                variant="h4"
-                sx={{
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  letterSpacing: '-0.02em',
-                  mb: 0.5,
-                  wordBreak: 'break-word',
-                  overflowWrap: 'anywhere',
-                }}
+              <Stack
+                direction="row"
+                spacing={1.5}
+                sx={{ alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}
               >
-                {classData?.name}
-              </Typography>
+                <Typography
+                  variant="h4"
+                  sx={{
+                    fontWeight: 800,
+                    color: '#0f172a',
+                    letterSpacing: '-0.02em',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {classData?.name}
+                </Typography>
+                {isArchived && (
+                  <Chip
+                    icon={<ArchiveIcon sx={{ fontSize: '0.95rem !important' }} />}
+                    label="Archiviert (Lesemodus)"
+                    size="small"
+                    sx={{
+                      fontWeight: 700,
+                      backgroundColor: '#e2e8f0',
+                      color: '#334155',
+                      borderRadius: '6px',
+                    }}
+                  />
+                )}
+              </Stack>
               <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 600 }}>
                 Erstellt am {classData?.createdAt} • {students.length} Schüler/innen eingeschrieben
+                {isArchived && classData?.archivedAt
+                  ? ` • Archiviert am ${new Date(classData.archivedAt).toLocaleDateString('de-CH')}`
+                  : ''}
               </Typography>
             </Box>
 
@@ -606,23 +667,69 @@ export default function ClassDetailsPage() {
               sx={{
                 flexShrink: 0,
                 alignItems: 'center',
+                flexWrap: 'wrap',
                 position: 'relative',
                 zIndex: 1,
               }}
             >
-              <Button
-                variant="outlined"
-                startIcon={<EditIcon />}
-                onClick={handleOpenEditClass}
-                sx={{
-                  borderRadius: '8px',
-                  textTransform: 'none',
-                  fontWeight: 650,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Name ändern
-              </Button>
+              {!isArchived ? (
+                <>
+                  <Button
+                    variant="outlined"
+                    startIcon={<EditIcon />}
+                    onClick={handleOpenEditClass}
+                    sx={{
+                      borderRadius: '8px',
+                      textTransform: 'none',
+                      fontWeight: 650,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Name ändern
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={<ArchiveIcon />}
+                    onClick={() => {
+                      setArchiveClassError('');
+                      setOpenArchiveClass(true);
+                    }}
+                    sx={{
+                      borderRadius: '8px',
+                      textTransform: 'none',
+                      fontWeight: 650,
+                      whiteSpace: 'nowrap',
+                      color: '#334155',
+                      borderColor: '#cbd5e1',
+                      '&:hover': { backgroundColor: '#f8fafc', borderColor: '#94a3b8' },
+                    }}
+                  >
+                    Klasse archivieren
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="contained"
+                  startIcon={
+                    studentActionLoading ? (
+                      <CircularProgress size={16} color="inherit" />
+                    ) : (
+                      <UnarchiveIcon />
+                    )
+                  }
+                  disabled={studentActionLoading}
+                  onClick={() => handleArchiveToggle(false)}
+                  sx={{
+                    borderRadius: '8px',
+                    textTransform: 'none',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    backgroundColor: '#1b77d1',
+                  }}
+                >
+                  Wiederherstellen
+                </Button>
+              )}
               <Button
                 variant="outlined"
                 color="error"
@@ -643,6 +750,34 @@ export default function ClassDetailsPage() {
             </Stack>
           </Box>
         </Stack>
+
+        {isArchived && (
+          <Alert
+            severity="info"
+            icon={<ArchiveIcon sx={{ color: '#0369a1' }} />}
+            sx={{
+              borderRadius: '12px',
+              border: '1px solid #bae6fd',
+              backgroundColor: '#f0f9ff',
+              color: '#0c4a6e',
+            }}
+          >
+            <strong>Archivierte Klasse (Schuljahreswechsel):</strong> Alle Schülerprofile,
+            Prüfungen, Noten und KI-Rückmeldungen dieser Klasse sind im Lesemodus vollständig
+            einsehbar. Sie fliesst nicht in die laufenden Statistiken deiner aktiven Klassen ein. Um
+            Änderungen vorzunehmen oder neue Prüfungen durchzuführen, kannst du die Klasse jederzeit
+            über <strong>Wiederherstellen</strong> reaktivieren.
+          </Alert>
+        )}
+        {archiveClassError && !openArchiveClass && (
+          <Alert
+            severity="error"
+            onClose={() => setArchiveClassError('')}
+            sx={{ borderRadius: '8px' }}
+          >
+            {archiveClassError}
+          </Alert>
+        )}
 
         {/* 1. Statistics Summary Grid */}
         <Grid container spacing={3}>
@@ -866,10 +1001,15 @@ export default function ClassDetailsPage() {
                   Du möchtest eine handschriftliche Arbeit eines Schülers aus dieser Klasse
                   bewerten? Navigiere zum Workspace.
                 </Typography>
-                <Link href="/dashboard" passHref style={{ textDecoration: 'none' }}>
+                <Link
+                  href="/dashboard"
+                  passHref
+                  style={{ textDecoration: 'none', pointerEvents: isArchived ? 'none' : 'auto' }}
+                >
                   <Button
                     variant="contained"
                     endIcon={<ArrowForwardIcon />}
+                    disabled={isArchived}
                     sx={{
                       padding: '10px 24px',
                       borderRadius: '8px',
@@ -943,6 +1083,7 @@ export default function ClassDetailsPage() {
                 variant="outlined"
                 size="small"
                 startIcon={<EditIcon />}
+                disabled={isArchived}
                 onClick={handleOpenEditClass}
                 sx={{
                   borderRadius: '8px',
@@ -1096,6 +1237,7 @@ export default function ClassDetailsPage() {
                 <Button
                   variant="outlined"
                   startIcon={<AddIcon />}
+                  disabled={isArchived}
                   onClick={() => setOpenAddStudent(true)}
                   sx={{
                     borderRadius: '8px',
@@ -1109,6 +1251,7 @@ export default function ClassDetailsPage() {
                 <Button
                   variant="outlined"
                   startIcon={<GroupAddIcon />}
+                  disabled={isArchived}
                   onClick={handleOpenBulkAdd}
                   sx={{
                     borderRadius: '8px',
@@ -1130,29 +1273,31 @@ export default function ClassDetailsPage() {
                 >
                   Bisher sind keine Schüler/innen eingeschrieben.
                 </Typography>
-                <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'center' }}>
-                  <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
-                    onClick={() => setOpenAddStudent(true)}
-                    sx={{
-                      borderRadius: '8px',
-                      textTransform: 'none',
-                      fontWeight: 650,
-                      backgroundColor: '#1b77d1',
-                    }}
-                  >
-                    Schüler/in hinzufügen
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<GroupAddIcon />}
-                    onClick={handleOpenBulkAdd}
-                    sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 650 }}
-                  >
-                    Mehrere Schüler hinzufügen
-                  </Button>
-                </Stack>
+                {!isArchived && (
+                  <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'center' }}>
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={() => setOpenAddStudent(true)}
+                      sx={{
+                        borderRadius: '8px',
+                        textTransform: 'none',
+                        fontWeight: 650,
+                        backgroundColor: '#1b77d1',
+                      }}
+                    >
+                      Schüler/in hinzufügen
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      startIcon={<GroupAddIcon />}
+                      onClick={handleOpenBulkAdd}
+                      sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 650 }}
+                    >
+                      Mehrere Schüler hinzufügen
+                    </Button>
+                  </Stack>
+                )}
               </Box>
             ) : (
               <TableContainer
@@ -1227,27 +1372,31 @@ export default function ClassDetailsPage() {
                                 Profil öffnen
                               </Button>
                             </Link>
-                            <IconButton
-                              size="small"
-                              color="primary"
-                              onClick={() => {
-                                setSelectedStudent(student);
-                                setTargetClassId(classId);
-                                setOpenTransfer(true);
-                              }}
-                            >
-                              <SwapHorizIcon />
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => {
-                                setSelectedStudent(student);
-                                setOpenDeleteStudent(true);
-                              }}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
+                            {!isArchived && (
+                              <>
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => {
+                                    setSelectedStudent(student);
+                                    setTargetClassId(classId);
+                                    setOpenTransfer(true);
+                                  }}
+                                >
+                                  <SwapHorizIcon />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => {
+                                    setSelectedStudent(student);
+                                    setOpenDeleteStudent(true);
+                                  }}
+                                >
+                                  <DeleteIcon />
+                                </IconButton>
+                              </>
+                            )}
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -1847,6 +1996,60 @@ export default function ClassDetailsPage() {
               sx={{ textTransform: 'none', fontWeight: 700, borderRadius: '8px' }}
             >
               {studentActionLoading ? <CircularProgress size={20} /> : 'Austragen'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Archive Class Dialog */}
+        <Dialog
+          open={openArchiveClass}
+          onClose={(_e, reason) => {
+            if (studentActionLoading || reason === 'backdropClick') return;
+            setOpenArchiveClass(false);
+          }}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle sx={{ fontWeight: 800, color: '#0f172a' }}>Klasse archivieren?</DialogTitle>
+          <DialogContent>
+            {archiveClassError && (
+              <Alert severity="error" sx={{ mb: 2, borderRadius: '8px' }}>
+                {archiveClassError}
+              </Alert>
+            )}
+            <Typography variant="body2" sx={{ color: 'text.primary', mb: 1.5 }}>
+              Möchtest du die Klasse <strong>{classData?.name}</strong> für das Archiv ablegen?
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.5 }}>
+              Alle Schülerprofile, durchgeführten Prüfungen, Noten und KI-Rückmeldungen bleiben im
+              Lesemodus erhalten. Die Klasse erscheint nicht mehr in den aktiven Auswahllisten oder
+              laufenden Statistiken und kann jederzeit wiederhergestellt werden.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ p: 2, pt: 0 }}>
+            <Button
+              onClick={() => setOpenArchiveClass(false)}
+              disabled={studentActionLoading}
+              sx={{ textTransform: 'none', fontWeight: 650 }}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              onClick={() => handleArchiveToggle(true)}
+              variant="contained"
+              disabled={studentActionLoading}
+              startIcon={
+                studentActionLoading ? <CircularProgress size={16} color="inherit" /> : undefined
+              }
+              sx={{
+                textTransform: 'none',
+                fontWeight: 700,
+                borderRadius: '8px',
+                backgroundColor: '#0f172a',
+                '&:hover': { backgroundColor: '#1e293b' },
+              }}
+            >
+              Klasse archivieren
             </Button>
           </DialogActions>
         </Dialog>

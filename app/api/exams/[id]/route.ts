@@ -5,6 +5,7 @@ import { computeTaskAnalysis } from '@/lib/task-analysis';
 import { serverCache, CacheTags, invalidateExamCache, invalidateLogsCache } from '@/lib/cache';
 import { parseExamMetadata, embedExamMetadata } from '@/lib/exam-meta';
 import { deleteExamScanFiles, StorageCleanupError } from '@/lib/storage-cleanup';
+import { isClassArchived } from '@/lib/class-archive';
 
 // GET: Fetch exam details, statistics, and submissions tracking (all class students)
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -155,6 +156,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     }));
     const taskAnalysis = computeTaskAnalysis(enrichedTasks, exam.submissions);
 
+    const isArchived =
+      (await isClassArchived(exam.classId)) ||
+      Boolean((exam.class as { archivedAt?: Date | string | null })?.archivedAt);
+
     const responsePayload = {
       exam: {
         id: exam.id,
@@ -174,6 +179,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         gradeRounding: exam.gradeRounding,
         classId: exam.classId,
         className: exam.class.name,
+        isClassArchived: isArchived,
         createdAt: exam.createdAt.toLocaleDateString('de-CH'),
         tasks: enrichedTasks,
       },
@@ -233,6 +239,19 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     // Verify teacher owns class
     if (exam.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(exam.classId)) ||
+      Boolean((exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Prüfungen können nicht bearbeitet werden.',
+        },
+        { status: 400 }
+      );
     }
 
     const { metadata: existingMeta } = parseExamMetadata(exam.gradingNotes);
@@ -330,6 +349,19 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     // Verify teacher owns class
     if (exam.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(exam.classId)) ||
+      Boolean((exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Prüfungen können nicht gelöscht werden.',
+        },
+        { status: 400 }
+      );
     }
 
     // Storage-Bereinigung VOR der DB-Kaskadenloeschung ausfuehren.

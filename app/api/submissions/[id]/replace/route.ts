@@ -21,6 +21,7 @@ import {
 import { getStorageAdapter } from '@/lib/storage';
 import { invalidateSubmissionCache, invalidateLogsCache } from '@/lib/cache';
 import { validateDocument } from '@/lib/document-validation';
+import { isClassArchived } from '@/lib/class-archive';
 import {
   computeGradingHash,
   buildLlmCacheKey,
@@ -76,6 +77,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     // Verify teacher owns the class
     if (submission.exam.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(submission.exam.classId)) ||
+      Boolean((submission.exam.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Korrekturen können nicht neu gestartet oder ersetzt werden.',
+        },
+        { status: 400 }
+      );
     }
 
     const pageUrls = parseStudentExamUrls(submission.studentExamUrl);

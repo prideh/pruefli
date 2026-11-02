@@ -35,6 +35,7 @@ import {
   createPayloadErrorResponse,
 } from '@/lib/payload-limits';
 import { validateStudentExamUpload, validateReferenceUpload } from '@/lib/document-validation';
+import { isClassArchived } from '@/lib/class-archive';
 import crypto from 'crypto';
 
 // Allowed student exam MIME types and safe file extensions
@@ -116,6 +117,16 @@ export async function POST(request: Request) {
 
     if (!classId) {
       return NextResponse.json({ error: 'Klasse muss ausgewählt sein.' }, { status: 400 });
+    }
+
+    if (await isClassArchived(classId)) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Es können keine neuen Scans oder Korrekturen eingereicht werden.',
+        },
+        { status: 400 }
+      );
     }
 
     if (!studentExam) {

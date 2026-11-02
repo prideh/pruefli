@@ -4,15 +4,22 @@ import { getSession } from '@/lib/session';
 import { serverCache, CacheTags, invalidateClassCache } from '@/lib/cache';
 import { validateClassName } from '@/lib/payload-limits';
 import { getMultipleClassesSavedSubjects, saveClassSubjects } from '@/lib/teacher-subjects';
+import { getArchivedClassIds, getClassArchivedAt } from '@/lib/class-archive';
 
-export async function GET() {
+export async function GET(request?: Request) {
   try {
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
 
-    const cacheKey = `teacher:${session.userId}:classes:list`;
+    const url = request?.url ? new URL(request.url) : new URL('http://localhost/api/classes');
+    const statusParam = (url.searchParams.get('status') || 'active').toLowerCase();
+    const includeArchived =
+      url.searchParams.get('includeArchived') === 'true' || statusParam === 'all';
+    const filterMode = includeArchived ? 'all' : statusParam === 'archived' ? 'archived' : 'active';
+
+    const cacheKey = `teacher:${session.userId}:classes:list:${filterMode}`;
     const cached = await serverCache.get<{ classes: unknown[] }>(cacheKey);
     if (cached) {
       return NextResponse.json(cached);
@@ -36,29 +43,52 @@ export async function GET() {
       orderBy: { name: 'asc' },
     });
 
-    const subjectsMap = await getMultipleClassesSavedSubjects(rawClasses.map((cls) => cls.id));
+    const classIds = rawClasses.map((cls) => cls.id);
+    const [subjectsMap, archivedIds] = await Promise.all([
+      getMultipleClassesSavedSubjects(classIds),
+      getArchivedClassIds(classIds),
+    ]);
 
-    const classes = rawClasses.map((cls) => {
-      const allGrades = cls.exams.flatMap((ex) =>
-        ex.submissions
-          .filter((s) => !('studentId' in s) || Boolean(s.studentId))
-          .map((s) => s.gradeRaw)
-      );
-      const gradeRawSum = allGrades.reduce((sum, g) => sum + g, 0);
-      const avg = allGrades.length > 0 ? (gradeRawSum / allGrades.length).toFixed(2) : 'N/A';
+    const mappedClasses = await Promise.all(
+      rawClasses.map(async (cls) => {
+        const allGrades = cls.exams.flatMap((ex) =>
+          ex.submissions
+            .filter((s) => !('studentId' in s) || Boolean(s.studentId))
+            .map((s) => s.gradeRaw)
+        );
+        const gradeRawSum = allGrades.reduce((sum, g) => sum + g, 0);
+        const avg = allGrades.length > 0 ? (gradeRawSum / allGrades.length).toFixed(2) : 'N/A';
+        const isArchived =
+          archivedIds.has(cls.id) ||
+          Boolean((cls as { archivedAt?: Date | string | null }).archivedAt);
+        const archivedAtDate = isArchived
+          ? (await getClassArchivedAt(cls.id)) ||
+            ((cls as { archivedAt?: Date | string | null }).archivedAt
+              ? new Date((cls as { archivedAt?: Date | string }).archivedAt!)
+              : null)
+          : null;
 
-      return {
-        id: cls.id,
-        name: cls.name,
-        teacherId: cls.teacherId,
-        createdAt: cls.createdAt,
-        _count: { students: cls._count.students },
-        totalExams: cls._count.exams,
-        averageGrade: avg,
-        gradedSubmissionsCount: allGrades.length,
-        gradeRawSum,
-        subjects: subjectsMap[cls.id] || [],
-      };
+        return {
+          id: cls.id,
+          name: cls.name,
+          teacherId: cls.teacherId,
+          createdAt: cls.createdAt,
+          isArchived,
+          archivedAt: archivedAtDate ? archivedAtDate.toISOString() : null,
+          _count: { students: cls._count.students },
+          totalExams: cls._count.exams,
+          averageGrade: avg,
+          gradedSubmissionsCount: allGrades.length,
+          gradeRawSum,
+          subjects: subjectsMap[cls.id] || [],
+        };
+      })
+    );
+
+    const classes = mappedClasses.filter((cls) => {
+      if (filterMode === 'all') return true;
+      if (filterMode === 'archived') return cls.isArchived;
+      return !cls.isArchived;
     });
 
     const responsePayload = { classes };

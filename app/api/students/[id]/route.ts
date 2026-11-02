@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { serverCache, CacheTags, invalidateStudentCache, invalidateLogsCache } from '@/lib/cache';
 import { deleteStudentScanFiles, StorageCleanupError } from '@/lib/storage-cleanup';
+import { isClassArchived } from '@/lib/class-archive';
 
 // GET: Fetch student details, analytics, grade trajectory, and AI feedback aggregation
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -109,12 +110,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       date: s.createdAt.toLocaleDateString('de-CH'),
     }));
 
+    const isArchived =
+      (await isClassArchived(student.classId)) ||
+      Boolean((student.class as { archivedAt?: Date | string | null })?.archivedAt);
+
     const responsePayload = {
       student: {
         id: student.id,
         name: student.name,
         classId: student.classId,
         className: student.class.name,
+        isClassArchived: isArchived,
         createdAt: student.createdAt.toLocaleDateString('de-CH'),
       },
       stats: {
@@ -178,6 +184,19 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
     }
 
+    if (
+      (await isClassArchived(student.classId)) ||
+      Boolean((student.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Schüler/innen können nicht bearbeitet oder verschoben werden.',
+        },
+        { status: 400 }
+      );
+    }
+
     // If transferring class, verify teacher owns new class
     if (classId && classId !== student.classId) {
       const newClass = await db.class.findFirst({
@@ -185,6 +204,17 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       });
       if (!newClass) {
         return NextResponse.json({ error: 'Neue Klasse nicht gefunden.' }, { status: 404 });
+      }
+      if (
+        (await isClassArchived(classId)) ||
+        Boolean((newClass as { archivedAt?: Date | string | null })?.archivedAt)
+      ) {
+        return NextResponse.json(
+          {
+            error: 'Schüler/innen können nicht in eine archivierte Klasse verschoben werden.',
+          },
+          { status: 400 }
+        );
       }
     }
 
@@ -231,6 +261,19 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     // Verify teacher owns class
     if (student.class.teacherId !== session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 403 });
+    }
+
+    if (
+      (await isClassArchived(student.classId)) ||
+      Boolean((student.class as { archivedAt?: Date | string | null })?.archivedAt)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Archivierte Klassen sind schreibgeschützt. Schüler/innen können nicht gelöscht werden.',
+        },
+        { status: 400 }
+      );
     }
 
     // Storage-Bereinigung VOR der DB-Kaskadenloeschung ausfuehren.
