@@ -23,12 +23,19 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import EmailIcon from '@mui/icons-material/Email';
 import LockIcon from '@mui/icons-material/Lock';
-import { setCachedTeacher } from '@/lib/sessionCache';
+import { setCachedTeacher, resolveSafeReturnUrl } from '@/lib/sessionCache';
 import SocialLoginButtons from '@/components/SocialLoginButtons';
 
 function getInitialLoginError(): string {
   if (typeof window === 'undefined') return '';
   const params = new URLSearchParams(window.location.search);
+  const reason = params.get('reason');
+  if (reason === 'expired') {
+    return 'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an, um an derselben Stelle weiterzuarbeiten.';
+  }
+  if (reason === 'revoked') {
+    return 'Deine Sitzung wurde beendet. Bitte melde dich erneut an.';
+  }
   const urlError = params.get('error');
   if (!urlError) return '';
   switch (urlError) {
@@ -37,6 +44,7 @@ function getInitialLoginError(): string {
     case 'provider_not_configured':
       return 'Dieser Social-Login-Anbieter ist noch nicht eingerichtet.';
     case 'invalid_state':
+    case 'session_expired':
       return 'Die Sitzung ist abgelaufen. Bitte versuche es erneut.';
     case 'link_token_expired':
       return 'Der Verknüpfungs-Link ist abgelaufen oder ungültig.';
@@ -45,6 +53,12 @@ function getInitialLoginError(): string {
     default:
       return '';
   }
+}
+
+function getSafeReturnDestination(): string {
+  if (typeof window === 'undefined') return '/dashboard';
+  const params = new URLSearchParams(window.location.search);
+  return resolveSafeReturnUrl(params.get('returnTo'), '/dashboard');
 }
 
 export default function LoginPage() {
@@ -61,7 +75,7 @@ export default function LoginPage() {
     fetch('/api/auth/me', { signal: controller.signal })
       .then((res) => {
         if (res.ok) {
-          router.replace('/dashboard');
+          router.replace(getSafeReturnDestination());
         }
       })
       .catch(() => {});
@@ -97,8 +111,9 @@ export default function LoginPage() {
       if (result.teacher) {
         setCachedTeacher(result.teacher);
       }
+      const targetUrl = getSafeReturnDestination();
       router.refresh();
-      router.replace('/dashboard');
+      router.replace(targetUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ein unerwarteter Fehler ist aufgetreten.');
       setLoading(false);

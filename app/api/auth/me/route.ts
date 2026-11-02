@@ -34,11 +34,24 @@ export async function GET() {
     const verified = await isEmailVerified(teacher.id, teacher.email);
     const liveSending = isLiveSendingEnabled();
 
+    const sessionMeta =
+      session.sessionId || session.expiresAt
+        ? {
+            id: session.sessionId ?? null,
+            createdAt: session.createdAt ? session.createdAt.toISOString() : null,
+            expiresAt: session.expiresAt ? session.expiresAt.toISOString() : null,
+            remainingSeconds:
+              typeof session.remainingSeconds === 'number' ? session.remainingSeconds : null,
+            expiringSoon: Boolean(session.expiringSoon),
+          }
+        : undefined;
+
     return NextResponse.json({
       authenticated: true,
       teacher,
       isEmailVerified: verified,
       liveSendingEnabled: liveSending,
+      ...(sessionMeta ? { session: sessionMeta } : {}),
     });
   } catch (error) {
     console.error('Error fetching current teacher session:', error);

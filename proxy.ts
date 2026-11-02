@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { verifyJWT, signJWT } from '@/lib/jwt';
-
-const SESSION_COOKIE_NAME = 'grade_ai_session';
+import {
+  SESSION_COOKIE_NAME,
+  verifySessionToken,
+  isSafeReturnUrl,
+  resolveSafeReturnUrl,
+  type VerifiedSessionResult,
+} from '@/lib/session';
 
 export const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
@@ -36,27 +40,50 @@ export function applySecurityHeaders(response: NextResponse, pathname?: string):
 }
 
 /**
- * Helper to dynamically refresh the stateless session token (sliding session)
- * if the remaining lifetime of the JWT is less than 3 days.
+ * Synchronizes a renewed sliding session token onto the response and forwarded request headers.
  */
-async function handleSlidingSession(
+function applySlidingRenewalCookie(
   response: NextResponse,
-  payload: { userId: string; exp?: number } | null,
-  userId: string,
+  verified: VerifiedSessionResult | null,
   request?: NextRequest
-): Promise<NextResponse> {
-  if (!payload || !payload.exp) return response;
+): NextResponse {
+  if (!verified || !verified.renewed || !verified.renewedToken) {
+    return response;
+  }
 
-  const nowInSeconds = Math.floor(Date.now() / 1000);
-  const threeDaysInSeconds = 3 * 24 * 60 * 60;
+  const newSessionToken = verified.renewedToken;
+  const expiresAt = verified.expiresAt;
 
-  // Slide the session only if less than 3 days are remaining before expiration
-  if (payload.exp - nowInSeconds < threeDaysInSeconds) {
-    const newSessionToken = await signJWT({ userId }, '7d');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  response.cookies.set(SESSION_COOKIE_NAME, newSessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    expires: expiresAt,
+    sameSite: 'lax',
+    path: '/',
+  });
 
-    // Update response cookies so the browser stores the fresh token
-    response.cookies.set(SESSION_COOKIE_NAME, newSessionToken, {
+  if (request) {
+    const requestHeaders = new Headers(request.headers);
+    const rawCookies = request.headers.get('cookie') || '';
+    const cookieRegex = new RegExp(`${SESSION_COOKIE_NAME}=[^;]+`);
+    let newCookies = rawCookies;
+
+    if (cookieRegex.test(rawCookies)) {
+      newCookies = rawCookies.replace(cookieRegex, `${SESSION_COOKIE_NAME}=${newSessionToken}`);
+    } else {
+      newCookies = rawCookies
+        ? `${rawCookies}; ${SESSION_COOKIE_NAME}=${newSessionToken}`
+        : `${SESSION_COOKIE_NAME}=${newSessionToken}`;
+    }
+    requestHeaders.set('cookie', newCookies);
+
+    const updatedResponse = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+
+    updatedResponse.cookies.set(SESSION_COOKIE_NAME, newSessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       expires: expiresAt,
@@ -64,40 +91,7 @@ async function handleSlidingSession(
       path: '/',
     });
 
-    // If request is provided, also set the cookie in the forwarded request headers
-    // so downstream Server Components and API handlers immediately see the fresh token
-    if (request) {
-      const requestHeaders = new Headers(request.headers);
-      const rawCookies = request.headers.get('cookie') || '';
-      const cookieRegex = new RegExp(`${SESSION_COOKIE_NAME}=[^;]+`);
-      let newCookies = rawCookies;
-
-      if (cookieRegex.test(rawCookies)) {
-        newCookies = rawCookies.replace(cookieRegex, `${SESSION_COOKIE_NAME}=${newSessionToken}`);
-      } else {
-        newCookies = rawCookies
-          ? `${rawCookies}; ${SESSION_COOKIE_NAME}=${newSessionToken}`
-          : `${SESSION_COOKIE_NAME}=${newSessionToken}`;
-      }
-      requestHeaders.set('cookie', newCookies);
-
-      const updatedResponse = NextResponse.next({
-        request: {
-          headers: requestHeaders,
-        },
-      });
-
-      // Synchronize the updated response cookie to the new next response object
-      updatedResponse.cookies.set(SESSION_COOKIE_NAME, newSessionToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        expires: expiresAt,
-        sameSite: 'lax',
-        path: '/',
-      });
-
-      return updatedResponse;
-    }
+    return updatedResponse;
   }
 
   return response;
@@ -107,9 +101,9 @@ export async function proxy(request: NextRequest) {
   const session = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const { pathname } = request.nextUrl;
 
-  // Cryptographically verify the session token at the edge level
-  const payload = session ? await verifyJWT(session) : null;
-  const user = payload ? { userId: payload.userId } : null;
+  // Verify the session token cryptographically and against server-side lifecycle & revocation state
+  const verified = session ? await verifySessionToken(session, { renewIfEligible: true }) : null;
+  const user = verified ? { userId: verified.userId } : null;
 
   // Protect all authenticated application routes at the edge level
   const protectedPrefixes = [
@@ -117,6 +111,7 @@ export async function proxy(request: NextRequest) {
     '/correct',
     '/classes',
     '/exams',
+    '/subjects',
     '/students',
     '/submissions',
     '/logs',
@@ -124,7 +119,12 @@ export async function proxy(request: NextRequest) {
   const isProtectedRoute = protectedPrefixes.some((prefix) => pathname.startsWith(prefix));
 
   if (!user && isProtectedRoute) {
-    const response = NextResponse.redirect(new URL('/login', request.url));
+    const loginUrl = new URL('/login', request.url);
+    const fullTargetPath = `${pathname}${request.nextUrl.search || ''}`;
+    if (isSafeReturnUrl(fullTargetPath) && fullTargetPath !== '/dashboard') {
+      loginUrl.searchParams.set('returnTo', fullTargetPath);
+    }
+    const response = NextResponse.redirect(loginUrl);
     // Purge the old/invalid session cookie from the browser only if a cookie was actually present
     if (session) {
       response.cookies.delete(SESSION_COOKIE_NAME);
@@ -132,28 +132,27 @@ export async function proxy(request: NextRequest) {
     return applySecurityHeaders(response, pathname);
   }
 
-  // Redirect authenticated users away from login/register back to the dashboard
+  // Redirect authenticated users away from login/register back to safe returnTo or dashboard
   if (user && (pathname === '/login' || pathname === '/register')) {
-    const response = NextResponse.redirect(new URL('/dashboard', request.url));
-    const slidingRes = await handleSlidingSession(response, payload, user.userId);
+    const targetPath = resolveSafeReturnUrl(
+      request.nextUrl.searchParams.get('returnTo'),
+      '/dashboard'
+    );
+    const response = NextResponse.redirect(new URL(targetPath, request.url));
+    const slidingRes = applySlidingRenewalCookie(response, verified);
     return applySecurityHeaders(slidingRes, pathname);
   }
 
-  // Purge the cookie if it is present but invalid/expired to prevent redirect loops or invalid token fetches
+  // Purge the cookie if it is present but invalid/expired/revoked to prevent redirect loops or invalid token fetches
   if (!user && session) {
     const response = NextResponse.next();
     response.cookies.delete(SESSION_COOKIE_NAME);
     return applySecurityHeaders(response, pathname);
   }
 
-  // Slide session for authenticated active users
+  // Apply renewed cookie for authenticated active users when sliding renewal triggered
   if (user) {
-    const slidingRes = await handleSlidingSession(
-      NextResponse.next(),
-      payload,
-      user.userId,
-      request
-    );
+    const slidingRes = applySlidingRenewalCookie(NextResponse.next(), verified, request);
     return applySecurityHeaders(slidingRes, pathname);
   }
 

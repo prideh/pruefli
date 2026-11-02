@@ -31,7 +31,13 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import HistoryIcon from '@mui/icons-material/History';
 import LogoutIcon from '@mui/icons-material/Logout';
-import { getCachedTeacher, setCachedTeacher, clearSessionCache } from '@/lib/sessionCache';
+import {
+  getCachedTeacher,
+  setCachedTeacher,
+  clearSessionCache,
+  buildLoginRedirectUrl,
+  type SessionLifecycleMetadata,
+} from '@/lib/sessionCache';
 
 const drawerWidth = 260;
 
@@ -48,10 +54,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     email: string;
     isEmailVerified?: boolean;
     liveSendingEnabled?: boolean;
+    session?: SessionLifecycleMetadata | null;
   } | null>(getCachedTeacher());
   const [loading, setLoading] = useState(!getCachedTeacher());
   const [authError, setAuthError] = useState<string | null>(null);
   const [verificationDismissed, setVerificationDismissed] = useState(false);
+  const [expiryWarningDismissed, setExpiryWarningDismissed] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [resendNotification, setResendNotification] = useState<string | null>(null);
   const [resendSeverity, setResendSeverity] = useState<'info' | 'success' | 'warning' | 'error'>(
@@ -114,6 +122,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                       typeof data.liveSendingEnabled === 'boolean'
                         ? data.liveSendingEnabled
                         : data.teacher.liveSendingEnabled,
+                    session: data.session ?? data.teacher.session ?? null,
                   }
                 : null;
               setTeacher(teacherData);
@@ -134,7 +143,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
             if (isMounted) {
               clearSessionCache();
-              router.replace('/login');
+              const currentPath =
+                typeof window !== 'undefined'
+                  ? `${window.location.pathname}${window.location.search || ''}`
+                  : '/dashboard';
+              router.replace(buildLoginRedirectUrl(currentPath));
             }
             return;
           }
@@ -589,6 +602,34 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           mt: { xs: 7, md: 0 },
         }}
       >
+        {teacher?.session?.expiringSoon && !expiryWarningDismissed && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 3, borderRadius: '10px' }}
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                onClick={async () => {
+                  try {
+                    await fetch('/api/auth/logout', { method: 'POST' });
+                  } catch {
+                    // Proceed to login even if logout request fails
+                  }
+                  clearSessionCache();
+                  router.push(buildLoginRedirectUrl(pathname));
+                }}
+                sx={{ textTransform: 'none', fontWeight: 700 }}
+              >
+                Jetzt neu anmelden
+              </Button>
+            }
+            onClose={() => setExpiryWarningDismissed(true)}
+          >
+            Deine Sitzung läuft in Kürze ab. Bitte melde dich rechtzeitig neu an, damit deine Arbeit
+            nicht unterbrochen wird.
+          </Alert>
+        )}
         {teacher && teacher.isEmailVerified === false && !verificationDismissed && (
           <Alert
             severity={

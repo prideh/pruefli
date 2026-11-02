@@ -11,39 +11,74 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-/**
- * Signs a professional JSON Web Token (JWT) with the teacher's ID.
- * @param payload Payload containing userId
- * @param expiry Duration of validity (e.g. '7d')
- * @returns A promise resolving to the signed compact JWT string.
- */
-export async function signJWT(payload: { userId: string }, expiry = '7d'): Promise<string> {
-  const key = getSecretKey();
-  return new SignJWT(payload)
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime(expiry)
-    .sign(key);
+export interface SessionJWTPayload {
+  userId: string;
+  sessionId?: string;
+  tokenVersion?: number;
+  purpose?: 'session';
+  exp?: number;
+  iat?: number;
 }
 
 /**
- * Verifies a JSON Web Token (JWT) and extracts the payload.
+ * Signs a professional JSON Web Token (JWT) with the teacher's ID and optional session metadata.
+ * @param payload Payload containing userId and optional sessionId / tokenVersion
+ * @param expiry Duration of validity (e.g. '7d') or unix timestamp / Date
+ * @returns A promise resolving to the signed compact JWT string.
+ */
+export async function signJWT(
+  payload: {
+    userId: string;
+    sessionId?: string;
+    tokenVersion?: number;
+    purpose?: 'session';
+  },
+  expiry: string | number | Date = '7d',
+  issuedAt?: Date
+): Promise<string> {
+  const key = getSecretKey();
+  const jwtPayload: Record<string, unknown> = {
+    userId: payload.userId,
+    purpose: payload.purpose ?? 'session',
+  };
+  if (payload.sessionId) {
+    jwtPayload.sessionId = payload.sessionId;
+  }
+  if (typeof payload.tokenVersion === 'number') {
+    jwtPayload.tokenVersion = payload.tokenVersion;
+  }
+  const builder = new SignJWT(jwtPayload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt(issuedAt ? Math.floor(issuedAt.getTime() / 1000) : undefined)
+    .setExpirationTime(expiry);
+  return builder.sign(key);
+}
+
+/**
+ * Verifies a JSON Web Token (JWT) and extracts the session payload.
+ * Rejects any non-session purpose tokens (e.g. mobile_relay, email_verification, password_reset, oauth_*).
  * @param token The signed compact JWT string
+ * @param currentDate Optional reference date for expiration checks (used in deterministic lifecycle tests)
  * @returns The payload if valid, otherwise null.
  */
 export async function verifyJWT(
-  token: string | undefined
-): Promise<{ userId: string; exp?: number; iat?: number } | null> {
+  token: string | undefined,
+  currentDate?: Date
+): Promise<SessionJWTPayload | null> {
   if (!token) return null;
   try {
     const key = getSecretKey();
     const { payload } = await jwtVerify(token, key, {
       algorithms: ['HS256'],
+      ...(currentDate ? { currentDate } : {}),
     });
     if (payload.purpose && payload.purpose !== 'session') {
       return null;
     }
-    return payload as { userId: string; exp?: number; iat?: number };
+    if (typeof payload.userId !== 'string' || !payload.userId) {
+      return null;
+    }
+    return payload as unknown as SessionJWTPayload;
   } catch (error) {
     // Suppress console spam on expired/empty tokens but capture signature errors
     if (error instanceof Error && !error.message.includes('expired')) {

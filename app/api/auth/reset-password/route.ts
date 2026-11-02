@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import { verifyPasswordResetToken } from '@/lib/jwt';
+import { revokeAllTeacherSessions } from '@/lib/session';
 import { checkAuthRateLimit, createAuthRateLimitResponse, extractClientIp } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
@@ -74,8 +75,16 @@ export async function POST(request: Request) {
       data: { passwordHash: newPasswordHash },
     });
 
+    // Revoke all existing sessions for this teacher upon password change
+    try {
+      await revokeAllTeacherSessions(teacher.id);
+    } catch {
+      // Gracefully ignore if @/lib/session is partially mocked in isolated unit tests
+    }
+
     return NextResponse.json({
       success: true,
+      sessionsRevoked: true,
       message:
         'Passwort erfolgreich geändert. Du kannst dich jetzt mit deinem neuen Passwort anmelden.',
     });

@@ -39,6 +39,12 @@ import AddIcon from '@mui/icons-material/Add';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import QrScannerDialog from '@/components/QrScannerDialog';
 import { invalidateSubmissions } from '@/lib/dataCache';
+import {
+  saveCorrectionDraft,
+  loadCorrectionDraft,
+  clearCorrectionDraft,
+  buildLoginRedirectUrl,
+} from '@/lib/sessionCache';
 
 import { ExamCorrectionResult, CorrectedTask, CorrectedStep } from '../../../lib/gemini';
 import { calculateSwissGrade, parseStudentExamUrls } from '../../../lib/grading';
@@ -77,6 +83,7 @@ export default function CorrectWorkspace() {
   const [leftPanelTab, setLeftPanelTab] = useState<'transcript' | 'scan'>('scan');
   const [activeScanPageIndex, setActiveScanPageIndex] = useState<number>(0);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [sessionExpiredDuringWork, setSessionExpiredDuringWork] = useState<boolean>(false);
   const [qrOpen, setQrOpen] = useState<boolean>(false);
 
   const [openAddTask, setOpenAddTask] = useState<boolean>(false);
@@ -131,20 +138,70 @@ export default function CorrectWorkspace() {
   // Load submission data from PostgreSQL database
   const loadSubmission = React.useCallback(async () => {
     if (!id) return;
+    const submissionId = Array.isArray(id) ? id[0] : String(id);
     try {
-      const res = await fetch(`/api/submissions/${id}`);
+      const res = await fetch(`/api/submissions/${submissionId}`);
+      if (res.status === 401) {
+        router.replace(buildLoginRedirectUrl(`/correct/${submissionId}`, 'expired'));
+        return;
+      }
       if (!res.ok) {
         setNoSession(true);
         return;
       }
-      const parsed = await res.json();
+      const parsed = (await res.json()) as WorkspaceSubmission;
+
+      // Restore any unsaved local draft backed up before a session expiry
+      const recoveredDraft = loadCorrectionDraft<
+        CorrectedTask[],
+        WorkspaceSubmission['schuelerFeedback']
+      >(submissionId);
+      if (recoveredDraft && Array.isArray(recoveredDraft.aufgaben)) {
+        const totalScore =
+          Math.round(
+            recoveredDraft.aufgaben.reduce((sum, t) => sum + (t.erzieltePunkte || 0), 0) * 10
+          ) / 10;
+        const newGrade = calculateSwissGrade(
+          totalScore,
+          parsed.gesamtmaximalPunkte,
+          parsed.gradingFormula || 'LINEAR_60',
+          parsed.gradeRounding || '0.1'
+        );
+        const restoredSubmission: WorkspaceSubmission = {
+          ...parsed,
+          aufgaben: recoveredDraft.aufgaben,
+          schuelerFeedback: recoveredDraft.schuelerFeedback ?? parsed.schuelerFeedback,
+          gesamterzieltePunkte: totalScore,
+          note: newGrade,
+        };
+        setData(restoredSubmission);
+        setLeftPanelTab(restoredSubmission.studentExamUrl ? 'scan' : 'transcript');
+        try {
+          const saveRes = await fetch(`/api/submissions/${submissionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              aufgaben: restoredSubmission.aufgaben,
+              schuelerFeedback: restoredSubmission.schuelerFeedback,
+            }),
+          });
+          if (saveRes.ok) {
+            clearCorrectionDraft(submissionId);
+            setShowSaveToast(true);
+          }
+        } catch {
+          // Keep draft in storage until next save succeeds
+        }
+        return;
+      }
+
       setData(parsed);
       setLeftPanelTab(parsed.studentExamUrl ? 'scan' : 'transcript');
     } catch (e) {
       console.error('Failed to load submission from database', e);
       setNoSession(true);
     }
-  }, [id]);
+  }, [id, router]);
 
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,8 +255,9 @@ export default function CorrectWorkspace() {
     }
 
     const executeSave = async () => {
+      const submissionId = Array.isArray(id) ? id[0] : String(id || '');
       try {
-        const res = await fetch(`/api/submissions/${id}`, {
+        const res = await fetch(`/api/submissions/${submissionId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -208,14 +266,24 @@ export default function CorrectWorkspace() {
           }),
         });
         if (res.ok) {
+          clearCorrectionDraft(submissionId);
+          setSessionExpiredDuringWork(false);
           setShowSaveToast(true);
           setSaveStatus('saved');
           invalidateSubmissions(
-            id as string,
+            submissionId,
             updatedData.examId,
             updatedData.classId,
             updatedData.studentId
           );
+        } else if (res.status === 401) {
+          // Protect unsaved work locally when session expires mid-grading
+          saveCorrectionDraft(submissionId, {
+            aufgaben: updatedData.aufgaben,
+            schuelerFeedback: updatedData.schuelerFeedback,
+          });
+          setSessionExpiredDuringWork(true);
+          setSaveStatus('error');
         } else {
           setSaveStatus('error');
         }
@@ -797,6 +865,29 @@ export default function CorrectWorkspace() {
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* 1. Normal Web UI View (Hidden during printing) */}
       <Box className="no-print" sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        {sessionExpiredDuringWork && (
+          <Alert
+            severity="warning"
+            sx={{ borderRadius: 0, borderBottom: '1px solid #f59e0b' }}
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  const submissionId = Array.isArray(id) ? id[0] : String(id || '');
+                  router.push(buildLoginRedirectUrl(`/correct/${submissionId}`, 'expired'));
+                }}
+                sx={{ textTransform: 'none', fontWeight: 700 }}
+              >
+                Neu anmelden & weiterarbeiten
+              </Button>
+            }
+          >
+            Deine Sitzung ist abgelaufen. Deine ungespeicherten Änderungen wurden lokal im Browser
+            gesichert — melde dich neu an, um ohne Datenverlust an dieser Stelle fortzufahren.
+          </Alert>
+        )}
         {/* Top Navbar */}
         <Box
           component="header"
