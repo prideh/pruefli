@@ -509,7 +509,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f8fafc' }}>
+    <Box
+      sx={{
+        display: 'flex',
+        minHeight: '100vh',
+        width: '100%',
+        maxWidth: '100vw',
+        overflowX: 'hidden',
+        backgroundColor: '#f8fafc',
+      }}
+    >
       {/* AppBar for mobile displays */}
       <AppBar
         position="fixed"
@@ -597,8 +606,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         component="main"
         sx={{
           flexGrow: 1,
-          p: { xs: 3, md: 4 },
-          width: { md: `calc(100% - ${drawerWidth}px)` },
+          minWidth: 0,
+          p: { xs: 2, sm: 3, md: 4 },
+          width: { xs: '100%', md: `calc(100% - ${drawerWidth}px)` },
+          maxWidth: '100%',
+          boxSizing: 'border-box',
           mt: { xs: 7, md: 0 },
         }}
       >

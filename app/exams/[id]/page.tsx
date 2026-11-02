@@ -676,9 +676,18 @@ export default function ExamDetailsPage() {
 
   return (
     <DashboardLayout>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '32px',
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
+        }}
+      >
         {/* Navigation & Header */}
-        <Stack spacing={2}>
+        <Stack spacing={2} sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
           <Link href="/exams" passHref style={{ textDecoration: 'none' }}>
             <Button
               startIcon={<ArrowBackIcon />}
@@ -691,15 +700,24 @@ export default function ExamDetailsPage() {
           <Box
             sx={{
               display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
               justifyContent: 'space-between',
-              alignItems: { xs: 'flex-start', sm: 'center' },
+              alignItems: { xs: 'stretch', md: 'center' },
               flexWrap: 'wrap',
               gap: 2,
               width: '100%',
+              maxWidth: '100%',
               minWidth: 0,
             }}
           >
-            <Box sx={{ minWidth: 0, flex: { xs: '1 1 100%', md: '1 1 300px' }, maxWidth: '100%' }}>
+            <Box
+              sx={{
+                minWidth: 0,
+                width: { xs: '100%', md: 'auto' },
+                flex: { xs: '1 1 auto', md: '1 1 300px' },
+                maxWidth: '100%',
+              }}
+            >
               <Typography
                 variant="h4"
                 sx={{
@@ -732,9 +750,10 @@ export default function ExamDetailsPage() {
               useFlexGap
               sx={{
                 width: { xs: '100%', sm: 'auto' },
+                maxWidth: '100%',
+                minWidth: 0,
                 flexWrap: 'wrap',
                 alignItems: { xs: 'stretch', sm: 'center' },
-                maxWidth: '100%',
               }}
             >
               <Tooltip
@@ -749,6 +768,8 @@ export default function ExamDetailsPage() {
                   sx={{
                     display: { xs: 'block', sm: 'inline-flex' },
                     width: { xs: '100%', sm: 'auto' },
+                    maxWidth: '100%',
+                    minWidth: 0,
                   }}
                 >
                   <Link
@@ -758,6 +779,7 @@ export default function ExamDetailsPage() {
                       textDecoration: 'none',
                       display: 'flex',
                       width: '100%',
+                      maxWidth: '100%',
                       pointerEvents: exam?.isApproved === false ? 'none' : 'auto',
                     }}
                   >
@@ -767,6 +789,9 @@ export default function ExamDetailsPage() {
                       disabled={exam?.isApproved === false}
                       sx={{
                         width: { xs: '100%', sm: 'auto' },
+                        maxWidth: '100%',
+                        minWidth: 0,
+                        boxSizing: 'border-box',
                         borderRadius: '8px',
                         textTransform: 'none',
                         fontWeight: 700,
@@ -794,6 +819,8 @@ export default function ExamDetailsPage() {
                   sx={{
                     display: { xs: 'block', sm: 'inline-flex' },
                     width: { xs: '100%', sm: 'auto' },
+                    maxWidth: '100%',
+                    minWidth: 0,
                   }}
                 >
                   <Link
@@ -803,6 +830,7 @@ export default function ExamDetailsPage() {
                       textDecoration: 'none',
                       display: 'flex',
                       width: '100%',
+                      maxWidth: '100%',
                       pointerEvents: completedCount === 0 ? 'none' : 'auto',
                     }}
                   >
@@ -812,6 +840,9 @@ export default function ExamDetailsPage() {
                       disabled={completedCount === 0}
                       sx={{
                         width: { xs: '100%', sm: 'auto' },
+                        maxWidth: '100%',
+                        minWidth: 0,
+                        boxSizing: 'border-box',
                         borderRadius: '8px',
                         textTransform: 'none',
                         fontWeight: 700,
@@ -831,6 +862,9 @@ export default function ExamDetailsPage() {
                 onClick={handleOpenDuplicate}
                 sx={{
                   width: { xs: '100%', sm: 'auto' },
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box',
                   borderRadius: '8px',
                   textTransform: 'none',
                   fontWeight: 650,
@@ -869,6 +903,9 @@ export default function ExamDetailsPage() {
                 }}
                 sx={{
                   width: { xs: '100%', sm: 'auto' },
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box',
                   borderRadius: '8px',
                   textTransform: 'none',
                   fontWeight: 700,
@@ -891,6 +928,9 @@ export default function ExamDetailsPage() {
                 }}
                 sx={{
                   width: { xs: '100%', sm: 'auto' },
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box',
                   borderRadius: '8px',
                   textTransform: 'none',
                   fontWeight: 700,
@@ -910,6 +950,9 @@ export default function ExamDetailsPage() {
                 }}
                 sx={{
                   width: { xs: '100%', sm: 'auto' },
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  boxSizing: 'border-box',
                   borderRadius: '8px',
                   textTransform: 'none',
                   fontWeight: 650,
@@ -1205,18 +1248,21 @@ export default function ExamDetailsPage() {
         </Grid>
 
         {/* 2. Histogram Chart & Rubric Panel */}
-        <Grid container spacing={4}>
+        <Grid container spacing={4} sx={{ minWidth: 0, maxWidth: '100%' }}>
           {/* Histogram Chart */}
-          <Grid size={{ xs: 12, md: 6 }}>
+          <Grid size={{ xs: 12, md: 6 }} sx={{ minWidth: 0 }}>
             <Card
               sx={{
                 borderRadius: '12px',
                 border: '1px solid #e2e8f0',
                 boxShadow: 'none',
                 height: '100%',
+                minWidth: 0,
+                maxWidth: '100%',
+                overflow: 'hidden',
               }}
             >
-              <CardContent sx={{ p: 3 }}>
+              <CardContent sx={{ p: 3, minWidth: 0 }}>
                 <Typography variant="h6" sx={{ fontWeight: 800, color: '#0f172a', mb: 2 }}>
                   Notenverteilung der Prüfung
                 </Typography>
@@ -1233,7 +1279,15 @@ export default function ExamDetailsPage() {
                     Bisher wurden keine Arbeiten für diese Prüfung korrigiert.
                   </Typography>
                 ) : (
-                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      width: '100%',
+                      maxWidth: '100%',
+                      overflowX: 'auto',
+                    }}
+                  >
                     <BarChart
                       xAxis={[
                         {
@@ -1253,7 +1307,7 @@ export default function ExamDetailsPage() {
           </Grid>
 
           {/* Rubric config block */}
-          <Grid size={{ xs: 12, md: 6 }}>
+          <Grid size={{ xs: 12, md: 6 }} sx={{ minWidth: 0 }}>
             <Card
               sx={{
                 borderRadius: '12px',
@@ -1262,6 +1316,9 @@ export default function ExamDetailsPage() {
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
+                minWidth: 0,
+                maxWidth: '100%',
+                overflow: 'hidden',
               }}
             >
               <CardContent sx={{ p: 3, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
@@ -1776,8 +1833,17 @@ export default function ExamDetailsPage() {
 
         {/* 2a. Prüfungsaufgaben & Bepunktung (mit Quellenbezug und Einzelaufgabe-Regenerierung) */}
         {exam?.tasks && exam.tasks.length > 0 && (
-          <Card sx={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none' }}>
-            <CardContent sx={{ p: 3 }}>
+          <Card
+            sx={{
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: 'none',
+              minWidth: 0,
+              maxWidth: '100%',
+              overflow: 'hidden',
+            }}
+          >
+            <CardContent sx={{ p: 3, minWidth: 0 }}>
               <Stack
                 direction="row"
                 sx={{
@@ -1806,7 +1872,12 @@ export default function ExamDetailsPage() {
 
               <TableContainer
                 component={Box}
-                sx={{ border: '1px solid #f1f5f9', borderRadius: '8px', overflow: 'hidden' }}
+                sx={{
+                  border: '1px solid #f1f5f9',
+                  borderRadius: '8px',
+                  overflowX: 'auto',
+                  maxWidth: '100%',
+                }}
               >
                 <Table size="small">
                   <TableHead sx={{ backgroundColor: '#f8fafc' }}>
@@ -1911,8 +1982,17 @@ export default function ExamDetailsPage() {
         )}
 
         {/* 2b. Aufgabenanalyse */}
-        <Card sx={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none' }}>
-          <CardContent sx={{ p: 3 }}>
+        <Card
+          sx={{
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            boxShadow: 'none',
+            minWidth: 0,
+            maxWidth: '100%',
+            overflow: 'hidden',
+          }}
+        >
+          <CardContent sx={{ p: 3, minWidth: 0 }}>
             <Stack
               direction="row"
               sx={{
@@ -1995,7 +2075,12 @@ export default function ExamDetailsPage() {
             ) : (
               <TableContainer
                 component={Box}
-                sx={{ border: '1px solid #f1f5f9', borderRadius: '8px', overflow: 'hidden' }}
+                sx={{
+                  border: '1px solid #f1f5f9',
+                  borderRadius: '8px',
+                  overflowX: 'auto',
+                  maxWidth: '100%',
+                }}
               >
                 <Table size="small">
                   <TableHead sx={{ backgroundColor: '#f8fafc' }}>
@@ -2232,7 +2317,8 @@ export default function ExamDetailsPage() {
                                         backgroundColor: '#ffffff',
                                         border: '1px solid #e2e8f0',
                                         borderRadius: '8px',
-                                        overflow: 'hidden',
+                                        overflowX: 'auto',
+                                        maxWidth: '100%',
                                       }}
                                     >
                                       <Table size="small">
@@ -2378,8 +2464,17 @@ export default function ExamDetailsPage() {
         </Card>
 
         {/* 3. Class Roster Submissions Tracker */}
-        <Card sx={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none' }}>
-          <CardContent sx={{ p: 3 }}>
+        <Card
+          sx={{
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            boxShadow: 'none',
+            minWidth: 0,
+            maxWidth: '100%',
+            overflow: 'hidden',
+          }}
+        >
+          <CardContent sx={{ p: 3, minWidth: 0 }}>
             <Stack
               direction="row"
               sx={{
@@ -2484,7 +2579,12 @@ export default function ExamDetailsPage() {
             ) : (
               <TableContainer
                 component={Box}
-                sx={{ border: '1px solid #f1f5f9', borderRadius: '8px' }}
+                sx={{
+                  border: '1px solid #f1f5f9',
+                  borderRadius: '8px',
+                  overflowX: 'auto',
+                  maxWidth: '100%',
+                }}
               >
                 <Table>
                   <TableHead sx={{ backgroundColor: '#f8fafc' }}>
