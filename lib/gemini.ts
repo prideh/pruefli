@@ -7,6 +7,9 @@ import {
   buildLlmCacheKey,
   getCachedLlmResult,
   setCachedLlmResult,
+  DEFAULT_GRADING_EXECUTION_CONFIG,
+  buildGradingExecutionConfig,
+  type GradingExecutionConfig,
   LLM_PROMPT_VERSIONS,
 } from '@/lib/llm-cache';
 import {
@@ -30,6 +33,40 @@ export {
 };
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+
+/**
+ * Baut die Aufrufkonfiguration fuer Google GenAI aus der zentralen Ausfuehrungskonfiguration.
+ * Stellt sicher, dass die tatsaechliche Request-Konfiguration und der Content-Hash-Cache
+ * stets dieselbe Konfigurationsquelle teilen.
+ */
+export function buildGradingGenerationConfig(
+  attempt: number = 1,
+  customConfig?: GradingExecutionConfig
+): {
+  thinkingConfig: {
+    thinkingLevel: ThinkingLevel;
+  };
+  temperature: number;
+  seed?: number;
+} {
+  const base = buildGradingExecutionConfig(attempt);
+  const thinkingLevel = (customConfig?.thinkingLevel ?? base.thinkingLevel) as ThinkingLevel;
+  const temperature = customConfig?.temperature ?? base.temperature;
+  const seed =
+    customConfig !== undefined && 'seed' in customConfig
+      ? attempt === 1
+        ? (customConfig.seed ?? undefined)
+        : undefined
+      : (base.seed ?? undefined);
+
+  return {
+    thinkingConfig: {
+      thinkingLevel,
+    },
+    temperature,
+    ...(typeof seed === 'number' ? { seed } : {}),
+  };
+}
 
 // Shorter client-side timeout in milliseconds to prevent 300s undici HeadersTimeoutError hangs
 export const GEMINI_CLIENT_TIMEOUT_MS = 90_000; // 90 seconds
@@ -372,7 +409,7 @@ export async function probeGeminiGenerateContent(
       config: {
         maxOutputTokens: 5,
         thinkingConfig: {
-          thinkingLevel: ThinkingLevel.LOW,
+          thinkingLevel: DEFAULT_GRADING_EXECUTION_CONFIG.thinkingLevel as ThinkingLevel,
         },
         abortSignal: AbortSignal.timeout(timeoutMs),
         httpOptions: { timeout: timeoutMs },
@@ -447,6 +484,8 @@ export interface ExamCorrectionResult {
   gradeRounding?: string;
   studentExamUrl?: string;
   referenzTranskript?: string;
+  attempt?: number;
+  executionConfig?: GradingExecutionConfig;
   aufgaben: CorrectedTask[];
   schuelerFeedback: {
     staerken: string[];
@@ -471,6 +510,7 @@ export interface CorrectionMaterialOptions {
   examTemplate?: ReferenceMaterialInput | null;
   gradingNotes?: string | null;
   additionalStudentPages?: { mimeType: string; data: string }[];
+  executionConfig?: GradingExecutionConfig;
 }
 
 function cleanBase64Data(raw: string): string {
@@ -1237,16 +1277,16 @@ Verbindliche Template-Regeln:
 
     const executeCall = async (attempt: number): Promise<ExamCorrectionResult> => {
       const callStart = Date.now();
+      const generationConfig = buildGradingGenerationConfig(
+        attempt,
+        materialOptions?.executionConfig
+      );
       try {
         const config = {
           systemInstruction: finalPrompt,
           responseMimeType: 'application/json',
           responseSchema: CORRECTION_RESPONSE_SCHEMA,
-          thinkingConfig: {
-            thinkingLevel: ThinkingLevel.LOW,
-          },
-          temperature: 0.0,
-          ...(attempt === 1 ? { seed: 42 } : {}),
+          ...generationConfig,
           abortSignal: AbortSignal.timeout(GEMINI_CLIENT_TIMEOUT_MS),
           httpOptions: { timeout: GEMINI_CLIENT_TIMEOUT_MS },
         };
@@ -1279,6 +1319,9 @@ Verbindliche Template-Regeln:
         }
 
         const parsedResult = JSON.parse(responseText) as ExamCorrectionResult;
+        parsedResult.attempt = attempt;
+        parsedResult.executionConfig =
+          materialOptions?.executionConfig || buildGradingExecutionConfig(attempt);
         const securityAudited = auditAndEnforceCorrectionSecurity(parsedResult, {
           studentText: parsedResult.aufgaben?.map((t) => t.schuelerAntwort).join('\n'),
           rubricText: rubric,
@@ -1468,11 +1511,7 @@ REGELN:
       config: {
         responseMimeType: 'application/json',
         responseSchema: SCAN_IDENTIFICATION_SCHEMA,
-        thinkingConfig: {
-          thinkingLevel: ThinkingLevel.LOW,
-        },
-        temperature: 0.0,
-        seed: 42,
+        ...buildGradingGenerationConfig(1),
         abortSignal: AbortSignal.timeout(GEMINI_CLIENT_TIMEOUT_MS),
         httpOptions: { timeout: GEMINI_CLIENT_TIMEOUT_MS },
       },
@@ -1716,12 +1755,8 @@ export async function classifyDocumentWithGemini(
         systemInstruction: CLASSIFICATION_SYSTEM_PROMPT,
         responseMimeType: 'application/json',
         responseSchema: DOCUMENT_CLASSIFICATION_SCHEMA,
-        thinkingConfig: {
-          thinkingLevel: ThinkingLevel.LOW,
-        },
+        ...buildGradingGenerationConfig(1),
         maxOutputTokens: 250,
-        temperature: 0.0,
-        seed: 42,
         abortSignal: AbortSignal.timeout(15_000),
         httpOptions: { timeout: 15_000 },
       },

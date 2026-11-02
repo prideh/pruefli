@@ -18,6 +18,8 @@ export interface LlmCacheEntry<T> {
   callType: LlmCallType;
   promptVersion: string;
   teacherId: string;
+  attempt?: number;
+  executionConfig?: GradingExecutionConfig;
 }
 
 export const LLM_PROMPT_VERSIONS = {
@@ -32,14 +34,40 @@ export const LLM_PROMPT_VERSIONS = {
 export interface GradingExecutionConfig {
   thinkingLevel?: string;
   temperature?: number;
-  seed?: number;
+  seed?: number | null;
+  attempt?: number;
 }
 
-export const DEFAULT_GRADING_EXECUTION_CONFIG: Required<GradingExecutionConfig> = {
+export const DEFAULT_GRADING_EXECUTION_CONFIG: {
+  thinkingLevel: 'LOW';
+  temperature: number;
+  seed: number;
+  attempt: number;
+} = {
   thinkingLevel: 'LOW',
   temperature: 0.0,
   seed: 42,
+  attempt: 1,
 };
+
+/**
+ * Erzeugt die Ausfuehrungskonfiguration fuer einen Korrekturversuch (Single Source of Truth).
+ * Versuch 1 nutzt seed: 42 (best-effort deterministisch).
+ * Versuch 2 laeuft bewusst unseeded (seed: null) zur Vermeidung von Upstream-Timeouts (Issue #91).
+ */
+export function buildGradingExecutionConfig(attempt: number = 1): {
+  thinkingLevel: string;
+  temperature: number;
+  seed: number | null;
+  attempt: number;
+} {
+  return {
+    thinkingLevel: DEFAULT_GRADING_EXECUTION_CONFIG.thinkingLevel,
+    temperature: DEFAULT_GRADING_EXECUTION_CONFIG.temperature,
+    seed: attempt === 1 ? DEFAULT_GRADING_EXECUTION_CONFIG.seed : null,
+    attempt,
+  };
+}
 
 /**
  * Erzeugt einen deterministischen, sortierten JSON-String unabhaengig von Key-Reihenfolgen.
@@ -157,7 +185,17 @@ export function computeGradingHash(params: {
       params.executionConfig?.thinkingLevel ?? DEFAULT_GRADING_EXECUTION_CONFIG.thinkingLevel,
     temperature:
       params.executionConfig?.temperature ?? DEFAULT_GRADING_EXECUTION_CONFIG.temperature,
-    seed: params.executionConfig?.seed ?? DEFAULT_GRADING_EXECUTION_CONFIG.seed,
+    seed:
+      params.executionConfig && 'seed' in params.executionConfig
+        ? (params.executionConfig.seed ?? null)
+        : DEFAULT_GRADING_EXECUTION_CONFIG.seed,
+    attempt:
+      params.executionConfig?.attempt ??
+      (params.executionConfig &&
+      'seed' in params.executionConfig &&
+      params.executionConfig.seed === null
+        ? 2
+        : DEFAULT_GRADING_EXECUTION_CONFIG.attempt),
   };
 
   const canonical = canonicalizeJson({
@@ -311,6 +349,86 @@ export function buildLlmCacheKey(
   contentHash: string
 ): string {
   return `llm:${teacherId}:${callType}:${contentHash}`;
+}
+
+/**
+ * Berechnet Schluessel, Content-Hash und Ausfuehrungskonfiguration fuer eine geplante
+ * oder erfolgte Pruefungskorrektur.
+ */
+export function computeGradingCacheKey(params: {
+  teacherId: string;
+  modelName: string;
+  promptVersion?: string;
+  studentPages: { mimeType: string; data: string }[];
+  rubric: unknown;
+  examTemplate?: unknown;
+  gradingNotes?: string | null;
+  predefinedTasks?: { taskId: string; title: string; maxPoints: number }[];
+  subject?: string | null;
+  executionConfig?: GradingExecutionConfig;
+  attempt?: number;
+}): { cacheKey: string; hash: string; executionConfig: GradingExecutionConfig } {
+  const executionConfig =
+    params.executionConfig || buildGradingExecutionConfig(params.attempt ?? 1);
+  const hash = computeGradingHash({
+    ...params,
+    executionConfig,
+  });
+  const cacheKey = buildLlmCacheKey(params.teacherId, 'grading', hash);
+  return { cacheKey, hash, executionConfig };
+}
+
+/**
+ * Speichert ein Korrekturergebnis atomar unter dem Schluessel des tatsaechlich produzierenden
+ * Versuchs (Versuch 1 seeded vs. Versuch 2 unseeded) im Content-Hash-Cache ab.
+ */
+export async function setCachedGradingResult<
+  T extends { attempt?: number; executionConfig?: GradingExecutionConfig },
+>(params: {
+  teacherId: string;
+  modelName: string;
+  promptVersion?: string;
+  studentPages: { mimeType: string; data: string }[];
+  rubric: unknown;
+  examTemplate?: unknown;
+  gradingNotes?: string | null;
+  predefinedTasks?: { taskId: string; title: string; maxPoints: number }[];
+  subject?: string | null;
+  result: T;
+}): Promise<{ cacheKey: string; hash: string; executionConfig: GradingExecutionConfig }> {
+  const promptVersion = params.promptVersion || LLM_PROMPT_VERSIONS.grading;
+  const executionConfig =
+    params.result.executionConfig || buildGradingExecutionConfig(params.result.attempt ?? 1);
+
+  const hash = computeGradingHash({
+    teacherId: params.teacherId,
+    modelName: params.modelName,
+    promptVersion,
+    studentPages: params.studentPages,
+    rubric: params.rubric,
+    examTemplate: params.examTemplate,
+    gradingNotes: params.gradingNotes,
+    predefinedTasks: params.predefinedTasks,
+    subject: params.subject,
+    executionConfig,
+  });
+
+  const cacheKey = buildLlmCacheKey(params.teacherId, 'grading', hash);
+
+  await setCachedLlmResult(cacheKey, {
+    result: params.result,
+    cachedAt: Date.now(),
+    cachedAtIso: new Date().toISOString(),
+    model: params.modelName,
+    hash,
+    callType: 'grading',
+    promptVersion,
+    teacherId: params.teacherId,
+    attempt: params.result.attempt ?? executionConfig.attempt,
+    executionConfig,
+  });
+
+  return { cacheKey, hash, executionConfig };
 }
 
 // In-Memory-Speicher, ueber Next.js HMR und Worker-Aufrufe hinweg bestaendig

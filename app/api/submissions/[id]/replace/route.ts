@@ -23,9 +23,11 @@ import { invalidateSubmissionCache, invalidateLogsCache } from '@/lib/cache';
 import { validateDocument } from '@/lib/document-validation';
 import { isClassArchived } from '@/lib/class-archive';
 import {
+  computeGradingCacheKey,
   computeGradingHash,
   buildLlmCacheKey,
   getCachedLlmResult,
+  setCachedGradingResult,
   setCachedLlmResult,
   LLM_PROMPT_VERSIONS,
 } from '@/lib/llm-cache';
@@ -280,7 +282,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         // Content-Hash LLM Cache check: If identical scan was already cached, reuse it to avoid duplicate billing
         const promptVersion = LLM_PROMPT_VERSIONS.grading;
         const studentPages = [firstPage, ...extraPages];
-        const gradingHash = computeGradingHash({
+        const { cacheKey, hash: gradingHash } = computeGradingCacheKey({
           teacherId: session.userId,
           modelName: modelToUse,
           promptVersion,
@@ -291,7 +293,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           predefinedTasks,
           subject: submission.exam.subject,
         });
-        const cacheKey = buildLlmCacheKey(session.userId, 'grading', gradingHash);
 
         let result: ExamCorrectionResult;
         let isReused = false;
@@ -324,15 +325,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           );
 
           // Update LLM cache for future identical queries
-          await setCachedLlmResult(cacheKey, {
-            result,
-            cachedAt: Date.now(),
-            cachedAtIso: new Date().toISOString(),
-            model: modelToUse,
-            hash: gradingHash,
-            callType: 'grading',
-            promptVersion,
+          await setCachedGradingResult({
             teacherId: session.userId,
+            modelName: modelToUse,
+            promptVersion,
+            studentPages,
+            rubric: rubricParam,
+            examTemplate: examTemplateParam,
+            gradingNotes: submission.exam.gradingNotes,
+            predefinedTasks,
+            subject: submission.exam.subject,
+            result,
           });
         }
 

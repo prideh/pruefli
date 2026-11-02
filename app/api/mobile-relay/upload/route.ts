@@ -23,9 +23,11 @@ import { saveScannedRelayDocument } from '@/lib/relay-store';
 import { getStorageAdapter } from '@/lib/storage';
 import { invalidateExamCache, invalidateSubmissionCache, invalidateLogsCache } from '@/lib/cache';
 import {
+  computeGradingCacheKey,
   computeGradingHash,
   buildLlmCacheKey,
   getCachedLlmResult,
+  setCachedGradingResult,
   setCachedLlmResult,
   LLM_PROMPT_VERSIONS,
 } from '@/lib/llm-cache';
@@ -342,7 +344,7 @@ export async function POST(request: Request) {
 
           const [firstEvalPage, ...extraEvalPages] = allEvaluationPages;
           const promptVersion = LLM_PROMPT_VERSIONS.grading;
-          const gradingHash = computeGradingHash({
+          const { cacheKey, hash: gradingHash } = computeGradingCacheKey({
             teacherId: payload.teacherId,
             modelName: DEFAULT_GEMINI_MODEL,
             promptVersion,
@@ -353,7 +355,6 @@ export async function POST(request: Request) {
             predefinedTasks,
             subject: existingSub.exam.subject,
           });
-          const cacheKey = buildLlmCacheKey(payload.teacherId, 'grading', gradingHash);
 
           let result: ExamCorrectionResult;
           const cached = await getCachedLlmResult<ExamCorrectionResult>(cacheKey);
@@ -374,15 +375,17 @@ export async function POST(request: Request) {
                 additionalStudentPages: extraEvalPages,
               }
             );
-            await setCachedLlmResult(cacheKey, {
-              result,
-              cachedAt: Date.now(),
-              cachedAtIso: new Date().toISOString(),
-              model: DEFAULT_GEMINI_MODEL,
-              hash: gradingHash,
-              callType: 'grading',
-              promptVersion,
+            await setCachedGradingResult({
               teacherId: payload.teacherId,
+              modelName: DEFAULT_GEMINI_MODEL,
+              promptVersion,
+              studentPages: allEvaluationPages,
+              rubric: parseStoredMaterial(existingSub.exam.rubricText),
+              examTemplate: parseStoredMaterial(existingSub.exam.examTemplateText),
+              gradingNotes: existingSub.exam.gradingNotes,
+              predefinedTasks,
+              subject: existingSub.exam.subject,
+              result,
             });
           }
 
@@ -761,7 +764,7 @@ export async function POST(request: Request) {
         const [firstPage, ...extraPages] = pagePayloads;
         const promptVersion = LLM_PROMPT_VERSIONS.grading;
         const studentPages = pagePayloads.map((p) => ({ mimeType: p.mimeType, data: p.data }));
-        const gradingHash = computeGradingHash({
+        const { cacheKey, hash: gradingHash } = computeGradingCacheKey({
           teacherId: payload.teacherId,
           modelName: DEFAULT_GEMINI_MODEL,
           promptVersion,
@@ -772,7 +775,6 @@ export async function POST(request: Request) {
           predefinedTasks,
           subject: activeExam.subject,
         });
-        const cacheKey = buildLlmCacheKey(payload.teacherId, 'grading', gradingHash);
 
         let result: ExamCorrectionResult;
         let isReused = false;
@@ -799,15 +801,17 @@ export async function POST(request: Request) {
               })),
             }
           );
-          await setCachedLlmResult(cacheKey, {
-            result,
-            cachedAt: Date.now(),
-            cachedAtIso: new Date().toISOString(),
-            model: DEFAULT_GEMINI_MODEL,
-            hash: gradingHash,
-            callType: 'grading',
-            promptVersion,
+          await setCachedGradingResult({
             teacherId: payload.teacherId,
+            modelName: DEFAULT_GEMINI_MODEL,
+            promptVersion,
+            studentPages,
+            rubric: parseStoredMaterial(activeExam.rubricText),
+            examTemplate: parseStoredMaterial(activeExam.examTemplateText),
+            gradingNotes: activeExam.gradingNotes,
+            predefinedTasks,
+            subject: activeExam.subject,
+            result,
           });
         }
 

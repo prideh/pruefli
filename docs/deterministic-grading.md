@@ -19,10 +19,12 @@ Um die Wiederholbarkeit frischer und gecachter Bewertungen maximal abzusichern, 
   - Mandantentrennung (`teacherId`)
   - Modellname (`gemini-3.8-flash`)
   - Prompt-Version (`LLM_PROMPT_VERSIONS.grading: 2026-11-02-grading-v6-deterministic-repeatability`)
-  - Ausführungskonfiguration (`executionConfig: { thinkingLevel: 'LOW', temperature: 0.0, seed: 42 }`)
+  - Ausführungskonfiguration (`executionConfig: { thinkingLevel: 'LOW', temperature: 0.0, seed: 42, attempt: 1 }` für Versuch 1 bzw. `{ seed: null, attempt: 2 }` für unseeded Versuch 2)
   - Seiten-Hashes der Schülerarbeit (kryptografischer SHA-256 über Rohdaten)
   - Normalisierte Musterlösung (`rubric`) & Vorlagenprüfung (`examTemplate`)
   - Zusätzliche Lehrkraftnotizen (`gradingNotes`), vordefinierte Aufgaben & Fach
+- **Gemeinsame Konfigurationsquelle:** Die API-Aufrufparameter in `lib/gemini.ts` und die Cache-Key-Konfiguration in `lib/llm-cache.ts` teilen sich dieselbe Quelle (`DEFAULT_GRADING_EXECUTION_CONFIG` bzw. `buildGradingGenerationConfig`). Eine Desynchronisation zwischen tatsächlichem Request und Cache-Schlüssel ist dadurch architektonisch ausgeschlossen.
+- **Ehrliche Schlüssel- und Cache-Eintragstrennung bei Retries:** Bei transienten Timeouts läuft Versuch 2 unseeded (`seed: null`). Das Ergebnis wird wahrheitsgetreu unter dem unseeded Cache-Key und mit `attempt: 2` / `seed: null` im Cache-Eintrag abgelegt — niemals unter dem Seed-42-Key von Versuch 1.
 - **Automatische Invalidierung:** Jede Änderung von Modellparametern (`thinkingLevel`, `seed`, `temperature`) oder Prompt-Versionen ändert den kryptografischen Hash automatisch. Veraltete Cache-Ergebnisse können somit niemals still als aktuelles Modellverhalten missinterpretiert werden.
 
 ### 2.2 Deterministische Modell-Konfiguration
@@ -55,7 +57,7 @@ LLMs können in Freitext-Zusammenfassungen minimale Rechen- oder Übertragungsfe
 ### Nicht garantiert (Systemgrenzen moderner LLMs):
 
 - **Provider-Seed:** Der Gemini-API `seed`-Parameter ist als _best-effort_ spezifiziert. Aufgrund von GPU/TPU-Cluster-Parallelisierung, asynchronen Matrix-Operationen und verteilter Inferenz können minimale Wortlaut-Varianzen im Feedback entstehen.
-- **Retry-Pfad bei Timeouts:** Ein Wiederholungsversuch (Versuch 2) nach transienten Netzwerk- oder Upstream-Timeouts läuft gemäss Issue #91 unseeded, um identische Timeouts auf blockierten GPU-Instanzen zu vermeiden.
+- **Retry-Pfad bei Timeouts:** Ein Wiederholungsversuch (Versuch 2) nach transienten Netzwerk- oder Upstream-Timeouts läuft gemäss Issue #91 unseeded, um identische Timeouts auf blockierten GPU-Instanzen zu vermeiden. Ein solches Retry-Ergebnis wird transparent als unseeded (`seed: null`, `attempt: 2`) gecacht und niemals fälschlich als Seed-42-Lauf ausgegeben. Spätere Cache-Treffer auf den Standard-Key lesen ausschliesslich verifizierte Seed-42-Ergebnisse aus Versuch 1.
 - **Modell-Updates:** Upstream-Aktualisierungen durch den Modell-Provider (Google) können das Generierungsverhalten über längere Zeiträume verändern.
 
 ---

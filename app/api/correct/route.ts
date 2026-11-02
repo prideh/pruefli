@@ -21,9 +21,11 @@ import {
 import { getStorageAdapter } from '@/lib/storage';
 import { invalidateSubmissionCache, invalidateLogsCache } from '@/lib/cache';
 import {
+  computeGradingCacheKey,
   computeGradingHash,
   buildLlmCacheKey,
   getCachedLlmResult,
+  setCachedGradingResult,
   setCachedLlmResult,
   LLM_PROMPT_VERSIONS,
 } from '@/lib/llm-cache';
@@ -539,7 +541,7 @@ export async function POST(request: Request) {
         const examTemplateParam = parseStoredMaterial(examRecord?.examTemplateText);
         const promptVersion = LLM_PROMPT_VERSIONS.grading;
         const studentPages = [{ mimeType: safeFormat.mimeType, data: studentBase64 }];
-        const gradingHash = computeGradingHash({
+        const { cacheKey, hash: gradingHash } = computeGradingCacheKey({
           teacherId: session.userId,
           modelName: model,
           promptVersion,
@@ -550,7 +552,6 @@ export async function POST(request: Request) {
           predefinedTasks,
           subject: examRecord?.subject,
         });
-        const cacheKey = buildLlmCacheKey(session.userId, 'grading', gradingHash);
 
         let result: ExamCorrectionResult;
         let isReused = false;
@@ -583,15 +584,17 @@ export async function POST(request: Request) {
               gradingNotes: examRecord?.gradingNotes,
             }
           );
-          await setCachedLlmResult(cacheKey, {
-            result,
-            cachedAt: Date.now(),
-            cachedAtIso: new Date().toISOString(),
-            model,
-            hash: gradingHash,
-            callType: 'grading',
-            promptVersion,
+          await setCachedGradingResult({
             teacherId: session.userId,
+            modelName: model,
+            promptVersion,
+            studentPages,
+            rubric: rubricParam,
+            examTemplate: examTemplateParam,
+            gradingNotes: examRecord?.gradingNotes,
+            predefinedTasks,
+            subject: examRecord?.subject,
+            result,
           });
         }
 
