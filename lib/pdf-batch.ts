@@ -11,15 +11,54 @@
 
 import { matchStudentByNameWithConfidence } from '@/lib/grading';
 
+export interface PdfTextRun {
+  text: string;
+  /** X-Koordinate in PDF-Punkten (0 = linker Rand) */
+  x: number;
+  /** Y-Koordinate in PDF-Punkten (0 = unterer Rand, height = oberer Rand) */
+  y: number;
+  /** Schriftgroesse in PDF-Punkten */
+  fontSize: number;
+}
+
+export interface PdfRectVisual {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PdfLineVisual {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface PdfPageVisuals {
+  pageNumber: number;
+  width: number;
+  height: number;
+  textRuns: PdfTextRun[];
+  rects: PdfRectVisual[];
+  lines: PdfLineVisual[];
+  embeddedJpegDataUrl: string | null;
+  extractedTextPreview: string;
+}
+
 export interface PdfPageInfo {
   /** 1-basierte Seitennummer (1..N) */
   pageNumber: number;
   /** Seitenbreite in PDF-Punkten (Standard A4: 595) */
   width: number;
-  /** Seitenhöhe in PDF-Punkten (Standard A4: 842) */
+  /** Seitenhoehe in PDF-Punkten (Standard A4: 842) */
   height: number;
-  /** Eigenständiges 1-seitiges PDF für die lokale Thumbnail-Vorschau im Browser */
+  /** Eigenstaendiges 1-seitiges PDF fuer die lokale Weiterverarbeitung */
   singlePagePdfBytes: Uint8Array;
+  /** Direkt nutzbare Bild-Data-URL (SVG/PNG) fuer das Seiten-Thumbnail (ohne PDF-iframe) */
+  thumbnailDataUrl: string;
+  /** Extrahierter Klartext der Seite (z. B. Name im Seitenkopf / Aufgaben) */
+  extractedTextPreview: string;
 }
 
 export interface PdfInspectionResult {
@@ -371,9 +410,9 @@ function parsePdfStructure(bytes: Uint8Array): InternalParsedPdf {
  * Erzeugt ein standardkonformes, mehrseitiges PDF-Dokument (z. B. für Tests oder Fallback-Seiten).
  */
 export function createMultiPagePdf(
-  pagesInput: Array<{ label?: string; width?: number; height?: number }> | number
+  pagesInput: Array<{ label?: string; lines?: string[]; width?: number; height?: number }> | number
 ): Uint8Array {
-  const pageConfigs =
+  const pageConfigs: Array<{ label?: string; lines?: string[]; width?: number; height?: number }> =
     typeof pagesInput === 'number'
       ? Array.from({ length: Math.max(1, pagesInput) }, (_, idx) => ({
           label: `Pruefungsseite ${idx + 1}`,
@@ -408,7 +447,11 @@ export function createMultiPagePdf(
     const width = cfg.width && cfg.width > 0 ? cfg.width : 595;
     const height = cfg.height && cfg.height > 0 ? cfg.height : 842;
     const safeLabel = (cfg.label || `Seite ${idx + 1}`).replace(/[()\\]/g, '');
-    const streamContent = `BT /F1 14 Tf 50 ${height - 70} Td (${safeLabel}) Tj ET`;
+    const extraLines = Array.isArray(cfg.lines)
+      ? cfg.lines.map((l) => String(l || '').replace(/[()\\]/g, '')).filter((l) => l.length > 0)
+      : [];
+    const extraOps = extraLines.map((line) => ` 0 -22 Td /F1 12 Tf (${line}) Tj`).join('');
+    const streamContent = `BT /F1 14 Tf 50 ${height - 70} Td (${safeLabel}) Tj${extraOps} ET`;
 
     objects.push({
       id: pageObjId,
@@ -636,9 +679,686 @@ export function extractPdfPageRange(
   return extractRangeFromParsedPdf(parsed, bytes, startPage, endPage);
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+  const binary = bytesToLatin1(bytes);
+  return typeof btoa === 'function' ? btoa(binary) : '';
+}
+
+function utf8ToBase64(str: string): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(str, 'utf8').toString('base64');
+  }
+  const encoded = new TextEncoder().encode(str);
+  return bytesToBase64(encoded);
+}
+
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function decodePdfLiteralString(raw: string): string {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch !== '\\') {
+      out += ch;
+      continue;
+    }
+    i++;
+    if (i >= raw.length) break;
+    const next = raw[i];
+    if (next === 'n') out += '\n';
+    else if (next === 'r') out += '\r';
+    else if (next === 't') out += '\t';
+    else if (next === 'b') out += '\b';
+    else if (next === 'f') out += '\f';
+    else if (next === '(' || next === ')' || next === '\\') out += next;
+    else if (next >= '0' && next <= '7') {
+      let oct = next;
+      if (i + 1 < raw.length && raw[i + 1] >= '0' && raw[i + 1] <= '7') {
+        oct += raw[++i];
+        if (i + 1 < raw.length && raw[i + 1] >= '0' && raw[i + 1] <= '7') {
+          oct += raw[++i];
+        }
+      }
+      out += String.fromCharCode(parseInt(oct, 8));
+    } else if (next === '\r' || next === '\n') {
+      if (next === '\r' && raw[i + 1] === '\n') i++;
+    } else {
+      out += next;
+    }
+  }
+  return out;
+}
+
+function decodePdfHexString(hexRaw: string): string {
+  const clean = hexRaw.replace(/[^0-9a-fA-F]/g, '');
+  if (!clean) return '';
+  const padded = clean.length % 2 === 1 ? `${clean}0` : clean;
+  const bytes = new Uint8Array(padded.length / 2);
+  for (let i = 0; i < padded.length; i += 2) {
+    bytes[i / 2] = parseInt(padded.slice(i, i + 2), 16);
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    let utf16 = '';
+    for (let i = 2; i + 1 < bytes.length; i += 2) {
+      utf16 += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+    }
+    return utf16;
+  }
+  return bytesToLatin1(bytes);
+}
+
+function extractStreamPayloadBytes(obj: ParsedPdfObject): Uint8Array | null {
+  const startMatch = /stream\r?\n/.exec(obj.bodyStr);
+  if (!startMatch) return null;
+  const streamDataStart = startMatch.index + startMatch[0].length;
+  const endMatch = obj.bodyStr.lastIndexOf('endstream');
+  if (endMatch === -1 || endMatch < streamDataStart) return null;
+  let streamDataEnd = endMatch;
+  if (streamDataEnd > streamDataStart && obj.bodyBytes[streamDataEnd - 1] === 0x0a) {
+    streamDataEnd--;
+    if (streamDataEnd > streamDataStart && obj.bodyBytes[streamDataEnd - 1] === 0x0d) {
+      streamDataEnd--;
+    }
+  } else if (streamDataEnd > streamDataStart && obj.bodyBytes[streamDataEnd - 1] === 0x0d) {
+    streamDataEnd--;
+  }
+  return obj.bodyBytes.subarray(streamDataStart, streamDataEnd);
+}
+
+async function decompressFlateBytesAsync(payload: Uint8Array): Promise<Uint8Array | null> {
+  if (typeof DecompressionStream === 'undefined') {
+    return null;
+  }
+  for (const format of ['deflate', 'deflate-raw'] as const) {
+    try {
+      const ds = new DecompressionStream(format);
+      const writer = ds.writable.getWriter();
+      const copy = new Uint8Array(payload.byteLength);
+      copy.set(payload);
+      await writer.write(copy);
+      await writer.close();
+      const response = new Response(ds.readable);
+      const ab = await response.arrayBuffer();
+      return new Uint8Array(ab);
+    } catch {
+      // Nächstes Format versuchen
+    }
+  }
+  return null;
+}
+
+function parseTjArrayToken(arrayBody: string): string {
+  let out = '';
+  const tokenRegex = /\((?:\\.|[^\\()])*\)|<[0-9a-fA-F\s]+>|(-?\d+(?:\.\d+)?)/g;
+  let m: RegExpExecArray | null;
+  while ((m = tokenRegex.exec(arrayBody)) !== null) {
+    const tok = m[0];
+    if (tok.startsWith('(') && tok.endsWith(')')) {
+      out += decodePdfLiteralString(tok.slice(1, -1));
+    } else if (tok.startsWith('<') && tok.endsWith('>')) {
+      out += decodePdfHexString(tok.slice(1, -1));
+    } else if (m[1] !== undefined) {
+      const kern = parseFloat(m[1]);
+      if (Number.isFinite(kern) && kern < -180 && !out.endsWith(' ')) {
+        out += ' ';
+      }
+    }
+  }
+  return out;
+}
+
+function parseContentStreamIntoVisuals(
+  streamText: string,
+  pageWidth: number,
+  pageHeight: number,
+  textRuns: PdfTextRun[],
+  rects: PdfRectVisual[],
+  lines: PdfLineVisual[]
+) {
+  // 1. Vektor-Rechtecke (x y w h re) und Linien (x1 y1 m x2 y2 l)
+  const rectRegex =
+    /(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+re\b/g;
+  let rm: RegExpExecArray | null;
+  while ((rm = rectRegex.exec(streamText)) !== null) {
+    const rx = parseFloat(rm[1]);
+    const ry = parseFloat(rm[2]);
+    const rw = parseFloat(rm[3]);
+    const rh = parseFloat(rm[4]);
+    if (
+      Number.isFinite(rx) &&
+      Number.isFinite(ry) &&
+      Number.isFinite(rw) &&
+      Number.isFinite(rh) &&
+      Math.abs(rw) > 2 &&
+      Math.abs(rh) > 0.5 &&
+      !(Math.abs(rw - pageWidth) < 8 && Math.abs(rh - pageHeight) < 8)
+    ) {
+      rects.push({ x: rx, y: ry, width: rw, height: rh });
+    }
+  }
+
+  const lineRegex =
+    /(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+m\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+l\b/g;
+  let lm: RegExpExecArray | null;
+  while ((lm = lineRegex.exec(streamText)) !== null) {
+    const x1 = parseFloat(lm[1]);
+    const y1 = parseFloat(lm[2]);
+    const x2 = parseFloat(lm[3]);
+    const y2 = parseFloat(lm[4]);
+    if ([x1, y1, x2, y2].every((v) => Number.isFinite(v))) {
+      lines.push({ x1, y1, x2, y2 });
+    }
+  }
+
+  // 2. Text-Bloecke (BT ... ET)
+  const btRegex = /\bBT\b([\s\S]*?)\bET\b/g;
+  let btm: RegExpExecArray | null;
+  let foundBtBlock = false;
+
+  const processTextBlock = (block: string, defaultYStart: number) => {
+    let fontSize = 12;
+    let matrixScale = 1;
+    let leading = 14;
+    let lineX = 48;
+    let lineY = defaultYStart;
+    let curX = lineX;
+    let curY = lineY;
+    let hasExplicitPos = false;
+
+    const opRegex =
+      /\/[^\s/[\]()<>]+\s+(-?\d+(?:\.\d+)?)\s+Tf\b|(-?\d+(?:\.\d+)?)\s+TL\b|(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(Td|TD)\b|(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+Tm\b|\bT\*\b|\(((?:\\.|[^\\()])*)\)\s*(Tj|')\b|<([0-9a-fA-F\s]+)>\s*Tj\b|\[([\s\S]*?)\]\s*TJ\b/g;
+
+    let op: RegExpExecArray | null;
+    while ((op = opRegex.exec(block)) !== null) {
+      if (op[1] !== undefined) {
+        const fs = Math.abs(parseFloat(op[1]));
+        if (Number.isFinite(fs) && fs > 0) {
+          fontSize = fs;
+          if (leading === 14) leading = Math.max(12, fs * 1.2);
+        }
+      } else if (op[2] !== undefined) {
+        const tl = Math.abs(parseFloat(op[2]));
+        if (Number.isFinite(tl) && tl > 0) leading = tl;
+      } else if (op[3] !== undefined && op[4] !== undefined && op[5] !== undefined) {
+        const tx = parseFloat(op[3]);
+        const ty = parseFloat(op[4]);
+        if (!hasExplicitPos) {
+          lineX = tx;
+          lineY = ty;
+          hasExplicitPos = true;
+        } else {
+          lineX += tx * matrixScale;
+          lineY += ty * matrixScale;
+        }
+        if (op[5] === 'TD' && ty !== 0) {
+          leading = Math.abs(ty);
+        }
+        curX = lineX;
+        curY = lineY;
+      } else if (
+        op[6] !== undefined &&
+        op[7] !== undefined &&
+        op[8] !== undefined &&
+        op[9] !== undefined &&
+        op[10] !== undefined &&
+        op[11] !== undefined
+      ) {
+        const a = parseFloat(op[6]);
+        const b = parseFloat(op[7]);
+        const c = parseFloat(op[8]);
+        const d = parseFloat(op[9]);
+        const e = parseFloat(op[10]);
+        const f = parseFloat(op[11]);
+        const scaleCandidate = Math.hypot(b, d) || Math.hypot(a, c) || 1;
+        matrixScale = scaleCandidate > 0 ? scaleCandidate : 1;
+        lineX = e;
+        lineY = f;
+        curX = e;
+        curY = f;
+        hasExplicitPos = true;
+      } else if (op[0] === 'T*') {
+        lineY -= leading * matrixScale;
+        curX = lineX;
+        curY = lineY;
+      } else if (op[12] !== undefined) {
+        if (op[13] === "'") {
+          lineY -= leading * matrixScale;
+          curX = lineX;
+          curY = lineY;
+        }
+        const decoded = decodePdfLiteralString(op[12]).trim();
+        const effSize = Math.max(8, Math.min(36, fontSize * matrixScale));
+        if (decoded) {
+          textRuns.push({
+            text: decoded,
+            x: Math.max(16, Math.min(pageWidth - 24, curX)),
+            y: Math.max(16, Math.min(pageHeight - 16, curY)),
+            fontSize: effSize,
+          });
+          curX += decoded.length * effSize * 0.52;
+        }
+      } else if (op[14] !== undefined) {
+        const decoded = decodePdfHexString(op[14]).trim();
+        const effSize = Math.max(8, Math.min(36, fontSize * matrixScale));
+        if (decoded) {
+          textRuns.push({
+            text: decoded,
+            x: Math.max(16, Math.min(pageWidth - 24, curX)),
+            y: Math.max(16, Math.min(pageHeight - 16, curY)),
+            fontSize: effSize,
+          });
+          curX += decoded.length * effSize * 0.52;
+        }
+      } else if (op[15] !== undefined) {
+        const decoded = parseTjArrayToken(op[15]).trim();
+        const effSize = Math.max(8, Math.min(36, fontSize * matrixScale));
+        if (decoded) {
+          textRuns.push({
+            text: decoded,
+            x: Math.max(16, Math.min(pageWidth - 24, curX)),
+            y: Math.max(16, Math.min(pageHeight - 16, curY)),
+            fontSize: effSize,
+          });
+          curX += decoded.length * effSize * 0.52;
+        }
+      }
+    }
+  };
+
+  let btIndex = 0;
+  while ((btm = btRegex.exec(streamText)) !== null) {
+    foundBtBlock = true;
+    processTextBlock(btm[1], Math.max(120, pageHeight - 70 - btIndex * 24));
+    btIndex++;
+  }
+
+  if (!foundBtBlock) {
+    processTextBlock(streamText, pageHeight - 70);
+  }
+}
+
+function collectPageVisualsFromObjects(
+  parsed: InternalParsedPdf,
+  pageNumber: number,
+  width: number,
+  height: number,
+  decompressedStreams?: Map<number, string>
+): PdfPageVisuals {
+  const textRuns: PdfTextRun[] = [];
+  const rects: PdfRectVisual[] = [];
+  const lines: PdfLineVisual[] = [];
+  let embeddedJpegDataUrl: string | null = null;
+
+  for (const [objId, obj] of parsed.objects.entries()) {
+    const payload = extractStreamPayloadBytes(obj);
+    if (!payload || payload.length === 0) continue;
+
+    // Eingebettete Scan-Bilder (/Subtype /Image mit /DCTDecode oder JPEG-Header 0xFF 0xD8)
+    const isImageObj =
+      /\/Subtype\s*\/Image\b/.test(obj.dictStr) ||
+      /\/Filter\s*(?:\[\s*)?\/DCTDecode\b/.test(obj.dictStr) ||
+      (payload.length > 4 && payload[0] === 0xff && payload[1] === 0xd8 && payload[2] === 0xff);
+
+    if (isImageObj) {
+      if (
+        !embeddedJpegDataUrl &&
+        (/\/DCTDecode\b/.test(obj.dictStr) || (payload[0] === 0xff && payload[1] === 0xd8))
+      ) {
+        embeddedJpegDataUrl = `data:image/jpeg;base64,${bytesToBase64(payload)}`;
+      }
+      continue;
+    }
+
+    const decompressedText = decompressedStreams?.get(objId);
+    if (decompressedText !== undefined) {
+      parseContentStreamIntoVisuals(decompressedText, width, height, textRuns, rects, lines);
+    } else if (!/\/Filter\s*(?:\[\s*)?\/FlateDecode\b/.test(obj.dictStr)) {
+      const rawStreamText = bytesToLatin1(payload);
+      parseContentStreamIntoVisuals(rawStreamText, width, height, textRuns, rects, lines);
+    }
+  }
+
+  const extractedTextPreview = textRuns
+    .map((r) => r.text)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return {
+    pageNumber,
+    width,
+    height,
+    textRuns,
+    rects,
+    lines,
+    embeddedJpegDataUrl,
+    extractedTextPreview,
+  };
+}
+
+/**
+ * Extrahiert synchron die visuellen Seiteninhalte (Textlaeufe, Vektoren, eingebettete Scan-JPEGs)
+ * aus einem 1-seitigen PDF fuer das lokale Thumbnail-Rendering.
+ */
+export function extractPdfPageVisuals(
+  singlePagePdfInput: Uint8Array | ArrayBuffer,
+  pageNumber = 1,
+  defaultWidth = 595,
+  defaultHeight = 842
+): PdfPageVisuals {
+  const bytes = toUint8Array(singlePagePdfInput);
+  const parsed = parsePdfStructure(bytes);
+  if (!parsed.isPdf) {
+    return {
+      pageNumber,
+      width: defaultWidth,
+      height: defaultHeight,
+      textRuns: [],
+      rects: [],
+      lines: [],
+      embeddedJpegDataUrl: null,
+      extractedTextPreview: '',
+    };
+  }
+  return collectPageVisualsFromObjects(parsed, pageNumber, defaultWidth, defaultHeight);
+}
+
+/**
+ * Extrahiert asynchron die visuellen Seiteninhalte inklusive /FlateDecode-komprimierter PDF-Streams.
+ */
+export async function extractPdfPageVisualsAsync(
+  singlePagePdfInput: Uint8Array | ArrayBuffer,
+  pageNumber = 1,
+  defaultWidth = 595,
+  defaultHeight = 842
+): Promise<PdfPageVisuals> {
+  const bytes = toUint8Array(singlePagePdfInput);
+  const parsed = parsePdfStructure(bytes);
+  if (!parsed.isPdf) {
+    return {
+      pageNumber,
+      width: defaultWidth,
+      height: defaultHeight,
+      textRuns: [],
+      rects: [],
+      lines: [],
+      embeddedJpegDataUrl: null,
+      extractedTextPreview: '',
+    };
+  }
+
+  const decompressedStreams = new Map<number, string>();
+  for (const [objId, obj] of parsed.objects.entries()) {
+    if (!/\/Filter\s*(?:\[\s*)?\/FlateDecode\b/.test(obj.dictStr)) continue;
+    if (/\/Subtype\s*\/Image\b/.test(obj.dictStr)) continue;
+    const payload = extractStreamPayloadBytes(obj);
+    if (!payload || payload.length === 0) continue;
+    const inflated = await decompressFlateBytesAsync(payload);
+    if (inflated && inflated.length > 0) {
+      decompressedStreams.set(objId, bytesToLatin1(inflated));
+    }
+  }
+
+  return collectPageVisualsFromObjects(
+    parsed,
+    pageNumber,
+    defaultWidth,
+    defaultHeight,
+    decompressedStreams
+  );
+}
+
+/**
+ * Erzeugt eine direkt im `<img src={...} />` darstellbare SVG-Data-URL mit dem gerenderten
+ * Seiteninhalt (Textlaeufe, Name im Kopf, Aufgabenzeilen, Vektoren oder Scan-Bild).
+ */
+export function renderPdfPageThumbnailSvgDataUrl(visuals: PdfPageVisuals): string {
+  const w = visuals.width > 0 ? visuals.width : 595;
+  const h = visuals.height > 0 ? visuals.height : 842;
+
+  const parts: string[] = [];
+  parts.push(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`
+  );
+  // Papier-Hintergrund
+  parts.push(`<rect x="0" y="0" width="${w}" height="${h}" fill="#ffffff" />`);
+  // Dezente Kopfzeilen-Markierung wie auf einem Pruefungsbogen
+  parts.push(`<rect x="36" y="28" width="${w - 72}" height="4" rx="2" fill="#e2e8f0" />`);
+
+  if (visuals.embeddedJpegDataUrl) {
+    parts.push(
+      `<image href="${visuals.embeddedJpegDataUrl}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet" />`
+    );
+  }
+
+  // Vektor-Rechtecke und Tabellenlinien
+  for (const r of visuals.rects.slice(0, 60)) {
+    const rx = Math.min(r.x, r.x + r.width);
+    const rw = Math.abs(r.width);
+    const rh = Math.abs(r.height);
+    const topY = Math.max(0, Math.min(h - rh, h - Math.max(r.y, r.y + r.height)));
+    parts.push(
+      `<rect x="${rx.toFixed(1)}" y="${topY.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" fill="none" stroke="#cbd5e1" stroke-width="1.2" />`
+    );
+  }
+
+  for (const l of visuals.lines.slice(0, 80)) {
+    const y1 = Math.max(0, Math.min(h, h - l.y1));
+    const y2 = Math.max(0, Math.min(h, h - l.y2));
+    parts.push(
+      `<line x1="${l.x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${l.x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#cbd5e1" stroke-width="1.2" />`
+    );
+  }
+
+  if (visuals.textRuns.length > 0) {
+    // Sortiere Textlaeufe von oben nach unten fuer saubere Lesbarkeit
+    const sortedRuns = [...visuals.textRuns].sort((a, b) => b.y - a.y || a.x - b.x);
+    // Hebe den Kopfbereich (erste Textzeilen, z. B. Schuelername / Titel) optisch als Lesebereich hervor
+    parts.push(
+      `<rect x="36" y="44" width="${w - 72}" height="58" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2" />`
+    );
+
+    sortedRuns.slice(0, 45).forEach((run, idx) => {
+      const rawTopY = h - run.y;
+      const topY = Math.max(68, Math.min(h - 24, rawTopY));
+      const x = Math.max(44, Math.min(w - 60, run.x));
+      // Fuer gute Lesbarkeit im Thumbnail skalieren wir sehr kleine Schriften leicht an
+      const displayFontSize = Math.max(18, Math.min(30, run.fontSize * 1.45));
+      const isHeaderLine = idx === 0 || topY <= 115;
+      const fontWeight = isHeaderLine ? 700 : 500;
+      const fill = isHeaderLine ? '#0f172a' : '#334155';
+      parts.push(
+        `<text x="${x.toFixed(1)}" y="${topY.toFixed(1)}" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="${displayFontSize.toFixed(1)}" font-weight="${fontWeight}" fill="${fill}">${escapeXml(run.text)}</text>`
+      );
+    });
+
+    // Dezent angedeutete Aufgaben-/Antwortzeilen im unteren Teil des Blatts, falls nur Kopfzeilen vorhanden sind
+    if (sortedRuns.length <= 3 && !visuals.embeddedJpegDataUrl) {
+      for (let lineIdx = 0; lineIdx < 6; lineIdx++) {
+        const lineY = 175 + lineIdx * 42;
+        const lineW = lineIdx % 2 === 0 ? w - 96 : w - 160;
+        parts.push(
+          `<rect x="48" y="${lineY}" width="${lineW}" height="8" rx="4" fill="#e2e8f0" />`
+        );
+      }
+    }
+  } else if (!visuals.embeddedJpegDataUrl) {
+    // Fallback-Blattdarstellung fuer Seiten ohne extrahierbaren Text-/JPEG-Stream
+    parts.push(
+      `<rect x="36" y="48" width="${w - 72}" height="54" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2" />`
+    );
+    parts.push(
+      `<text x="52" y="82" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#0f172a">Blatt ${visuals.pageNumber}</text>`
+    );
+    for (let lineIdx = 0; lineIdx < 7; lineIdx++) {
+      const lineY = 145 + lineIdx * 44;
+      const lineW = lineIdx % 2 === 0 ? w - 96 : w - 150;
+      parts.push(`<rect x="48" y="${lineY}" width="${lineW}" height="8" rx="4" fill="#e2e8f0" />`);
+    }
+  }
+
+  // Fusszeile mit Seitenzahl
+  parts.push(
+    `<text x="${(w / 2).toFixed(1)}" y="${(h - 22).toFixed(1)}" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600" fill="#64748b">Seite ${visuals.pageNumber}</text>`
+  );
+  parts.push('</svg>');
+
+  const svgString = parts.join('');
+  return `data:image/svg+xml;base64,${utf8ToBase64(svgString)}`;
+}
+
+/**
+ * Rasterisiert eine PDF-Seite clientseitig auf ein HTML5 `<canvas>` (PNG-Data-URL) bzw.
+ * liefert in Umgebungen ohne 2D-Canvas-Kontext die gerenderte SVG-Data-URL zurueck.
+ */
+export async function rasterizePdfPageToDataUrl(page: PdfPageInfo): Promise<string> {
+  const visuals = await extractPdfPageVisualsAsync(
+    page.singlePagePdfBytes,
+    page.pageNumber,
+    page.width,
+    page.height
+  );
+  const svgFallbackUrl = renderPdfPageThumbnailSvgDataUrl(visuals);
+
+  if (typeof document === 'undefined') {
+    return svgFallbackUrl;
+  }
+
+  try {
+    const canvas = document.createElement('canvas');
+    const targetWidth = 420;
+    const w = visuals.width > 0 ? visuals.width : 595;
+    const h = visuals.height > 0 ? visuals.height : 842;
+    const targetHeight = Math.max(280, Math.round(targetWidth * (h / w)));
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return svgFallbackUrl;
+    }
+
+    const scaleX = targetWidth / w;
+    const scaleY = targetHeight / h;
+
+    // 1. Weisser Papierhintergrund
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+    // 2. Falls ein eingebettetes Scan-JPEG vorliegt, auf das Canvas zeichnen
+    if (visuals.embeddedJpegDataUrl && typeof Image !== 'undefined') {
+      await new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+          } catch {
+            // Ignoriere Draw-Fehler
+          }
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = visuals.embeddedJpegDataUrl!;
+      });
+    }
+
+    // 3. Kopfbalken & Vektor-Linien/Rechtecke
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(36 * scaleX, 24 * scaleY, (w - 72) * scaleX, 3 * scaleY);
+
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 1;
+    for (const r of visuals.rects.slice(0, 60)) {
+      const rx = Math.min(r.x, r.x + r.width) * scaleX;
+      const rw = Math.abs(r.width) * scaleX;
+      const rh = Math.abs(r.height) * scaleY;
+      const topY =
+        Math.max(0, Math.min(h - Math.abs(r.height), h - Math.max(r.y, r.y + r.height))) * scaleY;
+      ctx.strokeRect(rx, topY, rw, rh);
+    }
+    for (const l of visuals.lines.slice(0, 80)) {
+      ctx.beginPath();
+      ctx.moveTo(l.x1 * scaleX, (h - l.y1) * scaleY);
+      ctx.lineTo(l.x2 * scaleX, (h - l.y2) * scaleY);
+      ctx.stroke();
+    }
+
+    // 4. Textlaeufe (Schuelername, Seitenkopf, Aufgaben) klar lesbar zeichnen
+    if (visuals.textRuns.length > 0) {
+      const sortedRuns = [...visuals.textRuns].sort((a, b) => b.y - a.y || a.x - b.x);
+      if (!visuals.embeddedJpegDataUrl) {
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(28 * scaleX, 38 * scaleY, (w - 56) * scaleX, 56 * scaleY);
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.strokeRect(28 * scaleX, 38 * scaleY, (w - 56) * scaleX, 56 * scaleY);
+      }
+
+      sortedRuns.slice(0, 45).forEach((run, idx) => {
+        const rawTopY = h - run.y;
+        const clampedTopY = Math.max(66, Math.min(h - 28, rawTopY));
+        const pxX = Math.max(36 * scaleX, Math.min((w - 60) * scaleX, run.x * scaleX));
+        const pxY = clampedTopY * scaleY;
+        const isHeaderLine = idx === 0 || clampedTopY <= 115;
+        const pxFontSize = Math.max(12, Math.min(20, Math.round(run.fontSize * scaleX * 1.45)));
+        ctx.font = `${isHeaderLine ? 700 : 500} ${pxFontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        ctx.fillStyle = isHeaderLine ? '#0f172a' : '#334155';
+        ctx.fillText(run.text, pxX, pxY, targetWidth - pxX - 16);
+      });
+
+      if (sortedRuns.length <= 3 && !visuals.embeddedJpegDataUrl) {
+        ctx.fillStyle = '#e2e8f0';
+        for (let lineIdx = 0; lineIdx < 6; lineIdx++) {
+          const lineY = (175 + lineIdx * 42) * scaleY;
+          const lineW = (lineIdx % 2 === 0 ? w - 96 : w - 160) * scaleX;
+          ctx.fillRect(42 * scaleX, lineY, lineW, 6 * scaleY);
+        }
+      }
+    } else if (!visuals.embeddedJpegDataUrl) {
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(28 * scaleX, 42 * scaleY, (w - 56) * scaleX, 52 * scaleY);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.strokeRect(28 * scaleX, 42 * scaleY, (w - 56) * scaleX, 52 * scaleY);
+      ctx.font = '700 16px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(`Blatt ${visuals.pageNumber}`, 42 * scaleX, 74 * scaleY);
+      ctx.fillStyle = '#e2e8f0';
+      for (let lineIdx = 0; lineIdx < 6; lineIdx++) {
+        const lineY = (145 + lineIdx * 44) * scaleY;
+        const lineW = (lineIdx % 2 === 0 ? w - 96 : w - 150) * scaleX;
+        ctx.fillRect(42 * scaleX, lineY, lineW, 6 * scaleY);
+      }
+    }
+
+    // 5. Fusszeile
+    ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Seite ${visuals.pageNumber}`, targetWidth / 2, targetHeight - 10);
+
+    const dataUrl = canvas.toDataURL('image/png');
+    if (dataUrl && dataUrl.startsWith('data:image/png')) {
+      return dataUrl;
+    }
+  } catch {
+    // Fallback auf SVG-Data-URL
+  }
+
+  return svgFallbackUrl;
+}
+
 /**
  * Inspiziert ein PDF lokal (ohne KI-Aufrufe) und liefert Seitenanzahl sowie
- * für jede Seite ein 1-seitiges Vorschau-PDF für die Seitenübersicht (Thumbnails).
+ * fuer jede Seite ein 1-seitiges Vorschau-PDF und ein direkt darstellbares Thumbnail-Bild.
  */
 export function inspectPdfBytes(pdfInput: Uint8Array | ArrayBuffer): PdfInspectionResult {
   const bytes = toUint8Array(pdfInput);
@@ -665,11 +1385,16 @@ export function inspectPdfBytes(pdfInput: Uint8Array | ArrayBuffer): PdfInspecti
     const singlePagePdfBytes =
       totalPages === 1 ? bytes : extractRangeFromParsedPdf(parsed, bytes, pageNumber, pageNumber);
 
+    const visuals = extractPdfPageVisuals(singlePagePdfBytes, pageNumber, dims.width, dims.height);
+    const thumbnailDataUrl = renderPdfPageThumbnailSvgDataUrl(visuals);
+
     pages.push({
       pageNumber,
       width: dims.width,
       height: dims.height,
       singlePagePdfBytes,
+      thumbnailDataUrl,
+      extractedTextPreview: visuals.extractedTextPreview,
     });
   }
 

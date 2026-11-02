@@ -16,7 +16,6 @@ import {
   CircularProgress,
 } from '@mui/material';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
-import DescriptionIcon from '@mui/icons-material/Description';
 import FlagIcon from '@mui/icons-material/Flag';
 import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -24,6 +23,7 @@ import {
   computeSegmentsFromStartPages,
   toggleStartPageMarker,
   splitPdfFileToFiles,
+  rasterizePdfPageToDataUrl,
   type PdfPageInfo,
   type SplitPdfWork,
 } from '@/lib/pdf-batch';
@@ -54,39 +54,32 @@ function PdfBatchSplitDialogContent({
   const [startPages, setStartPages] = useState<number[]>([1]);
   const [splitting, setSplitting] = useState(false);
   const [splitError, setSplitError] = useState('');
+  const [rasterizedThumbnails, setRasterizedThumbnails] = useState<Record<number, string>>({});
 
-  // Create local Blob URLs for single-page PDF thumbnails and clean up on unmount
-  const pagePreviewUrls = useMemo(() => {
-    if (!open || pages.length === 0 || typeof URL === 'undefined' || !URL.createObjectURL) {
-      return {} as Record<number, string>;
-    }
-    const map: Record<number, string> = {};
-    for (const p of pages) {
-      try {
-        const copy = new Uint8Array(p.singlePagePdfBytes.byteLength);
-        copy.set(p.singlePagePdfBytes);
-        const blob = new Blob([copy.buffer], { type: 'application/pdf' });
-        map[p.pageNumber] = URL.createObjectURL(blob);
-      } catch {
-        // Fallback if Blob URL creation fails in test environment
-      }
-    }
-    return map;
-  }, [open, pages]);
-
+  // Rasterisiere jede PDF-Seite clientseitig als Bild-Data-URL (Canvas PNG / SVG),
+  // damit kein Browser-PDF-Plugin-Platzhalter entsteht.
   useEffect(() => {
-    return () => {
-      if (typeof URL !== 'undefined' && URL.revokeObjectURL) {
-        Object.values(pagePreviewUrls).forEach((url) => {
-          try {
-            URL.revokeObjectURL(url);
-          } catch {
-            // Ignore cleanup errors
-          }
-        });
+    if (!open || pages.length === 0) return;
+    let cancelled = false;
+
+    void (async () => {
+      const nextMap: Record<number, string> = {};
+      for (const page of pages) {
+        if (cancelled) return;
+        const dataUrl = await rasterizePdfPageToDataUrl(page);
+        if (!cancelled && dataUrl) {
+          nextMap[page.pageNumber] = dataUrl;
+        }
       }
+      if (!cancelled) {
+        setRasterizedThumbnails(nextMap);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
-  }, [pagePreviewUrls]);
+  }, [open, pages]);
 
   const segments = useMemo(
     () => computeSegmentsFromStartPages(totalPages, startPages),
@@ -288,7 +281,7 @@ function PdfBatchSplitDialogContent({
               };
               const isStart = info.isStartPage;
               const isFirstPage = page.pageNumber === 1;
-              const previewUrl = pagePreviewUrls[page.pageNumber];
+              const previewUrl = rasterizedThumbnails[page.pageNumber] || page.thumbnailDataUrl;
 
               return (
                 <Grid key={page.pageNumber} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
@@ -351,17 +344,17 @@ function PdfBatchSplitDialogContent({
                       />
                     </Stack>
 
-                    {/* Visuelle Seiten-Vorschau (Thumbnail) */}
+                    {/* Visuelle Seiten-Vorschau (Client-seitig gerastertes Bild-Thumbnail ohne PDF-iframe) */}
                     <Box
                       sx={{
                         position: 'relative',
-                        height: 210,
+                        height: 240,
                         backgroundColor: '#f8fafc',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        p: 1.5,
+                        p: 1.25,
                       }}
                     >
                       <Box
@@ -369,50 +362,34 @@ function PdfBatchSplitDialogContent({
                           width: '100%',
                           height: '100%',
                           backgroundColor: '#ffffff',
-                          border: '1px solid #e2e8f0',
+                          border: '1px solid #cbd5e1',
                           borderRadius: '6px',
                           position: 'relative',
                           overflow: 'hidden',
                           display: 'flex',
-                          flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
+                          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06)',
                         }}
                       >
-                        {previewUrl && (
-                          <iframe
-                            src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
-                            title={`Seiten-Thumbnail ${page.pageNumber}`}
-                            style={{
-                              position: 'absolute',
-                              inset: 0,
-                              width: '100%',
-                              height: '100%',
-                              border: 0,
-                              pointerEvents: 'none',
-                            }}
-                          />
-                        )}
-                        <Stack
-                          spacing={0.5}
+                        <Box
+                          component="img"
+                          src={previewUrl}
+                          alt={
+                            page.extractedTextPreview
+                              ? `Seiten-Vorschau Seite ${page.pageNumber}: ${page.extractedTextPreview}`
+                              : `Seiten-Vorschau Seite ${page.pageNumber}`
+                          }
+                          data-testid={`pdf-page-thumbnail-img-${page.pageNumber}`}
                           sx={{
-                            alignItems: 'center',
-                            textAlign: 'center',
-                            p: 1,
-                            zIndex: 0,
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                            display: 'block',
+                            userSelect: 'none',
+                            pointerEvents: 'none',
                           }}
-                        >
-                          <DescriptionIcon sx={{ fontSize: '2.2rem', color: '#94a3b8' }} />
-                          <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>
-                            Blatt {page.pageNumber} von {totalPages}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            sx={{ color: '#94a3b8', fontSize: '0.7rem' }}
-                          >
-                            {page.width} × {page.height} pt
-                          </Typography>
-                        </Stack>
+                        />
                       </Box>
                     </Box>
 

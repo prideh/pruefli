@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import zlib from 'node:zlib';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   isPdfFile,
@@ -9,6 +12,10 @@ import {
   splitPdfFileToFiles,
   createMultiPagePdf,
   resolveUnconfirmedStudentSuggestion,
+  extractPdfPageVisuals,
+  extractPdfPageVisualsAsync,
+  renderPdfPageThumbnailSvgDataUrl,
+  rasterizePdfPageToDataUrl,
 } from '@/lib/pdf-batch';
 import { extractDocumentText } from '@/lib/document-validation';
 import { GET as getSubmissions } from '@/app/api/submissions/route';
@@ -84,16 +91,129 @@ describe('Batch-Scan (#83): PDF-Klassensatz lokal zerlegen und mit Namens-Vorsch
       expect(multiInspection.pageCount).toBe(5);
       expect(multiInspection.pages).toHaveLength(5);
 
-      // Jede Seite liefert ein eigenständiges 1-seitiges PDF für die Thumbnail-Seitenübersicht
+      // Jede Seite liefert ein eigenständiges 1-seitiges PDF sowie ein lesbares Bild-Thumbnail (ohne PDF-iframe)
+      const expectedLabels = [
+        'Schueler A - Blatt 1',
+        'Schueler A - Blatt 2',
+        'Schueler B - Blatt 1',
+        'Schueler C - Blatt 1',
+        'Schueler C - Blatt 2',
+      ];
       for (let i = 0; i < 5; i++) {
         const pageDesc = multiInspection.pages[i];
         expect(pageDesc.pageNumber).toBe(i + 1);
         expect(pageDesc.width).toBe(595);
         expect(pageDesc.height).toBe(842);
+        expect(pageDesc.extractedTextPreview).toContain(expectedLabels[i]);
+        expect(pageDesc.thumbnailDataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+
+        const decodedSvg = Buffer.from(
+          pageDesc.thumbnailDataUrl.replace(/^data:image\/svg\+xml;base64,/, ''),
+          'base64'
+        ).toString('utf8');
+        expect(decodedSvg).toContain(expectedLabels[i]);
+
         const thumbInspection = inspectPdfBytes(pageDesc.singlePagePdfBytes);
         expect(thumbInspection.isPdf).toBe(true);
         expect(thumbInspection.pageCount).toBe(1);
       }
+    });
+
+    it('rasterisiert PDF-Seiten clientseitig als lesbare Bild-Vorschau (inkl. FlateDecode & Canvas) ohne <iframe src="blob:...">', async () => {
+      // 1. Prüfe mehrzeilige Seiteninhalte (Name im Seitenkopf + Aufgabenzeilen)
+      const examPdf = createMultiPagePdf([
+        {
+          label: 'Name: Lukas Mueller - Klasse 2a',
+          lines: ['Aufgabe 1: 3/4 + 1/4 = 1', 'Aufgabe 2: 5 * 8 = 40'],
+        },
+        {
+          label: 'Name: Anna Meier - Klasse 2a',
+          lines: ['Aufgabe 1: 1/2 + 1/2 = 1'],
+        },
+      ]);
+      const inspection = inspectPdfBytes(examPdf);
+      expect(inspection.pages[0].extractedTextPreview).toContain('Name: Lukas Mueller - Klasse 2a');
+      expect(inspection.pages[0].extractedTextPreview).toContain('Aufgabe 1: 3/4 + 1/4 = 1');
+
+      const visuals1 = extractPdfPageVisuals(inspection.pages[0].singlePagePdfBytes, 1, 595, 842);
+      expect(visuals1.textRuns.map((r) => r.text)).toEqual([
+        'Name: Lukas Mueller - Klasse 2a',
+        'Aufgabe 1: 3/4 + 1/4 = 1',
+        'Aufgabe 2: 5 * 8 = 40',
+      ]);
+
+      // 2. Prüfe /FlateDecode-komprimierte PDF-Streams via extractPdfPageVisualsAsync
+      const rawStream = 'BT /F1 14 Tf 50 770 Td [(Name: ) -20 (Sophie Keller)] TJ ET';
+      const compressed = zlib.deflateSync(Buffer.from(rawStream, 'latin1'));
+      const header = Buffer.from(
+        `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count 1 /Kids [ 3 0 R ] >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Filter /FlateDecode /Length ${compressed.length} >>\nstream\n`,
+        'latin1'
+      );
+      const footer = Buffer.from(
+        `\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n`,
+        'latin1'
+      );
+      const flatePdf = new Uint8Array(Buffer.concat([header, compressed, footer]));
+      const asyncVisuals = await extractPdfPageVisualsAsync(flatePdf, 1, 595, 842);
+      expect(asyncVisuals.extractedTextPreview).toContain('Name: Sophie Keller');
+      const flateSvg = Buffer.from(
+        renderPdfPageThumbnailSvgDataUrl(asyncVisuals).replace(/^data:image\/svg\+xml;base64,/, ''),
+        'base64'
+      ).toString('utf8');
+      expect(flateSvg).toContain('Name: Sophie Keller');
+
+      // 3. Prüfe rasterizePdfPageToDataUrl (nutzt HTML5 <canvas>, wenn 2D-Context verfügbar ist)
+      const dataUrlFallback = await rasterizePdfPageToDataUrl(inspection.pages[0]);
+      expect(dataUrlFallback).toMatch(/^data:image\/(png|svg\+xml);base64,/);
+
+      // Simuliere einen Browser-2D-Canvas-Kontext für PNG-Rasterisierung
+      const drawnTexts: string[] = [];
+      const fakeCtx = {
+        fillStyle: '',
+        strokeStyle: '',
+        lineWidth: 1,
+        font: '',
+        textAlign: 'left',
+        fillRect: vi.fn(),
+        strokeRect: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        drawImage: vi.fn(),
+        fillText: vi.fn((text: string) => {
+          drawnTexts.push(text);
+        }),
+      };
+      const origDoc = globalThis.document;
+      vi.stubGlobal('document', {
+        createElement: vi.fn(() => ({
+          width: 0,
+          height: 0,
+          getContext: () => fakeCtx,
+          toDataURL: () => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
+        })),
+      });
+      try {
+        const pngUrl = await rasterizePdfPageToDataUrl(inspection.pages[0]);
+        expect(pngUrl).toMatch(/^data:image\/png;base64,/);
+        expect(drawnTexts).toContain('Name: Lukas Mueller - Klasse 2a');
+        expect(drawnTexts).toContain('Aufgabe 1: 3/4 + 1/4 = 1');
+      } finally {
+        if (origDoc === undefined) {
+          vi.unstubAllGlobals();
+        } else {
+          vi.stubGlobal('document', origDoc);
+        }
+      }
+
+      // 4. Stelle sicher, dass PdfBatchSplitDialog.tsx KEIN <iframe src="blob:..."> mehr verwendet, sondern <img
+      const dialogPath = path.join(process.cwd(), 'components', 'PdfBatchSplitDialog.tsx');
+      const dialogSource = fs.readFileSync(dialogPath, 'utf8');
+      expect(dialogSource).not.toContain('<iframe');
+      expect(dialogSource).not.toContain('URL.createObjectURL');
+      expect(dialogSource).toContain('pdf-page-thumbnail-img-');
+      expect(dialogSource).toContain('rasterizePdfPageToDataUrl');
     });
   });
 
