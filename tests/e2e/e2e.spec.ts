@@ -54,33 +54,15 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     // Verify sidebar does NOT show cluttering "Protokoll" link
     await expect(page.getByRole('link', { name: 'Protokoll' })).toHaveCount(0);
 
-    // Verify Landingpage-Header in logged-in state across Desktop & Mobile viewports (#71)
+    // Verify logged-in teachers visiting '/' are redirected server-side directly to '/dashboard' (#85)
     for (const vp of [
       { width: 1280, height: 800 },
       { width: 375, height: 667 },
     ]) {
       await page.setViewportSize(vp);
       await page.goto('/');
-      const header = page.locator('header');
-      await expect(
-        header
-          .getByRole('button', { name: 'Login' })
-          .or(header.getByRole('link', { name: 'Login' }))
-          .first()
-      ).toBeVisible();
-      await expect(
-        header
-          .getByRole('button', { name: 'Registrieren' })
-          .or(header.getByRole('link', { name: 'Registrieren' }))
-          .first()
-      ).toBeVisible();
-      await expect(header.getByText('Zum Workspace')).toHaveCount(0);
-      await expect(
-        page
-          .getByRole('button', { name: 'Zum Korrektur-Workspace' })
-          .or(page.getByRole('link', { name: 'Zum Korrektur-Workspace' }))
-          .first()
-      ).toBeVisible();
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
+      await expect(page.getByText('Prüfungskorrektur starten')).toBeVisible();
     }
     await page.setViewportSize({ width: 1280, height: 800 });
 

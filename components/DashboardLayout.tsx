@@ -237,7 +237,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       const res = await fetch('/api/auth/logout', { method: 'POST' });
       if (res.ok) {
         clearSessionCache();
-        router.push('/login');
+        router.push('/');
       }
     } catch (err) {
       console.error('Logout failed:', err);

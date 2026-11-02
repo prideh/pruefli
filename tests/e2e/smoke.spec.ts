@@ -134,8 +134,9 @@ test.describe('Smoke Tests — Critical Availability, Security Boundaries & Orth
     expect(robotsMeta).toBe('noindex, nofollow');
   });
 
-  test('7. Landingpage-Header shows "Login" and "Registrieren" (never "Zum Workspace") on Desktop & Mobile viewports in logged-out and logged-in states (#71)', async ({
+  test('7. Landingpage-Header shows "Login" and "Registrieren" (never "Zum Workspace") in logged-out state (#71) and redirects authenticated teachers on "/" server-side to "/dashboard" (#85)', async ({
     page,
+    request,
   }) => {
     const viewports = [
       { width: 1280, height: 800 },
@@ -179,51 +180,16 @@ test.describe('Smoke Tests — Critical Availability, Security Boundaries & Orth
       expect(registerBox!.height).toBeGreaterThan(0);
     }
 
-    // 2. Logged-in state across Desktop and Mobile viewports
-    const token = createSmokeSessionToken('smoke-teacher-71');
-    const baseUrl = new URL(page.url()).origin;
-    await page.context().addCookies([
-      {
-        name: 'grade_ai_session',
-        value: token,
-        url: baseUrl,
+    // 2. Logged-in state: GET / responds with server-side redirect to /dashboard (#85)
+    const token = createSmokeSessionToken('smoke-teacher-85');
+    const redirectRes = await request.get('/', {
+      headers: {
+        Cookie: `grade_ai_session=${token}`,
       },
-    ]);
-
-    for (const vp of viewports) {
-      await page.setViewportSize(vp);
-      const res = await page.goto('/');
-      expect(res?.status()).toBe(200);
-
-      const header = page.locator('header');
-      const loginBtn = header
-        .getByRole('button', { name: 'Login' })
-        .or(header.getByRole('link', { name: 'Login' }))
-        .first();
-      const registerBtn = header
-        .getByRole('button', { name: 'Registrieren' })
-        .or(header.getByRole('link', { name: 'Registrieren' }))
-        .first();
-
-      await expect(loginBtn).toBeVisible();
-      await expect(registerBtn).toBeVisible();
-      await expect(header.getByText('Zum Workspace')).toHaveCount(0);
-      await expect(
-        page
-          .getByRole('button', { name: 'Zum Korrektur-Workspace' })
-          .or(page.getByRole('link', { name: 'Zum Korrektur-Workspace' }))
-          .first()
-      ).toBeVisible();
-
-      const loginBox = await loginBtn.boundingBox();
-      const registerBox = await registerBtn.boundingBox();
-      expect(loginBox).not.toBeNull();
-      expect(registerBox).not.toBeNull();
-      expect(loginBox!.width).toBeGreaterThan(0);
-      expect(loginBox!.height).toBeGreaterThan(0);
-      expect(registerBox!.width).toBeGreaterThan(0);
-      expect(registerBox!.height).toBeGreaterThan(0);
-    }
+      maxRedirects: 0,
+    });
+    expect([302, 303, 307, 308]).toContain(redirectRes.status());
+    expect(redirectRes.headers()['location']).toContain('/dashboard');
 
     await page.context().clearCookies();
     await page.setViewportSize({ width: 1280, height: 800 });

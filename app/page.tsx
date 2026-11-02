@@ -23,6 +23,7 @@ import ErrorIcon from '@mui/icons-material/Error';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { buildHomeMetadata } from '@/lib/seo-url';
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { verifyJWT } from '@/lib/jwt';
 
 export const metadata: Metadata = buildHomeMetadata();
@@ -32,6 +33,10 @@ export default async function Home() {
   const sessionToken = cookieStore.get('grade_ai_session')?.value;
   const payload = sessionToken ? await verifyJWT(sessionToken) : null;
   const isAuthenticated = Boolean(payload?.userId);
+
+  if (isAuthenticated) {
+    redirect('/dashboard');
+  }
 
   return (
     <Box

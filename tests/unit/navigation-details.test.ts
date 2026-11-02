@@ -7,6 +7,9 @@ import { signJWT, verifyJWT } from '@/lib/jwt';
 import Home from '@/app/page';
 
 const mockCookieGet = vi.fn();
+const mockRedirect = vi.fn((url: string): never => {
+  throw new Error(`NEXT_REDIRECT:${url}`);
+});
 
 vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => ({
@@ -14,7 +17,11 @@ vi.mock('next/headers', () => ({
   })),
 }));
 
-describe('UX Navigation Details Improvements & Landingpage-Header (#71)', () => {
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => mockRedirect(url),
+}));
+
+describe('UX Navigation Details Improvements, Landingpage-Header (#71) & Startseiten-Weiterleitung (#85)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -49,12 +56,13 @@ describe('UX Navigation Details Improvements & Landingpage-Header (#71)', () => 
     expect(headerBlock).not.toContain('isAuthenticated');
   });
 
-  it('rendert auf der Startseite sowohl ausgeloggt als auch eingeloggt immer Login & Registrieren im Header, waehrend der Hero-CTA zustandsabhaengig bleibt (#71)', async () => {
-    // 1. Ausgeloggter Zustand
+  it('rendert ohne gueltige Session (ausgeloggt, ungueltiges oder abgelaufenes Cookie) die Landingpage inkl. Login/Registrieren-Header (#71, #85) und leitet mit gueltiger Session serverseitig via redirect("/dashboard") weiter (#85)', async () => {
+    // 1. Ausgeloggter Zustand (kein Cookie)
     mockCookieGet.mockReturnValue(undefined);
     const loggedOutHtml = renderToStaticMarkup(await Home());
     const loggedOutHeader = loggedOutHtml.match(/<header[^>]*>([\s\S]*?)<\/header>/)?.[1] || '';
 
+    expect(mockRedirect).not.toHaveBeenCalled();
     expect(loggedOutHeader).toContain('href="/login"');
     expect(loggedOutHeader).toContain('Login');
     expect(loggedOutHeader).toContain('href="/register"');
@@ -64,31 +72,53 @@ describe('UX Navigation Details Improvements & Landingpage-Header (#71)', () => 
     expect(loggedOutHtml).toContain('Login / Registrieren');
     expect(loggedOutHtml).toContain('Spare bis zu 80% deiner Korrekturzeit.');
 
-    // 2. Eingeloggter Zustand
-    const validToken = await signJWT({ userId: 'teacher-71' }, '7d');
+    // 2. Ungueltiges Cookie -> Landingpage ohne Redirect-Schleife
+    mockCookieGet.mockReturnValue({ value: 'invalid.jwt.token' });
+    const invalidCookieHtml = renderToStaticMarkup(await Home());
+    expect(mockRedirect).not.toHaveBeenCalled();
+    expect(invalidCookieHtml).toContain('Jetzt kostenlos starten');
+
+    // 3. Abgelaufenes Cookie -> Landingpage ohne Redirect-Schleife
     const now = Math.floor(Date.now() / 1000);
     const secret = process.env.JWT_SECRET || 'pruefli-dev-secret-key-safe-fallback';
     const hdr = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url');
-    const pld = Buffer.from(
-      JSON.stringify({ userId: 'teacher-71', iat: now, exp: now + 7 * 24 * 60 * 60 })
+    const expiredPld = Buffer.from(
+      JSON.stringify({ userId: 'teacher-expired', iat: now - 7200, exp: now - 3600 })
     ).toString('base64url');
-    const sig = crypto.createHmac('sha256', secret).update(`${hdr}.${pld}`).digest('base64url');
-    const hmacToken = `${hdr}.${pld}.${sig}`;
-    const verifiedHmac = await verifyJWT(hmacToken);
-    expect(verifiedHmac?.userId).toBe('teacher-71');
+    const expiredSig = crypto
+      .createHmac('sha256', secret)
+      .update(`${hdr}.${expiredPld}`)
+      .digest('base64url');
+    const expiredToken = `${hdr}.${expiredPld}.${expiredSig}`;
+    expect(await verifyJWT(expiredToken)).toBeNull();
+
+    mockCookieGet.mockReturnValue({ value: expiredToken });
+    const expiredCookieHtml = renderToStaticMarkup(await Home());
+    expect(mockRedirect).not.toHaveBeenCalled();
+    expect(expiredCookieHtml).toContain('Jetzt kostenlos starten');
+
+    // 4. Eingeloggter Zustand (gueltige Session) -> serverseitige Weiterleitung auf /dashboard (#85)
+    const validToken = await signJWT({ userId: 'teacher-85' }, '7d');
+    const verified = await verifyJWT(validToken);
+    expect(verified?.userId).toBe('teacher-85');
 
     mockCookieGet.mockReturnValue({ value: validToken });
-    const loggedInHtml = renderToStaticMarkup(await Home());
-    const loggedInHeader = loggedInHtml.match(/<header[^>]*>([\s\S]*?)<\/header>/)?.[1] || '';
-
-    expect(loggedInHeader).toContain('href="/login"');
-    expect(loggedInHeader).toContain('Login');
-    expect(loggedInHeader).toContain('href="/register"');
-    expect(loggedInHeader).toContain('Registrieren');
-    expect(loggedInHeader).not.toContain('Zum Workspace');
-    expect(loggedInHtml).toContain('Zum Korrektur-Workspace');
-    expect(loggedInHtml).toContain('Spare bis zu 80% deiner Korrekturzeit.');
+    await expect(Home()).rejects.toThrow('NEXT_REDIRECT:/dashboard');
+    expect(mockRedirect).toHaveBeenCalledWith('/dashboard');
   }, 20000);
+
+  it('Logout im DashboardLayout leitet zur Landingpage (/) weiter (#85)', () => {
+    const dashboardLayoutFile = fs.readFileSync(
+      path.resolve(__dirname, '../../components/DashboardLayout.tsx'),
+      'utf-8'
+    );
+    const logoutBlock = dashboardLayoutFile.match(
+      /const handleLogout = async \(\) => \{[\s\S]*?\};/
+    )?.[0];
+    expect(logoutBlock).toBeTruthy();
+    expect(logoutBlock).toContain("router.push('/')");
+    expect(dashboardLayoutFile).not.toContain('\u00DF');
+  });
 
   it('Startseite bietet in der Hero-Sektion einen sichtbaren Login/Registrieren-Button', () => {
     const landingFile = fs.readFileSync(path.resolve(__dirname, '../../app/page.tsx'), 'utf-8');
