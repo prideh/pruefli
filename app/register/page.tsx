@@ -35,6 +35,10 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [existingAccountError, setExistingAccountError] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [resendSeverity, setResendSeverity] = useState<'success' | 'warning' | 'error'>('success');
 
   // Proactively check if already logged in
   useEffect(() => {
@@ -52,20 +56,75 @@ export default function RegisterPage() {
     };
   }, [router]);
 
+  const handleResendFromError = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      setResendSeverity('error');
+      setResendMessage('Bitte gib eine gültige E-Mail-Adresse ein.');
+      return;
+    }
+
+    setResendingVerification(true);
+    setResendMessage(null);
+
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setResendSeverity('error');
+        setResendMessage(
+          data.error || data.message || 'Bestätigungslink konnte nicht gesendet werden.'
+        );
+      } else if (
+        data.liveSendingEnabled === false ||
+        data.simulated === true ||
+        data.sent === false
+      ) {
+        setResendSeverity('warning');
+        setResendMessage(
+          data.message ||
+            'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet.'
+        );
+      } else {
+        setResendSeverity('success');
+        setResendMessage(
+          data.message ||
+            'Falls ein unverifiziertes Konto mit dieser E-Mail-Adresse existiert, wurde ein neuer Bestätigungs-Link versendet.'
+        );
+      }
+    } catch {
+      setResendSeverity('error');
+      setResendMessage('Verbindungsfehler beim Anfordern des Bestätigungslinks.');
+    } finally {
+      setResendingVerification(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email || !password) {
+      setExistingAccountError(false);
+      setResendMessage(null);
       setError('Bitte fülle alle Felder aus.');
       return;
     }
 
     if (password.length < 6) {
+      setExistingAccountError(false);
+      setResendMessage(null);
       setError('Das Passwort muss mindestens 6 Zeichen lang sein.');
       return;
     }
 
     setLoading(true);
     setError('');
+    setExistingAccountError(false);
+    setResendMessage(null);
 
     try {
       const res = await fetch('/api/auth/register', {
@@ -77,6 +136,12 @@ export default function RegisterPage() {
       const result = await res.json();
 
       if (!res.ok) {
+        const isExisting =
+          result.code === 'EMAIL_ALREADY_REGISTERED' ||
+          Boolean(result.recoveryOptions?.canResendVerification) ||
+          (typeof result.error === 'string' &&
+            result.error.includes('existiert bereits ein Account'));
+        setExistingAccountError(isExisting);
         throw new Error(result.error || 'Registrierung fehlgeschlagen');
       }
 
@@ -170,8 +235,75 @@ export default function RegisterPage() {
             </Box>
 
             {error && (
-              <Alert severity="error" sx={{ mb: 3, borderRadius: '10px' }}>
-                {error}
+              <Alert
+                severity="error"
+                data-testid="register-error-alert"
+                sx={{ mb: 3, borderRadius: '10px' }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: 600, mb: existingAccountError ? 1.5 : 0 }}
+                >
+                  {error}
+                </Typography>
+
+                {existingAccountError && (
+                  <Stack spacing={1.25} sx={{ mt: 1 }}>
+                    <Button
+                      type="button"
+                      size="small"
+                      variant="outlined"
+                      color="inherit"
+                      onClick={handleResendFromError}
+                      disabled={resendingVerification}
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        borderRadius: '8px',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {resendingVerification
+                        ? 'Wird gesendet...'
+                        : 'Bestätigungs-E-Mail erneut senden'}
+                    </Button>
+
+                    <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                      <Link
+                        href="/login"
+                        style={{
+                          color: 'inherit',
+                          fontWeight: 700,
+                          fontSize: '0.825rem',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Mit Google/Microsoft oder Passwort anmelden
+                      </Link>
+                      <Link
+                        href="/forgot-password"
+                        style={{
+                          color: 'inherit',
+                          fontWeight: 700,
+                          fontSize: '0.825rem',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Passwort über Zurücksetzen-E-Mail setzen
+                      </Link>
+                    </Stack>
+                  </Stack>
+                )}
+              </Alert>
+            )}
+
+            {resendMessage && (
+              <Alert
+                severity={resendSeverity}
+                data-testid="register-resend-feedback"
+                sx={{ mb: 3, borderRadius: '10px' }}
+              >
+                {resendMessage}
               </Alert>
             )}
 

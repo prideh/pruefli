@@ -261,7 +261,36 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     await expect(page.getByText(/Sehr gut gelöst!/i).first()).toBeVisible();
   });
 
-  test('3. Password-Reset Request & Email Verification Landing Page', async ({ page }) => {
+  test('3. Duplicate Registration Recovery (#99), Password-Reset Request & Email Verification Landing Page', async ({
+    page,
+  }) => {
+    // 0. Duplicate email registration shows recovery paths (resend verification, OAuth sign-in, password reset) (#99)
+    await page.goto('/register');
+    await page.getByLabel(/Name/i).first().fill(teacherName);
+    await page
+      .getByLabel(/E-Mail/i)
+      .first()
+      .fill(teacherEmail);
+    await page
+      .getByLabel(/Passwort/i)
+      .first()
+      .fill(teacherPassword);
+    await page
+      .getByRole('button', { name: /Registrieren|Konto erstellen|Account erstellen/i })
+      .click();
+
+    const errorAlert = page.getByTestId('register-error-alert');
+    await expect(errorAlert).toBeVisible();
+    await expect(errorAlert).toContainText(/Google oder Microsoft/i);
+    await expect(errorAlert).toContainText(/Passwort-Zurücksetzen/i);
+
+    const resendFromErrorBtn = errorAlert.getByRole('button', {
+      name: /Bestätigungs-E-Mail erneut senden/i,
+    });
+    await expect(resendFromErrorBtn).toBeVisible();
+    await resendFromErrorBtn.click();
+    await expect(page.getByTestId('register-resend-feedback')).toBeVisible();
+
     // 1. Forgot password request
     await page.goto('/login');
     await page.getByRole('link', { name: /Passwort vergessen\?/i }).click();

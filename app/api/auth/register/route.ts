@@ -42,8 +42,21 @@ export async function POST(request: Request) {
     });
 
     if (existingTeacher) {
+      // Uniform anti-enumeration response covering both unverified accounts and OAuth-first / existing accounts
       return NextResponse.json(
-        { error: 'Es existiert bereits ein Account mit dieser E-Mail-Adresse.' },
+        {
+          error:
+            'Es existiert bereits ein Account mit dieser E-Mail-Adresse. Falls dein Konto noch unbestätigt ist, kannst du die Bestätigungs-E-Mail erneut senden. Falls du dich mit Google oder Microsoft registriert hast, melde dich bitte über Google/Microsoft an oder setze dein Passwort über die Passwort-Zurücksetzen-Funktion.',
+          code: 'EMAIL_ALREADY_REGISTERED',
+          recoveryOptions: {
+            canResendVerification: true,
+            resendVerificationEndpoint: '/api/auth/resend-verification',
+            verifyEmailUrl: '/verify-email',
+            loginUrl: '/login',
+            forgotPasswordUrl: '/forgot-password',
+            oauthProviders: ['google', 'microsoft'],
+          },
+        },
         { status: 400 }
       );
     }

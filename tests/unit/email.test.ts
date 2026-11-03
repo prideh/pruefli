@@ -739,4 +739,116 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
       expect(meAfterData.emailVerificationRequired).toBe(false);
     });
   });
+
+  describe('7. Existing Account Registration Recovery & Anti-Enumeration (Issue #99)', () => {
+    it('Szenario 1 & 2 + Anti-Enumeration: bietet fuer unbestaetigte sowie OAuth-first-Konten Wiederherstellungspfade ohne Enumeration-Leak', async () => {
+      // OAuth-first Konto in der simulierten Datenbank anlegen
+      teachersTable.set('teacher-oauth', {
+        id: 'teacher-oauth',
+        email: 'oauth.lehrer@schule.ch',
+        name: 'Herr Google',
+        passwordHash: 'oauth_disabled:randomhex',
+      });
+      verificationsTable.set('teacher-oauth', {
+        teacher_id: 'teacher-oauth',
+        email: 'oauth.lehrer@schule.ch',
+        verified_at: new Date(),
+      });
+
+      // 1. Szenario 1: Unbestaetigtes Konto versucht erneute Registrierung
+      const resUnverified = await registerPOST(
+        new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Frau Meier',
+            email: 'lehrer@schule.ch',
+            password: 'NewAttemptPassword123!',
+          }),
+        })
+      );
+      const dataUnverified = await resUnverified.json();
+
+      // 2. Szenario 2: OAuth-first-Konto versucht E-Mail/Passwort-Registrierung
+      const resOAuth = await registerPOST(
+        new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Herr Google',
+            email: 'oauth.lehrer@schule.ch',
+            password: 'NewAttemptPassword123!',
+          }),
+        })
+      );
+      const dataOAuth = await resOAuth.json();
+
+      // 3. Bereits verifiziertes Passwort-Konto versucht erneute Registrierung
+      const resVerified = await registerPOST(
+        new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Herr Keller',
+            email: 'verified@schule.ch',
+            password: 'NewAttemptPassword123!',
+          }),
+        })
+      );
+      const dataVerified = await resVerified.json();
+
+      expect(resUnverified.status).toBe(400);
+      expect(resOAuth.status).toBe(400);
+      expect(resVerified.status).toBe(400);
+
+      // Strikte Anti-Enumeration: identische Antwort fuer unbestaetigte, OAuth-first- und verifizierte Konten
+      expect(dataUnverified).toEqual(dataOAuth);
+      expect(dataUnverified).toEqual(dataVerified);
+
+      // Szenario 2 Pruefung: Fehlermeldung und strukturierte Recovery-Optionen nennen OAuth & Passwort-Reset
+      expect(dataOAuth.code).toBe('EMAIL_ALREADY_REGISTERED');
+      expect(dataOAuth.error).toContain('existiert bereits ein Account');
+      expect(dataOAuth.error).toContain('Bestätigungs-E-Mail erneut senden');
+      expect(dataOAuth.error).toContain('Google oder Microsoft');
+      expect(dataOAuth.error).toContain('Passwort-Zurücksetzen');
+      expect(dataOAuth.recoveryOptions).toEqual({
+        canResendVerification: true,
+        resendVerificationEndpoint: '/api/auth/resend-verification',
+        verifyEmailUrl: '/verify-email',
+        loginUrl: '/login',
+        forgotPasswordUrl: '/forgot-password',
+        oauthProviders: ['google', 'microsoft'],
+      });
+
+      // Szenario 1 Pruefung: Aus der Registrierungs-Fehlersituation heraus neuen Bestaetigungslink anfordern
+      clearMockSentEmails();
+      const resendRes = await resendVerificationPOST(
+        new Request(
+          `http://localhost${dataUnverified.recoveryOptions.resendVerificationEndpoint}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: 'lehrer@schule.ch' }),
+          }
+        )
+      );
+      const resendData = await resendRes.json();
+      expect(resendRes.status).toBe(200);
+      expect(getMockSentEmails()).toHaveLength(1);
+      expect(getMockSentEmails()[0].to.email).toBe('lehrer@schule.ch');
+
+      // Anti-Enumeration auch beim Resend aus der Fehlersituation fuer das OAuth-first-Konto
+      const resendOAuthRes = await resendVerificationPOST(
+        new Request(`http://localhost${dataOAuth.recoveryOptions.resendVerificationEndpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'oauth.lehrer@schule.ch' }),
+        })
+      );
+      const resendOAuthData = await resendOAuthRes.json();
+      expect(resendOAuthRes.status).toBe(200);
+      expect(resendOAuthData).toEqual(resendData);
+      expect(getMockSentEmails()).toHaveLength(1);
+    });
+  });
 });
