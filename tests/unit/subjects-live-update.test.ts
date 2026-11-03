@@ -52,7 +52,7 @@ describe('Fächer-Seite (#87): Liste aktualisiert sich nach "Meine Fächer speic
   });
 
   it('aktualisiert nach PUT /api/subjects und mutateCache("/api/subjects", data, false) sofort Zähler, Karten und Status-Badges ohne Cache-Löschung', async () => {
-    // 1. Ausgangszustand beim Öffnen von /subjects: Noch keine Auswahl gespeichert -> 8 Katalog-Profile ("Meine Fächer (8)")
+    // 1. Ausgangszustand beim Öffnen von /subjects: Noch keine Auswahl gespeichert -> 11 Katalog-Profile ("Meine Fächer (11)")
     const initialGetRes = await getSubjects();
     expect(initialGetRes.status).toBe(200);
     const initialData = (await initialGetRes.json()) as CachedTeacherSubjects;
@@ -62,7 +62,7 @@ describe('Fächer-Seite (#87): Liste aktualisiert sich nach "Meine Fächer speic
 
     const initialCached = getCachedData<CachedTeacherSubjects>('/api/subjects');
     const initialVisible = resolveFilterAndViewSubjects(initialCached?.savedSubjects ?? null, []);
-    expect(initialVisible).toHaveLength(8);
+    expect(initialVisible).toHaveLength(11);
 
     // 2. Lehrperson wählt im Dialog "Meine Fächer verwalten" 1 Katalog-Profil (Mathematik) + 1 eigenes Fach (Musik) und klickt "Meine Fächer speichern"
     let listenerNotificationCount = 0;
@@ -100,11 +100,11 @@ describe('Fächer-Seite (#87): Liste aktualisiert sich nach "Meine Fächer speic
     expect(updatedVisible[1].isCatalog).toBe(false);
     expect(updatedVisible[1].supportInfo.supportBadge).toBe('Basis-Korrektur');
 
-    // Nicht ausgewählte Katalog-Profile unter "Weitere Fächer hinzufügen" sind sofort 7
+    // Nicht ausgewählte Katalog-Profile unter "Weitere Fächer hinzufügen" sind sofort 10
     const unselectedCatalog = SUBJECT_PROFILES.filter(
       (p) => !updatedVisible.some((s) => s.value.toLowerCase() === p.value.toLowerCase())
     );
-    expect(unselectedCatalog).toHaveLength(7);
+    expect(unselectedCatalog).toHaveLength(10);
 
     // 4. Zweiter Durchgang: Eigenes Fach "Geschichte" hinzufügen und "Musik" entfernen -> sofortige Aktualisierung ohne Reload
     const putRes2 = await putSubjects(
