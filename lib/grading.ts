@@ -118,6 +118,33 @@ export const SUBJECT_PROFILES: SubjectProfile[] = [
     supportDescription:
       'Fokus-Anweisung für Textverständnis, Argumentationskohärenz & Orthographie aktiv.',
   },
+  {
+    value: 'Französisch',
+    label: 'Französisch',
+    profileFocus: 'Inhaltliche Präzision, Textverständnis, Ausdruck & Orthographie (Französisch)',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für Textverständnis, Argumentationskohärenz & Orthographie aktiv.',
+  },
+  {
+    value: 'Englisch',
+    label: 'Englisch',
+    profileFocus: 'Inhaltliche Präzision, Textverständnis, Ausdruck & Orthographie (Englisch)',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für Textverständnis, Argumentationskohärenz & Orthographie aktiv.',
+  },
+  {
+    value: 'Italienisch',
+    label: 'Italienisch',
+    profileFocus: 'Inhaltliche Präzision, Textverständnis, Ausdruck & Orthographie (Italienisch)',
+    supportLevel: 'FOCUS_PROFILE',
+    supportBadge: 'Fokus-Profil',
+    supportDescription:
+      'Fokus-Anweisung für Textverständnis, Argumentationskohärenz & Orthographie aktiv.',
+  },
 ];
 
 export interface SubjectSupportInfo {
@@ -239,7 +266,15 @@ export function getSubjectSupportInfo(subjectName?: string | null): SubjectSuppo
       profileFocus: p.profileFocus,
     };
   }
-  if (norm.includes('sprache') || norm.includes('deutsch')) {
+  if (
+    norm.includes('sprache') ||
+    norm.includes('deutsch') ||
+    norm.includes('franz') ||
+    norm.includes('englisch') ||
+    norm.includes('english') ||
+    norm.includes('italienisch') ||
+    norm.includes('italiano')
+  ) {
     const p = SUBJECT_PROFILES.find((x) => x.value === 'Sprache')!;
     return {
       subjectName: raw,
