@@ -353,7 +353,7 @@ describe('Transaktions-E-Mails via Brevo & Auth Workflows (Issue #59)', () => {
       ).toBe(true);
 
       // 2. Neuregistrierung nach dem Stichtag -> muss verifizieren (HTTP 403 auf geschuetzten APIs)
-      const newTeacherId = 'teacher-new-unverified';
+      const newTeacherId = `teacher-new-unverified-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const newStatus = await getEmailVerificationStatus(newTeacherId, {
         email: 'neu@schule.ch',
         createdAt: new Date('2026-04-02T12:00:00.000Z'),

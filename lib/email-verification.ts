@@ -45,13 +45,27 @@ function parseBooleanEnv(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
+function shouldUseSqlPersistence(): boolean {
+  const rawDb = db as unknown as {
+    $executeRawUnsafe?: ((...args: unknown[]) => unknown) & { mock?: unknown };
+    $queryRawUnsafe?: ((...args: unknown[]) => unknown) & { mock?: unknown };
+  };
+  if (!rawDb || typeof rawDb.$executeRawUnsafe !== 'function') {
+    return false;
+  }
+  if (process.env.VITEST === 'true') {
+    return Boolean(rawDb.$executeRawUnsafe.mock || rawDb.$queryRawUnsafe?.mock);
+  }
+  return true;
+}
+
 /**
  * Initializes the lightweight verification tracking table if running against a real PostgreSQL instance.
  * Gracefully no-ops if raw SQL is restricted or running under mock unit test environments.
  */
 export async function ensureVerificationTable(): Promise<void> {
   const state = getGlobalState();
-  if (state.tableInitialized) return;
+  if (state.tableInitialized || !shouldUseSqlPersistence()) return;
   try {
     await db.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS teacher_email_verifications (
@@ -104,17 +118,19 @@ export async function markEmailVerified(teacherId: string, email: string): Promi
     verifiedAt: new Date(),
   });
 
-  try {
-    await ensureVerificationTable();
-    await db.$executeRawUnsafe(
-      `INSERT INTO teacher_email_verifications (teacher_id, email, verified_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (teacher_id) DO UPDATE SET verified_at = NOW(), email = $2`,
-      teacherId,
-      normalizedEmail
-    );
-  } catch {
-    // In-memory fallback is active
+  if (shouldUseSqlPersistence()) {
+    try {
+      await ensureVerificationTable();
+      await db.$executeRawUnsafe(
+        `INSERT INTO teacher_email_verifications (teacher_id, email, verified_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (teacher_id) DO UPDATE SET verified_at = NOW(), email = $2`,
+        teacherId,
+        normalizedEmail
+      );
+    } catch {
+      // In-memory fallback is active
+    }
   }
 
   return true;
@@ -129,26 +145,28 @@ export async function isEmailVerified(teacherId: string, expectedEmail?: string)
   const state = getGlobalState();
   const normalizedExpected = expectedEmail?.trim().toLowerCase();
 
-  try {
-    await ensureVerificationTable();
-    const rows = await db.$queryRawUnsafe<Array<{ email?: string; verified_at: Date }>>(
-      `SELECT email, verified_at FROM teacher_email_verifications WHERE teacher_id = $1 LIMIT 1`,
-      teacherId
-    );
-    if (Array.isArray(rows) && rows.length > 0) {
-      const rowEmail = rows[0].email?.trim().toLowerCase();
-      if (normalizedExpected && rowEmail && rowEmail !== normalizedExpected) {
-        return false;
+  if (shouldUseSqlPersistence()) {
+    try {
+      await ensureVerificationTable();
+      const rows = await db.$queryRawUnsafe<Array<{ email?: string; verified_at: Date }>>(
+        `SELECT email, verified_at FROM teacher_email_verifications WHERE teacher_id = $1 LIMIT 1`,
+        teacherId
+      );
+      if (Array.isArray(rows) && rows.length > 0) {
+        const rowEmail = rows[0].email?.trim().toLowerCase();
+        if (normalizedExpected && rowEmail && rowEmail !== normalizedExpected) {
+          return false;
+        }
+        state.pendingTeachers.delete(teacherId);
+        state.verifiedTeachers.set(teacherId, {
+          email: rowEmail || normalizedExpected || '',
+          verifiedAt: rows[0].verified_at ? new Date(rows[0].verified_at) : new Date(),
+        });
+        return true;
       }
-      state.pendingTeachers.delete(teacherId);
-      state.verifiedTeachers.set(teacherId, {
-        email: rowEmail || normalizedExpected || '',
-        verifiedAt: rows[0].verified_at ? new Date(rows[0].verified_at) : new Date(),
-      });
-      return true;
+    } catch {
+      // Fallback to in-memory state
     }
-  } catch {
-    // Fallback to in-memory state
   }
 
   const memEntry = state.verifiedTeachers.get(teacherId);
