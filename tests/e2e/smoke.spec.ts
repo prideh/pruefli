@@ -253,4 +253,49 @@ test.describe('Smoke Tests — Critical Availability, Security Boundaries & Orth
     await page.context().clearCookies();
     await page.setViewportSize({ width: 1280, height: 800 });
   });
+
+  test('8. /register and /login render on Mobile (390x844) without layout shift or empty SSO placeholder, including when /api/auth/oauth/providers is unreachable (#104)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    for (const check of [
+      { route: '/register', footerLinkText: 'Jetzt anmelden' },
+      { route: '/login', footerLinkText: 'Jetzt registrieren' },
+    ]) {
+      await page.goto(check.route, { waitUntil: 'domcontentloaded' });
+      const footerLink = page.getByRole('link', { name: check.footerLinkText });
+      await expect(footerLink).toBeVisible();
+      const initialBox = await footerLink.boundingBox();
+      expect(initialBox).not.toBeNull();
+
+      await page.waitForLoadState('networkidle');
+      const settledBox = await footerLink.boundingBox();
+      expect(settledBox).not.toBeNull();
+      expect(settledBox!.y).toBe(initialBox!.y);
+    }
+
+    // Fetch error path (/api/auth/oauth/providers unreachable) also causes zero layout shift
+    await page.route('**/api/auth/oauth/providers', (route) =>
+      route.fulfill({ status: 500, body: 'Unavailable' })
+    );
+    for (const check of [
+      { route: '/register', footerLinkText: 'Jetzt anmelden' },
+      { route: '/login', footerLinkText: 'Jetzt registrieren' },
+    ]) {
+      await page.goto(check.route, { waitUntil: 'domcontentloaded' });
+      const footerLink = page.getByRole('link', { name: check.footerLinkText });
+      await expect(footerLink).toBeVisible();
+      const initialBox = await footerLink.boundingBox();
+      expect(initialBox).not.toBeNull();
+
+      await page.waitForLoadState('networkidle');
+      const settledBox = await footerLink.boundingBox();
+      expect(settledBox).not.toBeNull();
+      expect(settledBox!.y).toBe(initialBox!.y);
+    }
+
+    await page.unroute('**/api/auth/oauth/providers');
+    await page.setViewportSize({ width: 1280, height: 800 });
+  });
 });

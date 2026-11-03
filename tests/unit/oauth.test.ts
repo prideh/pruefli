@@ -1,4 +1,11 @@
+import React from 'react';
+import fs from 'fs';
+import path from 'path';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import SocialLoginButtons from '@/components/SocialLoginButtons';
+import LoginLayout, { dynamic as loginLayoutDynamic } from '@/app/login/layout';
+import RegisterLayout, { dynamic as registerLayoutDynamic } from '@/app/register/layout';
 import {
   isProviderConfigured,
   isProviderUiFlagEnabled,
@@ -750,6 +757,105 @@ describe('OAuth Social Sign-in & Account Linking (lib/oauth.ts & lib/jwt.ts)', (
     it('formats provider display names in Swiss German standards without Eszett', () => {
       expect(getProviderDisplayName('google')).toBe('Google');
       expect(getProviderDisplayName('microsoft')).toBe('Microsoft');
+    });
+  });
+
+  describe('SSR-Bereitstellung von SocialLoginButtons auf /login und /register ohne Layout-Shift (Issue #104)', () => {
+    it('markiert LoginLayout und RegisterLayout als force-dynamic, damit Runtime-OAuth-UI-Flags beim SSR ausgewertet werden', () => {
+      expect(loginLayoutDynamic).toBe('force-dynamic');
+      expect(registerLayoutDynamic).toBe('force-dynamic');
+    });
+
+    it('rendert ODER-Trenner und SSO-Buttons auf /login und /register bereits im initialen SSR-HTML wenn UI-Flags aktiv sind', () => {
+      process.env.GOOGLE_CLIENT_ID = 'google-ssr-id';
+      process.env.GOOGLE_CLIENT_SECRET = 'google-ssr-secret';
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+
+      process.env.MICROSOFT_CLIENT_ID = 'ms-ssr-id';
+      process.env.MICROSOFT_CLIENT_SECRET = 'ms-ssr-secret';
+      process.env.OAUTH_UI_MICROSOFT_ENABLED = 'true';
+
+      const loginHtml = renderToStaticMarkup(
+        React.createElement(
+          LoginLayout,
+          null,
+          React.createElement(SocialLoginButtons, { labelPrefix: 'anmelden' })
+        )
+      );
+
+      expect(loginHtml).toContain('data-testid="social-login-section"');
+      expect(loginHtml).toContain('ODER');
+      expect(loginHtml).toContain('Mit Google anmelden');
+      expect(loginHtml).toContain('Mit Microsoft anmelden');
+      expect(loginHtml).toContain('href="/api/auth/oauth/google"');
+      expect(loginHtml).toContain('href="/api/auth/oauth/microsoft"');
+
+      const registerHtml = renderToStaticMarkup(
+        React.createElement(
+          RegisterLayout,
+          null,
+          React.createElement(SocialLoginButtons, { labelPrefix: 'registrieren' })
+        )
+      );
+
+      expect(registerHtml).toContain('data-testid="social-login-section"');
+      expect(registerHtml).toContain('ODER');
+      expect(registerHtml).toContain('Mit Google registrieren');
+      expect(registerHtml).toContain('Mit Microsoft registrieren');
+    });
+
+    it('rendert im SSR-HTML nur den jeweils aktivierten Provider (z. B. nur Google)', () => {
+      process.env.GOOGLE_CLIENT_ID = 'google-ssr-id';
+      process.env.GOOGLE_CLIENT_SECRET = 'google-ssr-secret';
+      process.env.OAUTH_UI_GOOGLE_ENABLED = 'true';
+      delete process.env.OAUTH_UI_MICROSOFT_ENABLED;
+
+      const registerHtml = renderToStaticMarkup(
+        React.createElement(
+          RegisterLayout,
+          null,
+          React.createElement(SocialLoginButtons, { labelPrefix: 'registrieren' })
+        )
+      );
+
+      expect(registerHtml).toContain('ODER');
+      expect(registerHtml).toContain('Mit Google registrieren');
+      expect(registerHtml).not.toContain('Mit Microsoft registrieren');
+    });
+
+    it('rendert bei deaktivierten UI-Flags weder SSO-Sektion noch leeren Platzhalter im SSR-HTML', () => {
+      delete process.env.OAUTH_UI_GOOGLE_ENABLED;
+      delete process.env.OAUTH_UI_MICROSOFT_ENABLED;
+
+      const loginHtml = renderToStaticMarkup(
+        React.createElement(
+          LoginLayout,
+          null,
+          React.createElement(SocialLoginButtons, { labelPrefix: 'anmelden' })
+        )
+      );
+      const registerHtml = renderToStaticMarkup(
+        React.createElement(
+          RegisterLayout,
+          null,
+          React.createElement(SocialLoginButtons, { labelPrefix: 'registrieren' })
+        )
+      );
+
+      expect(loginHtml).toBe('');
+      expect(registerHtml).toBe('');
+    });
+
+    it('haelt Schweizer Rechtschreibung (kein Eszett) in SocialLoginButtons sowie Login-/Register-Layouts ein', () => {
+      const filesToCheck = [
+        '../../components/SocialLoginButtons.tsx',
+        '../../app/login/layout.tsx',
+        '../../app/register/layout.tsx',
+      ];
+      for (const rel of filesToCheck) {
+        const content = fs.readFileSync(path.resolve(__dirname, rel), 'utf-8');
+        expect(content, `Datei ${rel} enthaelt Eszett`).not.toContain('\u00DF');
+      }
     });
   });
 });

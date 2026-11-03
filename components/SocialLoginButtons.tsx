@@ -1,11 +1,31 @@
 'use client';
 
 import * as React from 'react';
-import { useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { Box, Button, Stack, Divider, Typography } from '@mui/material';
 
-interface SocialLoginButtonsProps {
+export interface OAuthProvidersState {
+  google: boolean;
+  microsoft: boolean;
+}
+
+export interface SocialLoginButtonsProps {
   labelPrefix?: 'anmelden' | 'registrieren';
+  initialProviders?: OAuthProvidersState | null;
+}
+
+const OAuthProvidersContext = createContext<OAuthProvidersState | null>(null);
+
+export function OAuthProvidersProvider({
+  providers,
+  children,
+}: {
+  providers: OAuthProvidersState;
+  children: React.ReactNode;
+}) {
+  return (
+    <OAuthProvidersContext.Provider value={providers}>{children}</OAuthProvidersContext.Provider>
+  );
 }
 
 function GoogleIcon() {
@@ -42,32 +62,46 @@ function MicrosoftIcon() {
   );
 }
 
-export default function SocialLoginButtons({ labelPrefix = 'anmelden' }: SocialLoginButtonsProps) {
-  const [providers, setProviders] = useState<{ google: boolean; microsoft: boolean } | null>(null);
+export default function SocialLoginButtons({
+  labelPrefix = 'anmelden',
+  initialProviders,
+}: SocialLoginButtonsProps) {
+  const contextProviders = useContext(OAuthProvidersContext);
+  const ssrProviders = initialProviders !== undefined ? initialProviders : contextProviders;
+  const [fetchedProviders, setFetchedProviders] = useState<OAuthProvidersState | null>(null);
 
   useEffect(() => {
+    // Wenn die Provider-Sichtbarkeit bereits serverseitig (SSR) bereitgestellt wurde,
+    // ist kein Client-Fetch erforderlich -> kein Nachladen und kein Layout-Shift.
+    if (ssrProviders !== null) {
+      return;
+    }
+
     const controller = new AbortController();
     fetch('/api/auth/oauth/providers', { signal: controller.signal })
       .then((res) => {
         if (res.ok) {
           return res.json();
         }
-        return { providers: { google: false, microsoft: false } };
+        return null;
       })
       .then((data) => {
+        if (!data) return;
         const activeProviders = data.ui || data.providers || { google: false, microsoft: false };
-        setProviders(activeProviders);
+        setFetchedProviders(activeProviders);
       })
       .catch(() => {
-        setProviders({ google: false, microsoft: false });
+        // Fetch-Fehlerpfad: Zustand unveraendert lassen (kein Layout-Shift)
       });
 
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [ssrProviders]);
 
-  // While loading or if no providers are enabled for the UI, render nothing
+  const providers = ssrProviders ?? fetchedProviders;
+
+  // Wenn keine Provider fuer die UI aktiviert sind (oder kein aktiver Provider vorliegt), nichts rendern
   if (!providers || (!providers.google && !providers.microsoft)) {
     return null;
   }
@@ -75,7 +109,7 @@ export default function SocialLoginButtons({ labelPrefix = 'anmelden' }: SocialL
   const actionText = labelPrefix === 'registrieren' ? 'registrieren' : 'anmelden';
 
   return (
-    <Box sx={{ mt: 3, mb: 1, width: '100%' }}>
+    <Box data-testid="social-login-section" sx={{ mt: 3, mb: 1, width: '100%' }}>
       <Divider sx={{ mb: 2.5 }}>
         <Typography
           variant="caption"

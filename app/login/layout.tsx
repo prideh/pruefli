@@ -1,4 +1,8 @@
 import type { Metadata } from 'next';
+import { getUiEnabledProviders } from '@/lib/oauth';
+import { OAuthProvidersProvider } from '@/components/SocialLoginButtons';
+
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   robots: {
@@ -8,5 +12,6 @@ export const metadata: Metadata = {
 };
 
 export default function LoginLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  const providers = getUiEnabledProviders();
+  return <OAuthProvidersProvider providers={providers}>{children}</OAuthProvidersProvider>;
 }
