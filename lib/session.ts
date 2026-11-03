@@ -273,9 +273,21 @@ export function deriveLegacySessionId(token: string): string {
   return `legacy_${digest}`;
 }
 
+/**
+ * The fallback cookie jar exists ONLY for unit tests, where no Next.js request
+ * context exists and cookies() throws. In production a missing request cookie
+ * must always mean "no session" - never fall back to a process-global value,
+ * otherwise cookieless requests would inherit the most recently issued session.
+ */
+function isFallbackCookieJarEnabled(): boolean {
+  return process.env.NODE_ENV !== 'production';
+}
+
 async function setCookieSafe(name: string, value: string, expiresAt: Date): Promise<void> {
   const state = getGlobalState();
-  state.fallbackCookies.set(name, value);
+  if (isFallbackCookieJarEnabled()) {
+    state.fallbackCookies.set(name, value);
+  }
   try {
     const cookieStore = await cookies();
     cookieStore.set(name, value, {
@@ -299,9 +311,9 @@ async function getCookieSafe(name: string): Promise<string | undefined> {
       return val;
     }
   } catch {
-    // Outside Next.js request context; use fallback cookie jar
+    // Outside Next.js request context (unit tests); use fallback cookie jar
   }
-  return state.fallbackCookies.get(name);
+  return isFallbackCookieJarEnabled() ? state.fallbackCookies.get(name) : undefined;
 }
 
 async function deleteCookieSafe(name: string): Promise<void> {
