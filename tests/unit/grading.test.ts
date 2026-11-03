@@ -541,9 +541,11 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       expect(normalizeSubjectValue('Sprache / Deutsch')).toBe('Sprache');
       expect(normalizeSubjectValue('  Geschichte ')).toBe('Geschichte');
 
-      // 5. Faecher-Seite (/subjects) enthaelt Verwaltungsansicht "Meine Faecher verwalten" und "Weitere Faecher hinzufuegen"
+      // 5. Faecher-Seite (/subjects) enthaelt Verwaltungsansicht "Meine Faecher verwalten", "Weitere Faecher hinzufuegen" und Header-Zaehlung "10 Schulfaecher"
       expect(subjectsPageSource).toContain('Meine Fächer verwalten');
       expect(subjectsPageSource).toContain('Weitere Fächer hinzufügen');
+      expect(subjectsPageSource).toContain('Für weitere <strong>10 Schulfächer</strong>');
+      expect(subjectsPageSource).not.toContain('7 Schulfächer');
       expect(subjectsPageSource).toContain('resolveFilterAndViewSubjects');
       expect(subjectsPageSource).toContain(
         "const key = matched ? matched.value : exSubTrimmed || 'Mathematik'"

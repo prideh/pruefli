@@ -543,7 +543,7 @@ export default function SubjectsPage() {
           </AlertTitle>
           <Typography variant="body2" sx={{ lineHeight: 1.6, color: '#0369a1' }}>
             <strong>Mathematik</strong> verfügt über eine voll verifizierte Folgefehler-Modalität
-            mit automatischer Zwischenwert-Nachrechnung. Für weitere <strong>7 Schulfächer</strong>{' '}
+            mit automatischer Zwischenwert-Nachrechnung. Für weitere <strong>10 Schulfächer</strong>{' '}
             ist ein gezieltes <strong>Fokus-Profil</strong> aktiv, das Bewertungskriterien wie
             Formeln, Fachterminologie oder algorithmische Logik steuert. Unbekannte Fächer nutzen
             das universelle <strong>Basis-Korrekturprofil</strong>. Tiefere fachspezifische
