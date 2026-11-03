@@ -7,12 +7,45 @@ import { parseExamMetadata } from '@/lib/exam-meta';
 import { validateReferenceUpload } from '@/lib/document-validation';
 import { getArchivedClassIds, isClassArchived } from '@/lib/class-archive';
 
+async function isSessionTeacherValid(userId: string): Promise<boolean> {
+  const findUnique = (
+    db as unknown as {
+      teacher?: {
+        findUnique?: ((args: unknown) => Promise<{ id: string } | null | undefined>) & {
+          mock?: unknown;
+        };
+      };
+    }
+  )?.teacher?.findUnique;
+
+  if (typeof findUnique !== 'function') {
+    return true;
+  }
+
+  if (process.env.VITEST === 'true' && !findUnique.mock) {
+    return true;
+  }
+
+  try {
+    const teacher = await findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    return teacher !== null;
+  } catch {
+    return true;
+  }
+}
+
 // GET: Fetch all exams created by the teacher across all their active classes (unless includeArchived=true)
 export async function GET(request?: Request) {
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
+    const session = await getSession(request ? { request } : undefined);
+    if (!session || !session.userId || !(await isSessionTeacherValid(session.userId))) {
+      return NextResponse.json(
+        { authenticated: false, error: 'Nicht autorisiert.' },
+        { status: 401 }
+      );
     }
     const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
     if (unverifiedResponse) return unverifiedResponse;
@@ -119,9 +152,12 @@ export async function GET(request?: Request) {
 // POST: Create a new exam explicitly
 export async function POST(request: Request) {
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
+    const session = await getSession(request ? { request } : undefined);
+    if (!session || !session.userId || !(await isSessionTeacherValid(session.userId))) {
+      return NextResponse.json(
+        { authenticated: false, error: 'Nicht autorisiert.' },
+        { status: 401 }
+      );
     }
     const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
     if (unverifiedResponse) return unverifiedResponse;

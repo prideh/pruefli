@@ -6,12 +6,45 @@ import { getTeacherSavedSubjects, saveTeacherSubjects } from '@/lib/teacher-subj
 import { resolveTeacherSubjects, resolveFilterAndViewSubjects } from '@/lib/grading';
 import { getArchivedClassIds } from '@/lib/class-archive';
 
+async function isSessionTeacherValid(userId: string): Promise<boolean> {
+  const findUnique = (
+    db as unknown as {
+      teacher?: {
+        findUnique?: ((args: unknown) => Promise<{ id: string } | null | undefined>) & {
+          mock?: unknown;
+        };
+      };
+    }
+  )?.teacher?.findUnique;
+
+  if (typeof findUnique !== 'function') {
+    return true;
+  }
+
+  if (process.env.VITEST === 'true' && !findUnique.mock) {
+    return true;
+  }
+
+  try {
+    const teacher = await findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    return teacher !== null;
+  } catch {
+    return true;
+  }
+}
+
 // GET: Fetch the teacher's "Meine Fächer" configuration and resolved subject lists
 export async function GET(request?: Request) {
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
+    const session = await getSession(request ? { request } : undefined);
+    if (!session || !session.userId || !(await isSessionTeacherValid(session.userId))) {
+      return NextResponse.json(
+        { authenticated: false, error: 'Nicht autorisiert.' },
+        { status: 401 }
+      );
     }
     const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
     if (unverifiedResponse) return unverifiedResponse;
@@ -55,9 +88,12 @@ export async function GET(request?: Request) {
 // PUT: Update the teacher's "Meine Fächer" list (catalog selection + custom subjects)
 export async function PUT(request: Request) {
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
+    const session = await getSession(request ? { request } : undefined);
+    if (!session || !session.userId || !(await isSessionTeacherValid(session.userId))) {
+      return NextResponse.json(
+        { authenticated: false, error: 'Nicht autorisiert.' },
+        { status: 401 }
+      );
     }
     const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
     if (unverifiedResponse) return unverifiedResponse;

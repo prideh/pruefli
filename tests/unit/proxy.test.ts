@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { NextResponse } from 'next/server';
-import { applySecurityHeaders, SECURITY_HEADERS } from '@/proxy';
+import { NextRequest, NextResponse } from 'next/server';
+import {
+  proxy,
+  applySecurityHeaders,
+  SECURITY_HEADERS,
+  PUBLIC_API_ENDPOINTS,
+  PROTECTED_API_PREFIXES,
+  isPublicApiEndpoint,
+} from '@/proxy';
 
-describe('Edge Proxy Security Headers (proxy.ts)', () => {
+describe('Edge Proxy Security Headers & API Fail-Closed Protection (proxy.ts)', () => {
   it('applies baseline security headers with DENY to standard application and API routes', () => {
     const standardPaths = [
       '/',
@@ -71,6 +78,58 @@ describe('Edge Proxy Security Headers (proxy.ts)', () => {
 
     const loginRes = applySecurityHeaders(NextResponse.next(), '/login');
     expect(loginRes.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+  });
+
+  it('rejects unauthenticated requests to tenant-bound API endpoints with HTTP 401 (Issue #101)', async () => {
+    const protectedEndpoints = [
+      '/api/exams',
+      '/api/classes',
+      '/api/subjects',
+      '/api/submissions',
+      '/api/auth/me',
+      '/api/auth/oauth/identities',
+      '/api/students/st-1',
+      '/api/correct',
+      '/api/logs',
+      '/api/health/gemini',
+    ];
+
+    for (const endpoint of protectedEndpoints) {
+      expect(isPublicApiEndpoint(endpoint, 'GET')).toBe(false);
+      const req = new NextRequest(`http://localhost:3000${endpoint}`);
+      const res = await proxy(req);
+      expect(res.status, `Expected 401 for unauthenticated ${endpoint}`).toBe(401);
+      const body = await res.json();
+      expect(body.authenticated).toBe(false);
+      expect(body.error).toBe('Nicht autorisiert.');
+    }
+
+    // POST /api/mobile-relay requires a teacher session
+    expect(isPublicApiEndpoint('/api/mobile-relay', 'POST')).toBe(false);
+    const relayPostRes = await proxy(
+      new NextRequest('http://localhost:3000/api/mobile-relay', { method: 'POST' })
+    );
+    expect(relayPostRes.status).toBe(401);
+  });
+
+  it('explicitly marks intentionally public catalog and auth endpoints as public (Issue #101)', async () => {
+    expect(PUBLIC_API_ENDPOINTS).toContain('/api/auth/oauth/providers');
+    expect(PROTECTED_API_PREFIXES).toEqual(
+      expect.arrayContaining(['/api/exams', '/api/classes', '/api/subjects', '/api/submissions'])
+    );
+
+    expect(isPublicApiEndpoint('/api/auth/oauth/providers', 'GET')).toBe(true);
+    expect(isPublicApiEndpoint('/api/auth/login', 'POST')).toBe(true);
+    expect(isPublicApiEndpoint('/api/auth/register', 'POST')).toBe(true);
+    expect(isPublicApiEndpoint('/api/auth/oauth/google', 'GET')).toBe(true);
+    expect(isPublicApiEndpoint('/api/auth/oauth/google/callback', 'GET')).toBe(true);
+    expect(isPublicApiEndpoint('/api/mobile-relay', 'GET')).toBe(true);
+    expect(isPublicApiEndpoint('/api/mobile-relay/upload', 'POST')).toBe(true);
+
+    const publicRes = await proxy(
+      new NextRequest('http://localhost:3000/api/auth/oauth/providers')
+    );
+    expect(publicRes.status).toBe(200);
   });
 });
 

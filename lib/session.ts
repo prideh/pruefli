@@ -275,12 +275,46 @@ export function deriveLegacySessionId(token: string): string {
 
 /**
  * The fallback cookie jar exists ONLY for unit tests, where no Next.js request
- * context exists and cookies() throws. In production a missing request cookie
- * must always mean "no session" - never fall back to a process-global value,
- * otherwise cookieless requests would inherit the most recently issued session.
+ * context exists and cookies() throws. In production or real HTTP requests, a
+ * missing request cookie must always mean "no session" (fail-closed) - never fall
+ * back to a process-global value, otherwise cookieless requests would inherit the
+ * most recently issued session.
  */
 function isFallbackCookieJarEnabled(): boolean {
-  return process.env.NODE_ENV !== 'production';
+  return (
+    process.env.NODE_ENV !== 'production' &&
+    (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true')
+  );
+}
+
+function extractCookieFromRequest(request: Request | undefined, name: string): string | undefined {
+  if (!request) return undefined;
+  try {
+    const reqWithCookies = request as unknown as {
+      cookies?: { get?: (cookieName: string) => { value?: string } | undefined };
+    };
+    if (typeof reqWithCookies.cookies?.get === 'function') {
+      const val = reqWithCookies.cookies.get(name)?.value;
+      if (val !== undefined) return val;
+    }
+  } catch {
+    // Ignore
+  }
+
+  try {
+    const cookieHeader = request.headers?.get?.('cookie');
+    if (!cookieHeader) return undefined;
+    const parts = cookieHeader.split(';');
+    for (const part of parts) {
+      const [rawKey, ...rest] = part.trim().split('=');
+      if (rawKey === name) {
+        return rest.join('=').trim();
+      }
+    }
+  } catch {
+    // Ignore malformed request objects in unit tests
+  }
+  return undefined;
 }
 
 async function setCookieSafe(name: string, value: string, expiresAt: Date): Promise<void> {
@@ -302,18 +336,26 @@ async function setCookieSafe(name: string, value: string, expiresAt: Date): Prom
   }
 }
 
-async function getCookieSafe(name: string): Promise<string | undefined> {
+async function getCookieSafe(name: string, request?: Request): Promise<string | undefined> {
+  const fromRequest = extractCookieFromRequest(request, name);
+  if (fromRequest !== undefined) {
+    return fromRequest;
+  }
+
   const state = getGlobalState();
   try {
     const cookieStore = await cookies();
-    const val = cookieStore.get(name)?.value;
-    if (val !== undefined) {
-      return val;
-    }
+    // Inside an active Next.js request context, cookieStore is authoritative:
+    // if the request has no cookie, return undefined directly (never fall back to process-global state).
+    return cookieStore.get(name)?.value;
   } catch {
-    // Outside Next.js request context (unit tests); use fallback cookie jar
+    // Outside Next.js request context (unit tests):
+    // If an explicit Request object was provided without the cookie, treat it as unauthenticated (fail-closed).
+    if (request !== undefined) {
+      return undefined;
+    }
+    return isFallbackCookieJarEnabled() ? state.fallbackCookies.get(name) : undefined;
   }
-  return isFallbackCookieJarEnabled() ? state.fallbackCookies.get(name) : undefined;
 }
 
 async function deleteCookieSafe(name: string): Promise<void> {
@@ -722,8 +764,9 @@ export interface SessionInfo {
 export async function getSession(options?: {
   now?: Date;
   renewIfEligible?: boolean;
+  request?: Request;
 }): Promise<SessionInfo | null> {
-  const sessionToken = await getCookieSafe(SESSION_COOKIE_NAME);
+  const sessionToken = await getCookieSafe(SESSION_COOKIE_NAME, options?.request);
   if (!sessionToken) return null;
 
   const verified = await verifySessionToken(sessionToken, options);

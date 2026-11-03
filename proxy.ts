@@ -17,6 +17,68 @@ export const SECURITY_HEADERS = {
   // camera video feeds, and client-side blob/data URLs until a verified nonce-based CSP is tested.
 } as const;
 
+/**
+ * Bewusst oeffentliche API-Endpunkte (Authentifizierungs-Workflows, OAuth-Konfigurationskatalog
+ * sowie Token-basierte Mobile-QR-Relay-Endpunkte), die ohne bestehendes Session-Cookie erreichbar sind.
+ * Alle uebrigen /api/* Endpunkte sind mandantengebunden und antworten ohne gueltige Session
+ * strikt mit HTTP 401 (fail-closed), einheitlich mit /api/auth/me.
+ */
+export const PUBLIC_API_ENDPOINTS = [
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/logout',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/auth/verify-email',
+  '/api/auth/resend-verification',
+  '/api/auth/oauth/providers', // Bewusst oeffentliche OAuth-Provider-Konfigurationsdaten fuer Login/Registrierung
+  '/api/auth/oauth/link-info',
+  '/api/auth/oauth/link-confirm',
+  '/api/auth/oauth/link-send-email',
+  '/api/auth/oauth/link-confirm-email',
+  '/api/mobile-relay/upload', // Authentifiziert ueber kurzlebiges Mobile-Relay-JWT
+] as const;
+
+export const PROTECTED_API_PREFIXES = [
+  '/api/auth/me',
+  '/api/auth/oauth/identities',
+  '/api/exams',
+  '/api/classes',
+  '/api/subjects',
+  '/api/submissions',
+  '/api/students',
+  '/api/correct',
+  '/api/logs',
+  '/api/health/gemini',
+  '/api/mobile-relay',
+] as const;
+
+export function isPublicApiEndpoint(pathname: string, method: string = 'GET'): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, '') || '/';
+  const upperMethod = method.toUpperCase();
+
+  if ((PUBLIC_API_ENDPOINTS as readonly string[]).includes(normalizedPath)) {
+    return true;
+  }
+
+  // OAuth Start- und Callback-Routen (/api/auth/oauth/[provider] und /api/auth/oauth/[provider]/callback),
+  // jedoch NICHT /api/auth/oauth/identities (mandantengebunden)
+  if (
+    normalizedPath.startsWith('/api/auth/oauth/') &&
+    normalizedPath !== '/api/auth/oauth/identities'
+  ) {
+    return true;
+  }
+
+  // Smartphone-Scanner liest Relay-Metadaten via GET /api/mobile-relay?token=...
+  // (POST /api/mobile-relay zum Erstellen eines QR-Codes erfordert hingegen eine aktive Lehrer-Session)
+  if (normalizedPath === '/api/mobile-relay' && upperMethod === 'GET') {
+    return true;
+  }
+
+  return false;
+}
+
 export function applySecurityHeaders(response: NextResponse, pathname?: string): NextResponse {
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     response.headers.set(key, value);
@@ -105,7 +167,19 @@ export async function proxy(request: NextRequest) {
   const verified = session ? await verifySessionToken(session, { renewIfEligible: true }) : null;
   const user = verified ? { userId: verified.userId } : null;
 
-  // Protect all authenticated application routes at the edge level
+  // Fail-closed 401 for all tenant-bound API routes when no valid session is present
+  if (!user && pathname.startsWith('/api/') && !isPublicApiEndpoint(pathname, request.method)) {
+    const response = NextResponse.json(
+      { authenticated: false, error: 'Nicht autorisiert.' },
+      { status: 401 }
+    );
+    if (session) {
+      response.cookies.delete(SESSION_COOKIE_NAME);
+    }
+    return applySecurityHeaders(response, pathname);
+  }
+
+  // Protect all authenticated application page routes at the edge level
   const protectedPrefixes = [
     '/dashboard',
     '/correct',

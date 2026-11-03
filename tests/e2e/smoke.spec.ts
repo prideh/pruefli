@@ -39,11 +39,16 @@ test.describe('Smoke Tests — Critical Availability, Security Boundaries & Orth
   test('3. Protected API endpoints reject unauthenticated requests with HTTP 401', async ({
     request,
   }) => {
-    const meRes = await request.get('/api/auth/me');
-    expect(meRes.status()).toBe(401);
-
-    const classesRes = await request.get('/api/classes');
-    expect(classesRes.status()).toBe(401);
+    for (const endpoint of [
+      '/api/auth/me',
+      '/api/exams',
+      '/api/classes',
+      '/api/subjects',
+      '/api/submissions',
+    ]) {
+      const res = await request.get(endpoint);
+      expect(res.status(), `Expected 401 for unauthenticated GET ${endpoint}`).toBe(401);
+    }
 
     const relayPostRes = await request.post('/api/mobile-relay', {
       data: { targetMode: 'SUBMISSION' },
