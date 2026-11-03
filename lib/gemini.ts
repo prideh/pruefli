@@ -860,7 +860,10 @@ export function getSubjectFocusInstruction(subject?: string): string {
     norm.includes('sprache') ||
     norm.includes('deutsch') ||
     norm.includes('englisch') ||
-    norm.includes('franz')
+    norm.includes('english') ||
+    norm.includes('franz') ||
+    norm.includes('italienisch') ||
+    norm.includes('italiano')
   ) {
     return 'FACHFOKUS SPRACHE: Achte besonders auf inhaltliche Vollständigkeit, Textverständnis, Kohärenz, Argumentationsstruktur sowie Grammatik, Ausdruck und Orthographie.';
   }
@@ -1797,4 +1800,4 @@ export async function classifyDocumentWithGemini(
     console.warn('classifyDocumentWithGemini failed (falling back to deterministic checks):', err);
     return null;
   }
-}
+                }
