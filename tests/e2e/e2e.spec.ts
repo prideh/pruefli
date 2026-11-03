@@ -6,6 +6,8 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
   const teacherEmail = `e2e.teacher.${uniqueSuffix}@schule.ch`;
   const teacherPassword = 'SwissPruefliPassword2026!';
   const teacherName = 'Herr Dr. Schweizer';
+  let kontoAClassId = '';
+  let kontoAExamId = '';
 
   test('1. Teacher Registration -> Decluttered Dashboard -> Class & Student Creation -> Exam & CSV Export -> Mobile QR Relay Handover', async ({
     page,
@@ -128,6 +130,8 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
       .first()
       .click();
     await expect(page).toHaveURL(/\/classes\/.+/);
+    kontoAClassId = new URL(page.url()).pathname.split('/').pop() || '';
+    expect(kontoAClassId).toBeTruthy();
 
     // Add a student to the class
     const addStudentBtn = page.getByRole('button', { name: /Schüler.*hinzufügen/i }).first();
@@ -163,6 +167,8 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
       .first()
       .click();
     await expect(page).toHaveURL(/\/exams\/.+/);
+    kontoAExamId = new URL(page.url()).pathname.split('/').pop() || '';
+    expect(kontoAExamId).toBeTruthy();
 
     // Verify new "Korrektur-Fortschritt" KPI card (replaced Standardabweichung)
     await expect(page.getByText('Korrektur-Fortschritt')).toBeVisible();
@@ -217,7 +223,7 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     expect(pollJson.scannedDocument.pageCount).toBe(1);
   });
 
-  test('2. Seeded Teacher Login -> Correction Workspace (/correct/[id]) -> Resolve AI Uncertainty -> Live Grade Recalculation -> Speed-Grading Sibling Navigation', async ({
+  test('2. Seeded Teacher Login (Konto B) -> Two-Account Isolation (#103) -> Correction Workspace (/correct/[id]) -> Resolve AI Uncertainty -> Speed-Grading Sibling Navigation', async ({
     page,
   }) => {
     await page.goto('/login');
@@ -232,6 +238,38 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     await page.getByRole('button', { name: /Anmelden|Login/i }).click();
 
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
+
+    // --- Two-Account Isolation Check (#103): Konto B (lehrer@schule.ch) cannot read or modify Konto A's resources ---
+    const [bClassesRes, bExamsRes] = await Promise.all([
+      page.request.get('/api/classes'),
+      page.request.get('/api/exams'),
+    ]);
+    expect(bClassesRes.status()).toBe(200);
+    expect(bExamsRes.status()).toBe(200);
+    const bClassesText = await bClassesRes.text();
+    const bExamsText = await bExamsRes.text();
+    expect(bClassesText).not.toContain('Gymnasium 10b');
+    expect(bExamsText).not.toContain('Algebra Prüfung 1');
+
+    if (kontoAClassId) {
+      const foreignClassDetail = await page.request.get(`/api/classes/${kontoAClassId}`);
+      expect(foreignClassDetail.status()).toBe(404);
+      const foreignClassUpdate = await page.request.put(`/api/classes/${kontoAClassId}`, {
+        data: { name: 'Konto B Manipulation' },
+      });
+      expect(foreignClassUpdate.status()).toBe(404);
+    }
+
+    if (kontoAExamId) {
+      const foreignExamDetail = await page.request.get(`/api/exams/${kontoAExamId}`);
+      expect(foreignExamDetail.status()).toBe(403);
+      const foreignExamUpdate = await page.request.put(`/api/exams/${kontoAExamId}`, {
+        data: { title: 'Konto B Manipulation', maxPoints: 10 },
+      });
+      expect(foreignExamUpdate.status()).toBe(403);
+      const foreignExamDelete = await page.request.delete(`/api/exams/${kontoAExamId}`);
+      expect(foreignExamDelete.status()).toBe(403);
+    }
 
     // Open Max Mustermann's seeded submission (has the uncertain KI step) in the Correction Workspace
     const maxRow = page.getByRole('row', { name: /Max Mustermann/i });

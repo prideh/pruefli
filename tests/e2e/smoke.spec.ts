@@ -1,12 +1,22 @@
 import { test, expect } from '@playwright/test';
 import crypto from 'crypto';
 
-function createSmokeSessionToken(userId: string): string {
-  const secret = process.env.JWT_SECRET || 'pruefli-dev-secret-key-safe-fallback';
+function createSmokeSessionToken(
+  userId: string,
+  options?: { expiresInSeconds?: number; purpose?: string; secret?: string }
+): string {
+  const secret =
+    options?.secret || process.env.JWT_SECRET || 'pruefli-dev-secret-key-safe-fallback';
   const now = Math.floor(Date.now() / 1000);
+  const expOffset = options?.expiresInSeconds ?? 7 * 24 * 60 * 60;
   const header = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url');
   const payload = Buffer.from(
-    JSON.stringify({ userId, iat: now, exp: now + 7 * 24 * 60 * 60 })
+    JSON.stringify({
+      userId,
+      ...(options?.purpose ? { purpose: options.purpose } : {}),
+      iat: now,
+      exp: now + expOffset,
+    })
   ).toString('base64url');
   const sig = crypto
     .createHmac('sha256', secret)
@@ -36,24 +46,68 @@ test.describe('Smoke Tests — Critical Availability, Security Boundaries & Orth
     }
   });
 
-  test('3. Protected API endpoints reject unauthenticated requests with HTTP 401', async ({
+  test('3. Protected API endpoints reject anonymous, expired, tampered, and foreign-purpose credentials with HTTP 401 (#101, #103)', async ({
     request,
   }) => {
+    // 1. Anonymous matrix across all protected GET endpoints
     for (const endpoint of [
       '/api/auth/me',
+      '/api/auth/oauth/identities',
       '/api/exams',
+      '/api/exams/exam-smoke-id',
+      '/api/exams/exam-smoke-id/feedback-sheets',
+      '/api/exams/exam-smoke-id/task-analysis',
       '/api/classes',
+      '/api/classes/class-smoke-id',
+      '/api/classes/class-smoke-id/exams',
+      '/api/classes/class-smoke-id/students',
+      '/api/students/student-smoke-id',
       '/api/subjects',
       '/api/submissions',
+      '/api/submissions/sub-smoke-id',
+      '/api/logs',
+      '/api/health/gemini',
+      '/uploads/sample.pdf',
     ]) {
       const res = await request.get(endpoint);
       expect(res.status(), `Expected 401 for unauthenticated GET ${endpoint}`).toBe(401);
     }
 
-    const relayPostRes = await request.post('/api/mobile-relay', {
-      data: { targetMode: 'SUBMISSION' },
+    // 2. Anonymous matrix across protected write endpoints (POST/PUT/PATCH/DELETE)
+    for (const endpoint of [
+      '/api/classes',
+      '/api/classes/class-smoke-id/students',
+      '/api/exams',
+      '/api/exams/exam-smoke-id/approve',
+      '/api/exams/exam-smoke-id/duplicate',
+      '/api/exams/exam-smoke-id/regenerate-task',
+      '/api/exams/generate',
+      '/api/exams/parse-rubric',
+      '/api/submissions/sub-smoke-id',
+      '/api/submissions/sub-smoke-id/add-task',
+      '/api/submissions/sub-smoke-id/replace',
+      '/api/correct',
+      '/api/mobile-relay',
+    ]) {
+      const res = await request.post(endpoint, { data: {} });
+      expect(res.status(), `Expected 401 for unauthenticated POST ${endpoint}`).toBe(401);
+    }
+
+    // 3. Negative credential checks against production server (expired, wrong secret, foreign purpose)
+    const expiredToken = createSmokeSessionToken('smoke-expired-user', { expiresInSeconds: -600 });
+    const wrongSecretToken = createSmokeSessionToken('smoke-forged-user', {
+      secret: 'wrong-signing-secret-key-for-negative-test',
     });
-    expect(relayPostRes.status()).toBe(401);
+    const wrongPurposeToken = createSmokeSessionToken('smoke-relay-user', {
+      purpose: 'mobile_relay',
+    });
+
+    for (const invalidToken of [expiredToken, wrongSecretToken, wrongPurposeToken]) {
+      const res = await request.get('/api/exams', {
+        headers: { Cookie: `grade_ai_session=${invalidToken}` },
+      });
+      expect(res.status()).toBe(401);
+    }
   });
 
   test('4. Public Mobile QR Scanner route (/scan/[token]) is reachable without cookie auth and rejects invalid tokens', async ({
