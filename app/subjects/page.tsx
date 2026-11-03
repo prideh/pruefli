@@ -1429,13 +1429,13 @@ export default function SubjectsPage() {
                   </Typography>
                   <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5 }}>
                     Füge eigene Fächer ausserhalb des Katalogs mit freiem Namen hinzu (z. B.
-                    Geschichte, Französisch, Geografie, Musik).
+                    Geschichte, Geografie, Musik, Sport).
                   </Typography>
 
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
                     <TextField
                       label="Eigenes Fach hinzufügen"
-                      placeholder="z. B. Geschichte, Französisch, Musik"
+                      placeholder="z. B. Geschichte, Geografie, Musik"
                       size="small"
                       fullWidth
                       value={newCustomSubject}
