@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import { isEmailVerified } from '@/lib/email-verification';
-import { isLiveSendingEnabled } from '@/lib/email';
+import { getEmailVerificationStatus } from '@/lib/email-verification';
 
-export async function GET() {
+export async function GET(request?: Request) {
   try {
     const session = await getSession();
 
@@ -21,6 +20,7 @@ export async function GET() {
         id: true,
         name: true,
         email: true,
+        createdAt: true,
       },
     });
 
@@ -31,8 +31,11 @@ export async function GET() {
       );
     }
 
-    const verified = await isEmailVerified(teacher.id, teacher.email);
-    const liveSending = isLiveSendingEnabled();
+    const verificationStatus = await getEmailVerificationStatus(teacher.id, {
+      email: teacher.email,
+      createdAt: teacher.createdAt,
+      request,
+    });
 
     const sessionMeta =
       session.sessionId || session.expiresAt
@@ -48,9 +51,16 @@ export async function GET() {
 
     return NextResponse.json({
       authenticated: true,
-      teacher,
-      isEmailVerified: verified,
-      liveSendingEnabled: liveSending,
+      teacher: {
+        id: teacher.id,
+        name: teacher.name,
+        email: teacher.email,
+      },
+      isEmailVerified: verificationStatus.isEmailVerified,
+      emailVerificationRequired: verificationStatus.emailVerificationRequired,
+      isGrandfathered: verificationStatus.isGrandfathered,
+      enforcementEnabled: verificationStatus.enforcementEnabled,
+      liveSendingEnabled: verificationStatus.liveSendingEnabled,
       ...(sessionMeta ? { session: sessionMeta } : {}),
     });
   } catch (error) {

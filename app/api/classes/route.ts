@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags, invalidateClassCache } from '@/lib/cache';
 import { validateClassName } from '@/lib/payload-limits';
 import { getMultipleClassesSavedSubjects, saveClassSubjects } from '@/lib/teacher-subjects';
@@ -16,6 +17,8 @@ export async function GET(request?: Request) {
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const url = request?.url ? new URL(request.url) : new URL('http://localhost/api/classes');
     const statusParam = (url.searchParams.get('status') || 'active').toLowerCase();
@@ -135,6 +138,8 @@ export async function POST(request: Request) {
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const body = await request.json();
     const { name } = body;

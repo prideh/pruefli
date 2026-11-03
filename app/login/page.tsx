@@ -109,7 +109,21 @@ export default function LoginPage() {
       }
 
       if (result.teacher) {
-        setCachedTeacher(result.teacher);
+        setCachedTeacher({
+          ...result.teacher,
+          isEmailVerified:
+            typeof result.isEmailVerified === 'boolean'
+              ? result.isEmailVerified
+              : result.teacher.isEmailVerified,
+          emailVerificationRequired:
+            typeof result.emailVerificationRequired === 'boolean'
+              ? result.emailVerificationRequired
+              : result.teacher.emailVerificationRequired,
+          isGrandfathered:
+            typeof result.isGrandfathered === 'boolean'
+              ? result.isGrandfathered
+              : result.teacher.isGrandfathered,
+        });
       }
       const targetUrl = getSafeReturnDestination();
       router.refresh();

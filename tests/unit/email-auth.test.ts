@@ -22,9 +22,19 @@ import {
 import {
   markEmailVerified,
   isEmailVerified,
+  isEmailVerificationFlagEnabled,
+  isEmailVerificationEnforcementEnabled,
+  getEmailVerificationCutoffDate,
+  isTeacherGrandfathered,
+  getEmailVerificationStatus,
+  requireVerifiedEmailForApi,
+  EMAIL_VERIFICATION_REQUIRED_CODE,
+  ENFORCE_EMAIL_VERIFICATION_COOKIE,
   resetVerificationMemoryState,
 } from '@/lib/email-verification';
 import { getAuthRateLimitConfig } from '@/lib/rate-limit';
+import fs from 'fs';
+import path from 'path';
 
 describe('Transaktions-E-Mails via Brevo & Auth Workflows (Issue #59)', () => {
   const originalEnv = { ...process.env };
@@ -277,6 +287,114 @@ describe('Transaktions-E-Mails via Brevo & Auth Workflows (Issue #59)', () => {
 
       const resendConfig = getAuthRateLimitConfig('resend-verification');
       expect(resendConfig.maxRequests).toBe(3);
+    });
+  });
+
+  describe('Serverseitige Durchsetzung der E-Mail-Verifizierung & Rollout-Schutz (Issue #98)', () => {
+    it('verhindert Lockout bei aktivem EMAIL_VERIFICATION_ENFORCED, solange Brevo Live-Sending inaktiv ist', async () => {
+      expect(isEmailVerificationFlagEnabled()).toBe(false);
+      expect(await isEmailVerificationEnforcementEnabled()).toBe(false);
+
+      // Flag aktiviert, aber Brevo noch hinter dem Review-Gate -> Enforcement bleibt aus!
+      process.env.EMAIL_VERIFICATION_ENFORCED = 'true';
+      expect(isEmailVerificationFlagEnabled()).toBe(true);
+      expect(isLiveSendingEnabled()).toBe(false);
+      expect(await isEmailVerificationEnforcementEnabled()).toBe(false);
+
+      // Sobald Brevo Live-Sending aktiv ist (BREVO_LIVE_SENDING=true + BREVO_API_KEY), greift Enforcement
+      process.env.BREVO_LIVE_SENDING = 'true';
+      process.env.BREVO_API_KEY = 'xkeysib-live-key';
+      expect(isLiveSendingEnabled()).toBe(true);
+      expect(await isEmailVerificationEnforcementEnabled()).toBe(true);
+    });
+
+    it('erlaubt explizite Aktivierung im Mock-Modus via EMAIL_VERIFICATION_ALLOW_MOCK oder E2E-Cookie', async () => {
+      process.env.EMAIL_VERIFICATION_ENFORCED = 'true';
+      process.env.EMAIL_VERIFICATION_ALLOW_MOCK = 'true';
+      expect(await isEmailVerificationEnforcementEnabled()).toBe(true);
+
+      delete process.env.EMAIL_VERIFICATION_ENFORCED;
+      delete process.env.EMAIL_VERIFICATION_ALLOW_MOCK;
+
+      const reqWithCookie = new Request('http://localhost/api/classes', {
+        headers: {
+          cookie: `${ENFORCE_EMAIL_VERIFICATION_COOKIE}=true`,
+        },
+      });
+      expect(await isEmailVerificationEnforcementEnabled({ request: reqWithCookie })).toBe(true);
+
+      // Explizites Deaktivieren via EMAIL_VERIFICATION_ENFORCED=false ueberstimmt auch das Cookie
+      process.env.EMAIL_VERIFICATION_ENFORCED = 'false';
+      expect(await isEmailVerificationEnforcementEnabled({ request: reqWithCookie })).toBe(false);
+    });
+
+    it('schuetzt Bestandskonten (Grandfathering vor Stichtag) vor Aussperrung und sperrt Neuregistrierungen bis zur Verifizierung', async () => {
+      process.env.EMAIL_VERIFICATION_ENFORCED = 'true';
+      process.env.BREVO_LIVE_SENDING = 'true';
+      process.env.BREVO_API_KEY = 'xkeysib-live-key';
+      process.env.EMAIL_VERIFICATION_CUTOFF_DATE = '2026-04-01T00:00:00.000Z';
+
+      expect(getEmailVerificationCutoffDate().toISOString()).toBe('2026-04-01T00:00:00.000Z');
+
+      // 1. Bestandskonto vor dem Stichtag registriert -> grandfathered, kein Zwang
+      const legacyStatus = await getEmailVerificationStatus('teacher-legacy', {
+        email: 'altbestand@schule.ch',
+        createdAt: new Date('2026-01-15T10:00:00.000Z'),
+      });
+      expect(legacyStatus.isEmailVerified).toBe(false);
+      expect(legacyStatus.isGrandfathered).toBe(true);
+      expect(legacyStatus.enforcementEnabled).toBe(true);
+      expect(legacyStatus.emailVerificationRequired).toBe(false);
+      expect(
+        await isTeacherGrandfathered({
+          teacherId: 'teacher-legacy',
+          createdAt: '2026-01-15T10:00:00.000Z',
+        })
+      ).toBe(true);
+
+      // 2. Neuregistrierung nach dem Stichtag -> muss verifizieren (HTTP 403 auf geschuetzten APIs)
+      const newTeacherId = 'teacher-new-unverified';
+      const newStatus = await getEmailVerificationStatus(newTeacherId, {
+        email: 'neu@schule.ch',
+        createdAt: new Date('2026-04-02T12:00:00.000Z'),
+      });
+      expect(newStatus.isEmailVerified).toBe(false);
+      expect(newStatus.isGrandfathered).toBe(false);
+      expect(newStatus.enforcementEnabled).toBe(true);
+      expect(newStatus.emailVerificationRequired).toBe(true);
+
+      const blockedRes = await requireVerifiedEmailForApi(newTeacherId);
+      expect(blockedRes).not.toBeNull();
+      expect(blockedRes?.status).toBe(403);
+      const blockedBody = await blockedRes!.json();
+      expect(blockedBody.code).toBe(EMAIL_VERIFICATION_REQUIRED_CODE);
+      expect(blockedBody.emailVerificationRequired).toBe(true);
+      expect(blockedBody.error).toContain('E-Mail-Adresse');
+
+      // 3. Nach Bestaetigung der E-Mail -> voller Zugriff (kein 403 mehr)
+      await markEmailVerified(newTeacherId, 'neu@schule.ch');
+      const verifiedStatus = await getEmailVerificationStatus(newTeacherId, {
+        email: 'neu@schule.ch',
+        createdAt: new Date('2026-04-02T12:00:00.000Z'),
+      });
+      expect(verifiedStatus.isEmailVerified).toBe(true);
+      expect(verifiedStatus.emailVerificationRequired).toBe(false);
+      expect(await requireVerifiedEmailForApi(newTeacherId)).toBeNull();
+    });
+
+    it('stellt sicher, dass alle geaenderten Verifizierungs-Dateien ausschliesslich "ss" statt Eszett verwenden', () => {
+      const files = [
+        '../../lib/email-verification.ts',
+        '../../components/DashboardLayout.tsx',
+        '../../app/verify-email/page.tsx',
+        '../../app/api/auth/me/route.ts',
+        '../../app/api/auth/login/route.ts',
+        '../../app/api/auth/register/route.ts',
+      ];
+      for (const rel of files) {
+        const content = fs.readFileSync(path.resolve(__dirname, rel), 'utf-8');
+        expect(content, `Datei ${rel} enthaelt Eszett`).not.toMatch(/\u00df/);
+      }
     });
   });
 });

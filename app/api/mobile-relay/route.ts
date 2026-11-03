@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { signMobileRelayToken, verifyMobileRelayToken } from '@/lib/jwt';
 import { getScannedRelayDocument } from '@/lib/relay-store';
 import { resolveRelayOrigin } from '@/lib/relay-url';
@@ -14,6 +15,8 @@ export async function POST(request: Request) {
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const body = await request.json().catch(() => ({}));
     const classId = typeof body.classId === 'string' && body.classId ? body.classId : null;
@@ -96,6 +99,8 @@ export async function GET(request: Request) {
         { status: 401 }
       );
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(payload.teacherId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const [teacher, exams, recentSubmissions, targetSubmission] = await Promise.all([
       db.teacher.findUnique({

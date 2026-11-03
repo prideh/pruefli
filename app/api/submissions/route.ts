@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags } from '@/lib/cache';
 import { getArchivedClassIds } from '@/lib/class-archive';
 
@@ -10,6 +11,8 @@ export async function GET(request?: Request | NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const url = request?.url ? new URL(request.url) : new URL('http://localhost/api/submissions');
     const searchParams = url.searchParams;

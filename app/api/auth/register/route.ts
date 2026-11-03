@@ -5,6 +5,7 @@ import { createSession } from '@/lib/session';
 import { checkAuthRateLimit, createAuthRateLimitResponse, extractClientIp } from '@/lib/rate-limit';
 import { signEmailVerificationToken } from '@/lib/jwt';
 import { isLiveSendingEnabled, sendVerificationEmail, type SendEmailResult } from '@/lib/email';
+import { getEmailVerificationStatus, markEmailVerificationPending } from '@/lib/email-verification';
 
 export async function POST(request: Request) {
   try {
@@ -59,8 +60,16 @@ export async function POST(request: Request) {
       },
     });
 
+    await markEmailVerificationPending(teacher.id, teacher.email);
+
     // Create session cookie
     await createSession(teacher.id);
+
+    const verificationStatus = await getEmailVerificationStatus(teacher.id, {
+      email: teacher.email,
+      createdAt: teacher.createdAt ?? new Date(),
+      request,
+    });
 
     // Dispatch account verification email (uses Mock-Transport or Brevo HTTP API)
     const liveSending = isLiveSendingEnabled();
@@ -90,6 +99,9 @@ export async function POST(request: Request) {
         name: teacher.name,
         email: teacher.email,
       },
+      isEmailVerified: false,
+      emailVerificationRequired: verificationStatus.emailVerificationRequired,
+      enforcementEnabled: verificationStatus.enforcementEnabled,
       liveSendingEnabled: liveSending,
       emailVerification: {
         sent: verificationEmailSent,

@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { verifyOAuthConfirmLinkEmailToken } from '@/lib/jwt';
 import { linkFederatedIdentity } from '@/lib/oauth';
 import { createSession } from '@/lib/session';
+import { markEmailVerified } from '@/lib/email-verification';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,13 +35,14 @@ export async function GET(request: Request) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    // Proof of ownership established via email link -> Link identity
+    // Proof of ownership established via email link -> Link identity and mark email verified
     await linkFederatedIdentity({
       teacherId: teacher.id,
       provider: payload.provider,
       providerAccountId: payload.providerAccountId,
       email: payload.providerEmail,
     });
+    await markEmailVerified(teacher.id, teacher.email);
 
     // Establish authenticated session
     await createSession(teacher.id);

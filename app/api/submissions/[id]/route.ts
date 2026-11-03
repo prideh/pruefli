@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { calculateRawSwissGrade, calculateSwissGrade } from '@/lib/grading';
 import { normalizeStepFeedbackConsistency } from '@/lib/gemini';
 import { deleteSubmissionScanFiles, StorageCleanupError } from '@/lib/storage-cleanup';
@@ -19,6 +20,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const { id: submissionId } = await params;
 
@@ -186,6 +189,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const { id: submissionId } = await params;
     const body = await request.json();
@@ -374,6 +379,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const { id: submissionId } = await params;
     const body = await request.json();
@@ -633,6 +640,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const { id: submissionId } = await params;
 

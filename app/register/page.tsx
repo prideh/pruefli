@@ -84,6 +84,7 @@ export default function RegisterPage() {
         setCachedTeacher({
           ...result.teacher,
           isEmailVerified: false,
+          emailVerificationRequired: Boolean(result.emailVerificationRequired),
           liveSendingEnabled:
             typeof result.liveSendingEnabled === 'boolean'
               ? result.liveSendingEnabled

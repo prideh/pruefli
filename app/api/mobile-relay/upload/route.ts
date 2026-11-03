@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyMobileRelayToken } from '@/lib/jwt';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import {
   DEFAULT_GEMINI_MODEL,
   identifyExamAndStudentFromScan,
@@ -83,6 +84,8 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(payload.teacherId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     // Rate limiting for AI endpoints via relay token / teacher
     const rateLimit = await checkAiRateLimit({

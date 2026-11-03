@@ -19,6 +19,7 @@ import {
 import SchoolIcon from '@mui/icons-material/School';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
+import { getCachedTeacher, setCachedTeacher, clearSessionCache } from '@/lib/sessionCache';
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
@@ -58,6 +59,16 @@ function VerifyEmailContent() {
         if (!isMounted) return;
 
         if (res.ok && data.success) {
+          const cached = getCachedTeacher();
+          if (cached) {
+            setCachedTeacher({
+              ...cached,
+              isEmailVerified: true,
+              emailVerificationRequired: false,
+            });
+          } else {
+            clearSessionCache();
+          }
           setSuccess(true);
           setError(null);
         } else {

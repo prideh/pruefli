@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { getTeacherSavedSubjects, saveTeacherSubjects } from '@/lib/teacher-subjects';
 import { resolveTeacherSubjects, resolveFilterAndViewSubjects } from '@/lib/grading';
 import { getArchivedClassIds } from '@/lib/class-archive';
 
 // GET: Fetch the teacher's "Meine Fächer" configuration and resolved subject lists
-export async function GET() {
+export async function GET(request?: Request) {
   try {
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const [savedSubjects, teacherExams, archivedIds] = await Promise.all([
       getTeacherSavedSubjects(session.userId),
@@ -56,6 +59,8 @@ export async function PUT(request: Request) {
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const body = await request.json();
     if (!body || !Array.isArray(body.subjects)) {

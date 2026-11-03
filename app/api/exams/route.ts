@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags, invalidateExamCache } from '@/lib/cache';
 import { parseExamMetadata } from '@/lib/exam-meta';
 import { validateReferenceUpload } from '@/lib/document-validation';
@@ -13,6 +14,8 @@ export async function GET(request?: Request) {
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const url = request?.url ? new URL(request.url) : new URL('http://localhost/api/exams');
     const includeArchived = url.searchParams.get('includeArchived') === 'true';
@@ -120,6 +123,8 @@ export async function POST(request: Request) {
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const body = await request.json();
     const {

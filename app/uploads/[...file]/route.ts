@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { db } from '@/lib/db';
 import { getStorageAdapter, normalizeStorageKey } from '@/lib/storage';
 import path from 'path';
@@ -25,6 +26,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ file
     if (!session || !session.userId) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     // 2. Autorisierung pruefen: Scan muss zur Lehrperson gehoeren
     const submission = await db.submission.findFirst({
@@ -93,6 +96,10 @@ export async function HEAD(request: Request, { params }: { params: Promise<{ fil
     const session = await getSession();
     if (!session || !session.userId) {
       return new Response(null, { status: 401 });
+    }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) {
+      return new Response(null, { status: 403 });
     }
 
     const submission = await db.submission.findFirst({

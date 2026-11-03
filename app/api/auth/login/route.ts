@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword } from '@/lib/auth';
 import { createSession } from '@/lib/session';
+import { getEmailVerificationStatus } from '@/lib/email-verification';
 import { checkAuthRateLimit, createAuthRateLimitResponse, extractClientIp } from '@/lib/rate-limit';
 
 // Precomputed 16-byte hex salt + 64-byte hex key for constant-time dummy verification when user is not found
@@ -45,6 +46,12 @@ export async function POST(request: Request) {
     // Set the session cookie
     await createSession(teacher.id);
 
+    const verificationStatus = await getEmailVerificationStatus(teacher.id, {
+      email: teacher.email,
+      createdAt: teacher.createdAt,
+      request,
+    });
+
     return NextResponse.json({
       success: true,
       teacher: {
@@ -52,6 +59,10 @@ export async function POST(request: Request) {
         name: teacher.name,
         email: teacher.email,
       },
+      isEmailVerified: verificationStatus.isEmailVerified,
+      emailVerificationRequired: verificationStatus.emailVerificationRequired,
+      isGrandfathered: verificationStatus.isGrandfathered,
+      enforcementEnabled: verificationStatus.enforcementEnabled,
     });
   } catch (error) {
     console.error('Error in teacher login API:', error);

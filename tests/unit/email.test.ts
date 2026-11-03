@@ -58,7 +58,13 @@ import { POST as resendVerificationPOST } from '@/app/api/auth/resend-verificati
 import { POST as verifyEmailPOST } from '@/app/api/auth/verify-email/route';
 import { POST as resetPasswordPOST } from '@/app/api/auth/reset-password/route';
 import { POST as registerPOST } from '@/app/api/auth/register/route';
+import { POST as loginPOST } from '@/app/api/auth/login/route';
 import { GET as meGET } from '@/app/api/auth/me/route';
+import { GET as classesGET, POST as classesPOST } from '@/app/api/classes/route';
+import { GET as examsGET } from '@/app/api/exams/route';
+import { GET as submissionsGET } from '@/app/api/submissions/route';
+import { GET as subjectsGET } from '@/app/api/subjects/route';
+import { GET as logsGET } from '@/app/api/logs/route';
 
 describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issue #70)', () => {
   const originalEnv = process.env;
@@ -624,6 +630,113 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
       expect(
         await verifyPassword('UpdatedPassword2026!', teachersTable.get('teacher-1')!.passwordHash)
       ).toBe(true);
+    });
+  });
+
+  describe('6. Server-Side Email Verification Enforcement across Protected APIs (Issue #98)', () => {
+    it('enforces Registrierung -> eingeschraenkter Zustand (403 auf APIs) -> Bestaetigung via Link -> voller Zugriff', async () => {
+      process.env.EMAIL_VERIFICATION_ENFORCED = 'true';
+      process.env.BREVO_LIVE_SENDING = 'true';
+      process.env.BREVO_API_KEY = 'xkeysib-live-test-key';
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ messageId: '<brevo-reg-98@pruefli.ch>' }),
+      }) as unknown as typeof fetch;
+
+      // 1. Registrierung einer neuen Lehrperson
+      const regRes = await registerPOST(
+        new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Sandra Frei',
+            email: 'sandra.frei@schule.ch',
+            password: 'ValidPassword123!',
+          }),
+        })
+      );
+      const regData = await regRes.json();
+      expect(regRes.status).toBe(200);
+      expect(regData.isEmailVerified).toBe(false);
+      expect(regData.emailVerificationRequired).toBe(true);
+      expect(regData.enforcementEnabled).toBe(true);
+
+      const newTeacherId = regData.teacher.id;
+      mockGetSession.mockResolvedValue({ userId: newTeacherId });
+
+      // 2. /api/auth/me und /api/auth/login melden eingeschraenkten Zustand (emailVerificationRequired: true)
+      const meBeforeRes = await meGET();
+      const meBeforeData = await meBeforeRes.json();
+      expect(meBeforeRes.status).toBe(200);
+      expect(meBeforeData.isEmailVerified).toBe(false);
+      expect(meBeforeData.emailVerificationRequired).toBe(true);
+
+      const loginRes = await loginPOST(
+        new Request('http://localhost/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'sandra.frei@schule.ch',
+            password: 'ValidPassword123!',
+          }),
+        })
+      );
+      const loginData = await loginRes.json();
+      expect(loginRes.status).toBe(200);
+      expect(loginData.isEmailVerified).toBe(false);
+      expect(loginData.emailVerificationRequired).toBe(true);
+
+      // 3. Geschuetzte API-Endpunkte lehnen unbestaetigte Konten serverseitig mit HTTP 403 ab
+      const classesGetRes = await classesGET(new Request('http://localhost/api/classes'));
+      expect(classesGetRes.status).toBe(403);
+      const classesGetData = await classesGetRes.json();
+      expect(classesGetData.code).toBe('EMAIL_VERIFICATION_REQUIRED');
+      expect(classesGetData.emailVerificationRequired).toBe(true);
+
+      const classesPostRes = await classesPOST(
+        new Request('http://localhost/api/classes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Klasse 1a' }),
+        })
+      );
+      expect(classesPostRes.status).toBe(403);
+
+      const examsGetRes = await examsGET(new Request('http://localhost/api/exams'));
+      expect(examsGetRes.status).toBe(403);
+
+      const submissionsGetRes = await submissionsGET(
+        new Request('http://localhost/api/submissions')
+      );
+      expect(submissionsGetRes.status).toBe(403);
+
+      const subjectsGetRes = await subjectsGET(new Request('http://localhost/api/subjects'));
+      expect(subjectsGetRes.status).toBe(403);
+
+      const logsGetRes = await logsGET(new Request('http://localhost/api/logs'));
+      expect(logsGetRes.status).toBe(403);
+
+      // 4. Bestaetigung via Verifizierungs-Token (POST /api/auth/verify-email)
+      const verifyToken = await signEmailVerificationToken({
+        teacherId: newTeacherId,
+        email: 'sandra.frei@schule.ch',
+      });
+      const verifyRes = await verifyEmailPOST(
+        new Request('http://localhost/api/auth/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: verifyToken }),
+        })
+      );
+      expect(verifyRes.status).toBe(200);
+
+      // 5. Nach erfolgreicher Bestaetigung: voller Zugriff freigeschaltet
+      const meAfterRes = await meGET();
+      const meAfterData = await meAfterRes.json();
+      expect(meAfterRes.status).toBe(200);
+      expect(meAfterData.isEmailVerified).toBe(true);
+      expect(meAfterData.emailVerificationRequired).toBe(false);
     });
   });
 });

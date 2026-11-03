@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags } from '@/lib/cache';
 import { isExamApproved } from '@/lib/exam-meta';
 
@@ -10,6 +11,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const { id: examId } = await params;
 

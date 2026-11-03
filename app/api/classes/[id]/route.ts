@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags, invalidateClassCache, invalidateLogsCache } from '@/lib/cache';
 import { deleteClassScanFiles, StorageCleanupError } from '@/lib/storage-cleanup';
 import { validateClassName } from '@/lib/payload-limits';
@@ -28,6 +29,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const { id: classId } = await params;
 
@@ -238,6 +241,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const { id: classId } = await params;
     const body = await request.json();
@@ -331,6 +336,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     const { id: classId } = await params;
 

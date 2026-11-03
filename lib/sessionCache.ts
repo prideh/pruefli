@@ -13,6 +13,8 @@ export interface TeacherSession {
   name: string;
   email: string;
   isEmailVerified?: boolean;
+  emailVerificationRequired?: boolean;
+  isGrandfathered?: boolean;
   liveSendingEnabled?: boolean;
   session?: SessionLifecycleMetadata | null;
 }

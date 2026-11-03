@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags } from '@/lib/cache';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -9,6 +10,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
+    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    if (unverifiedResponse) return unverifiedResponse;
 
     // Await params promise in Next.js 16
     const { id: classId } = await params;

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signEmailVerificationToken } from '@/lib/jwt';
 
 test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
   const uniqueSuffix = Date.now();
@@ -33,7 +34,16 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     }
     await page.setViewportSize({ width: 1280, height: 800 });
 
-    // --- STEP 1: Register a new teacher via UI ---
+    // --- STEP 1: Register a new teacher -> Restricted Verification State -> Confirm via Link -> Full Access (#98) ---
+    await page.context().addCookies([
+      {
+        name: 'pruefli_enforce_email_verification',
+        value: 'true',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+
     await page.goto('/register');
     await page.getByLabel(/Name/i).first().fill(teacherName);
     await page
@@ -49,6 +59,39 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
       .click();
 
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
+
+    // Unverified teacher lands on restricted "E-Mail bestätigen" view without sidebar or app content
+    await expect(page.getByTestId('email-verification-gate')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'E-Mail bestätigen' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Bestätigung erneut senden/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Abmelden' })).toBeVisible();
+    await expect(page.getByText('Prüfungskorrektur starten')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Klassen' })).toHaveCount(0);
+
+    // Server-side API enforcement rejects unverified account with HTTP 403
+    const blockedClassesRes = await page.request.get('/api/classes');
+    expect(blockedClassesRes.status()).toBe(403);
+    const blockedClassesJson = await blockedClassesRes.json();
+    expect(blockedClassesJson.code).toBe('EMAIL_VERIFICATION_REQUIRED');
+
+    // Confirm email via verification link -> unlocks full access
+    const meResBefore = await page.request.get('/api/auth/me');
+    expect(meResBefore.status()).toBe(200);
+    const meJsonBefore = await meResBefore.json();
+    expect(meJsonBefore.isEmailVerified).toBe(false);
+    expect(meJsonBefore.emailVerificationRequired).toBe(true);
+
+    const verificationToken = await signEmailVerificationToken({
+      teacherId: meJsonBefore.teacher.id,
+      email: teacherEmail,
+    });
+
+    await page.goto(`/verify-email?token=${encodeURIComponent(verificationToken)}`);
+    await expect(page.getByText('E-Mail-Adresse erfolgreich bestätigt!')).toBeVisible();
+    await page.getByRole('button', { name: /Weiter zum Dashboard/i }).click();
+
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
+    await expect(page.getByTestId('email-verification-gate')).toHaveCount(0);
     await expect(page.getByText('Prüfungskorrektur starten')).toBeVisible();
 
     // Verify sidebar does NOT show cluttering "Protokoll" link

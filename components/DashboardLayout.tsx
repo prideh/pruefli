@@ -31,6 +31,7 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import HistoryIcon from '@mui/icons-material/History';
 import LogoutIcon from '@mui/icons-material/Logout';
+import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread';
 import {
   getCachedTeacher,
   setCachedTeacher,
@@ -53,6 +54,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     name: string;
     email: string;
     isEmailVerified?: boolean;
+    emailVerificationRequired?: boolean;
+    isGrandfathered?: boolean;
     liveSendingEnabled?: boolean;
     session?: SessionLifecycleMetadata | null;
   } | null>(getCachedTeacher());
@@ -74,14 +77,21 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         method: 'POST',
       });
       const data = await res.json();
-      if (data.liveSendingEnabled === false || data.simulated === true || data.sent === false) {
+      if (!res.ok) {
+        setResendSeverity('error');
+        setResendNotification(data.error || data.message || 'Fehler beim Senden.');
+      } else if (
+        data.liveSendingEnabled === false ||
+        data.simulated === true ||
+        data.sent === false
+      ) {
         setResendSeverity('warning');
         setResendNotification(
           data.message ||
             'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet.'
         );
         setTeacher((prev) => (prev ? { ...prev, liveSendingEnabled: false } : prev));
-      } else if (res.ok && data.success) {
+      } else if (data.success) {
         setResendSeverity('success');
         setResendNotification(data.message || 'Bestätigungs-Link wurde erfolgreich gesendet.');
       } else {
@@ -118,6 +128,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                       typeof data.isEmailVerified === 'boolean'
                         ? data.isEmailVerified
                         : data.teacher.isEmailVerified,
+                    emailVerificationRequired:
+                      typeof data.emailVerificationRequired === 'boolean'
+                        ? data.emailVerificationRequired
+                        : data.teacher.emailVerificationRequired,
+                    isGrandfathered:
+                      typeof data.isGrandfathered === 'boolean'
+                        ? data.isGrandfathered
+                        : data.teacher.isGrandfathered,
                     liveSendingEnabled:
                       typeof data.liveSendingEnabled === 'boolean'
                         ? data.liveSendingEnabled
@@ -501,6 +519,142 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               sx={{ color: '#64748b', textTransform: 'none', fontWeight: 600 }}
             >
               Zurück zur Anmeldung
+            </Button>
+          </Stack>
+        </Box>
+      </Box>
+    );
+  }
+
+  if (teacher && teacher.isEmailVerified === false && teacher.emailVerificationRequired) {
+    return (
+      <Box
+        data-testid="email-verification-gate"
+        sx={{
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          p: 3,
+        }}
+      >
+        <Stack
+          direction="row"
+          spacing={1.5}
+          sx={{ justifyContent: 'center', alignItems: 'center', mb: 4 }}
+        >
+          <Box
+            sx={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              backgroundColor: '#1b77d1',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 10px rgba(27, 119, 209, 0.3)',
+            }}
+          >
+            <SchoolIcon sx={{ color: 'white', fontSize: '1.4rem' }} />
+          </Box>
+          <Typography
+            variant="h4"
+            component="span"
+            sx={{ fontWeight: 900, letterSpacing: '-0.03em', color: '#0f172a' }}
+          >
+            prüefli
+          </Typography>
+        </Stack>
+
+        <Box
+          sx={{
+            maxWidth: 500,
+            width: '100%',
+            p: { xs: 3, sm: 5 },
+            textAlign: 'center',
+            borderRadius: '16px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
+            border: '1px solid #e2e8f0',
+          }}
+        >
+          <Box
+            sx={{
+              width: 64,
+              height: 64,
+              borderRadius: '50%',
+              backgroundColor: '#eff6ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              mx: 'auto',
+              mb: 2.5,
+            }}
+          >
+            <MarkEmailUnreadIcon sx={{ fontSize: '2rem', color: '#1b77d1' }} />
+          </Box>
+
+          <Typography variant="h5" sx={{ fontWeight: 800, mb: 1.5, color: '#0f172a' }}>
+            E-Mail bestätigen
+          </Typography>
+
+          <Typography variant="body1" sx={{ color: '#475569', mb: 3, lineHeight: 1.6 }}>
+            Wir haben eine Bestätigungs-E-Mail an <strong>{teacher.email}</strong> gesendet. Bitte
+            klicke auf den Bestätigungslink in der E-Mail, um dein prüefli-Konto vollständig
+            freizuschalten.
+          </Typography>
+
+          {resendNotification && (
+            <Alert
+              severity={resendSeverity}
+              sx={{ mb: 3, borderRadius: '10px', textAlign: 'left' }}
+            >
+              {resendNotification}
+            </Alert>
+          )}
+
+          <Stack spacing={1.5}>
+            <Button
+              variant="contained"
+              fullWidth
+              onClick={handleResendVerification}
+              disabled={resendingVerification}
+              sx={{
+                backgroundColor: '#1b77d1',
+                textTransform: 'none',
+                fontWeight: 700,
+                borderRadius: '10px',
+                p: '12px 16px',
+                fontSize: '0.95rem',
+                '&:hover': { backgroundColor: '#1565c0' },
+              }}
+            >
+              {resendingVerification ? 'Wird gesendet...' : 'Bestätigung erneut senden'}
+            </Button>
+
+            <Button
+              variant="outlined"
+              fullWidth
+              onClick={handleLogout}
+              startIcon={<LogoutIcon />}
+              sx={{
+                borderRadius: '10px',
+                p: '10px 16px',
+                borderColor: '#e2e8f0',
+                color: '#475569',
+                textTransform: 'none',
+                fontWeight: 650,
+                fontSize: '0.9rem',
+                '&:hover': {
+                  borderColor: 'error.light',
+                  color: 'error.main',
+                  backgroundColor: '#fef2f2',
+                },
+              }}
+            >
+              Abmelden
             </Button>
           </Stack>
         </Box>
