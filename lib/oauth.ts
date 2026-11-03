@@ -316,7 +316,7 @@ export async function fetchOAuthUserProfile(
       providerAccountId: String(data.sub).trim(),
       email: String(data.email).trim().toLowerCase(),
       name: data.name?.trim() || 'Lehrperson',
-      emailVerified: Boolean(data.email_verified),
+      emailVerified: data.email_verified === true,
     };
   }
 
@@ -340,7 +340,9 @@ export async function fetchOAuthUserProfile(
       providerAccountId: String(data.id).trim(),
       email: String(email).trim().toLowerCase(),
       name: data.displayName?.trim() || 'Lehrperson',
-      emailVerified: true,
+      // Microsoft Graph /v1.0/me liefert keinen belastbaren E-Mail-Verifizierungsclaim
+      // (mail / userPrincipalName ist nicht automatisch eine bestaetigte Adresse).
+      emailVerified: false,
     };
   }
 

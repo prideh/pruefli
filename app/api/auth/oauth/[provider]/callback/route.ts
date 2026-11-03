@@ -9,9 +9,18 @@ import {
   linkFederatedIdentity,
   generateOauthDisabledPasswordHash,
 } from '@/lib/oauth';
-import { verifyOAuthStateToken, signOAuthPendingLinkToken } from '@/lib/jwt';
+import {
+  verifyOAuthStateToken,
+  signOAuthPendingLinkToken,
+  signEmailVerificationToken,
+} from '@/lib/jwt';
 import { createSession } from '@/lib/session';
-import { markEmailVerified } from '@/lib/email-verification';
+import { sendVerificationEmail } from '@/lib/email';
+import {
+  getEmailVerificationStatus,
+  markEmailVerificationPending,
+  markEmailVerified,
+} from '@/lib/email-verification';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +66,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     // Exchange authorization code for access tokens
     const { accessToken } = await exchangeCodeForTokens(oauthProvider, code);
 
-    // Fetch verified profile from provider
+    // Fetch profile from provider
     const profile = await fetchOAuthUserProfile(oauthProvider, accessToken);
     const normEmail = profile.email.toLowerCase();
     const providerAccountId = profile.providerAccountId;
@@ -105,7 +114,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     const existingIdentity = await findFederatedIdentity(oauthProvider, providerAccountId);
 
     if (existingIdentity) {
-      // Identity exists -> authenticate directly
+      // Identity exists -> authenticate directly (existing linked accounts remain unchanged)
       const teacher = await db.teacher.findUnique({
         where: { id: existingIdentity.teacherId },
       });
@@ -155,8 +164,41 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
       email: normEmail,
     });
 
-    await markEmailVerified(newTeacher.id, newTeacher.email);
+    // Only mark email as verified when the provider supplies a reliable verification claim
+    // (Google with email_verified === true). Microsoft Graph /v1.0/me provides no verification claim,
+    // and Google profiles with email_verified !== true must remain unverified until confirmed via email flow.
+    const hasVerifiedProviderClaim = oauthProvider === 'google' && profile.emailVerified === true;
+
+    if (hasVerifiedProviderClaim) {
+      await markEmailVerified(newTeacher.id, newTeacher.email);
+    } else {
+      await markEmailVerificationPending?.(newTeacher.id, newTeacher.email);
+      try {
+        const verificationToken = await signEmailVerificationToken({
+          teacherId: newTeacher.id,
+          email: newTeacher.email,
+        });
+        await sendVerificationEmail({
+          toEmail: newTeacher.email,
+          toName: newTeacher.name,
+          verificationToken,
+        });
+      } catch (mailErr) {
+        console.error('Failed to dispatch verification email on OAuth signup:', mailErr);
+      }
+    }
+
     await createSession(newTeacher.id);
+
+    const verificationStatus = await getEmailVerificationStatus?.(newTeacher.id, {
+      email: newTeacher.email,
+      createdAt: newTeacher.createdAt ?? new Date(),
+      request,
+    });
+
+    if (verificationStatus?.emailVerificationRequired) {
+      return NextResponse.redirect(new URL('/verify-email', getAppUrl()));
+    }
 
     return NextResponse.redirect(new URL('/dashboard', getAppUrl()));
   } catch (err) {

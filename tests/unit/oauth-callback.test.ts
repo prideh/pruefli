@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import * as oauthModule from '@/lib/oauth';
 import * as sessionModule from '@/lib/session';
 import * as emailVerificationModule from '@/lib/email-verification';
+import { clearMockSentEmails, getMockSentEmails } from '@/lib/email';
 import { signOAuthStateToken } from '@/lib/jwt';
 
 vi.mock('@/lib/db', () => ({
@@ -19,9 +20,19 @@ vi.mock('@/lib/session', () => ({
   createSession: vi.fn().mockResolvedValue({ sessionId: 'mock-session-id' }),
 }));
 
-vi.mock('@/lib/email-verification', () => ({
-  markEmailVerified: vi.fn().mockResolvedValue(true),
-}));
+vi.mock('@/lib/email-verification', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/email-verification')>();
+  return {
+    ...actual,
+    markEmailVerified: vi.fn((...args: Parameters<typeof actual.markEmailVerified>) =>
+      actual.markEmailVerified(...args)
+    ),
+    markEmailVerificationPending: vi.fn(
+      (...args: Parameters<typeof actual.markEmailVerificationPending>) =>
+        actual.markEmailVerificationPending(...args)
+    ),
+  };
+});
 
 vi.mock('@/lib/oauth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/oauth')>();
@@ -37,20 +48,30 @@ vi.mock('@/lib/oauth', async (importOriginal) => {
 describe('OAuth Callback Route (app/api/auth/oauth/[provider]/callback/route.ts)', () => {
   const originalEnv = process.env;
   const PROD_PROXY_URL = 'http://localhost:10000/api/auth/oauth/google/callback';
+  const MS_PROD_PROXY_URL = 'http://localhost:10000/api/auth/oauth/microsoft/callback';
 
   beforeEach(() => {
     process.env = { ...originalEnv };
     (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
     delete process.env.APP_URL;
     delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.EMAIL_VERIFICATION_ENFORCED;
+    delete process.env.ENFORCE_EMAIL_VERIFICATION;
+    delete process.env.EMAIL_VERIFICATION_ALLOW_MOCK;
+    delete process.env.BREVO_LIVE_SENDING;
+    delete process.env.BREVO_API_KEY;
     vi.clearAllMocks();
+    clearMockSentEmails();
     oauthModule.resetOAuthMemoryState();
+    emailVerificationModule.resetVerificationMemoryState();
   });
 
   afterEach(() => {
     process.env = originalEnv;
     vi.restoreAllMocks();
+    clearMockSentEmails();
     oauthModule.resetOAuthMemoryState();
+    emailVerificationModule.resetVerificationMemoryState();
   });
 
   describe('Production-Proxy-Konstellation (interner Origin in request.url)', () => {
@@ -168,6 +189,7 @@ describe('OAuth Callback Route (app/api/auth/oauth/[provider]/callback/route.ts)
         providerAccountId: 'g-sub-123',
         email: 'lehrer@schule.ch',
         name: 'Max Muster',
+        emailVerified: true,
       });
       vi.mocked(oauthModule.findFederatedIdentity).mockResolvedValue({
         id: 'fed-1',
@@ -200,7 +222,7 @@ describe('OAuth Callback Route (app/api/auth/oauth/[provider]/callback/route.ts)
       expect(sessionModule.createSession).toHaveBeenCalledWith('teacher-123');
     });
 
-    it('registriert neue Benutzer und leitet auf /dashboard der oeffentlichen Origin um', async () => {
+    it('registriert neue Benutzer mit bestaetigtem Google-Profil und leitet auf /dashboard der oeffentlichen Origin um', async () => {
       const validState = await signOAuthStateToken({
         provider: 'google',
         action: 'login',
@@ -215,6 +237,7 @@ describe('OAuth Callback Route (app/api/auth/oauth/[provider]/callback/route.ts)
         providerAccountId: 'g-sub-new',
         email: 'neu@schule.ch',
         name: 'Anna Schmidt',
+        emailVerified: true,
       });
       vi.mocked(oauthModule.findFederatedIdentity).mockResolvedValue(null);
       vi.mocked(db.teacher.findUnique).mockResolvedValue(null);
@@ -248,7 +271,233 @@ describe('OAuth Callback Route (app/api/auth/oauth/[provider]/callback/route.ts)
         'teacher-new-456',
         'neu@schule.ch'
       );
+      expect(await emailVerificationModule.isEmailVerified('teacher-new-456')).toBe(true);
       expect(sessionModule.createSession).toHaveBeenCalledWith('teacher-new-456');
+    });
+  });
+
+  describe('OAuth-Signup E-Mail-Verifizierungsstatus nach Provider-Claim (Issue #100)', () => {
+    it('Google-Profil mit email_verified=true fuehrt zu bestaetigtem Konto; email_verified=false fuehrt zu unbestaetigtem Konto', async () => {
+      // 1. Google mit email_verified=false -> Konto bleibt unbestaetigt (kein markEmailVerified)
+      const stateFalse = await signOAuthStateToken({
+        provider: 'google',
+        action: 'login',
+        nonce: 'google-unverified-nonce',
+      });
+
+      vi.mocked(oauthModule.exchangeCodeForTokens).mockResolvedValueOnce({
+        accessToken: 'google-token-unverified',
+      });
+      vi.mocked(oauthModule.fetchOAuthUserProfile).mockResolvedValueOnce({
+        provider: 'google',
+        providerAccountId: 'g-sub-unverified-100',
+        email: 'unverified.google@schule.ch',
+        name: 'Lukas Unbestaetigt',
+        emailVerified: false,
+      });
+      vi.mocked(oauthModule.findFederatedIdentity).mockResolvedValueOnce(null);
+      vi.mocked(db.teacher.findUnique).mockResolvedValueOnce(null);
+      vi.mocked(db.teacher.create).mockResolvedValueOnce({
+        id: 'teacher-google-unverified-100',
+        email: 'unverified.google@schule.ch',
+        name: 'Lukas Unbestaetigt',
+        passwordHash: 'oauth_disabled:111',
+        createdAt: new Date('2026-05-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-05-01T10:00:00.000Z'),
+      } as unknown as Awaited<ReturnType<typeof db.teacher.create>>);
+
+      const reqFalse = new Request(`${PROD_PROXY_URL}?code=code-false&state=${stateFalse}`);
+      const resFalse = await GET(reqFalse, { params: Promise.resolve({ provider: 'google' }) });
+
+      expect(resFalse.status).toBe(307);
+      expect(emailVerificationModule.markEmailVerified).not.toHaveBeenCalled();
+      expect(emailVerificationModule.markEmailVerificationPending).toHaveBeenCalledWith(
+        'teacher-google-unverified-100',
+        'unverified.google@schule.ch'
+      );
+      expect(await emailVerificationModule.isEmailVerified('teacher-google-unverified-100')).toBe(
+        false
+      );
+      expect(
+        emailVerificationModule.isEmailVerificationPending('teacher-google-unverified-100')
+      ).toBe(true);
+
+      // Bestaetigungs-E-Mail wurde fuer den E-Mail-Verifizierungs-Flow vorbereitet/versendet
+      const sentEmails = getMockSentEmails();
+      expect(sentEmails.length).toBe(1);
+      expect(sentEmails[0].to.email).toBe('unverified.google@schule.ch');
+      expect(sentEmails[0].template).toBe('verification');
+
+      // Wenn die serverseitige Durchsetzung aktiv ist, darf das unbestaetigte Google-Konto sie nicht umgehen
+      process.env.EMAIL_VERIFICATION_ENFORCED = 'true';
+      process.env.EMAIL_VERIFICATION_ALLOW_MOCK = 'true';
+      const guardBlocked = await emailVerificationModule.requireVerifiedEmailForApi(
+        'teacher-google-unverified-100'
+      );
+      expect(guardBlocked).not.toBeNull();
+      expect(guardBlocked?.status).toBe(403);
+
+      // 2. Google mit email_verified=true -> Konto wird als bestaetigt markiert
+      vi.clearAllMocks();
+      clearMockSentEmails();
+
+      const stateTrue = await signOAuthStateToken({
+        provider: 'google',
+        action: 'login',
+        nonce: 'google-verified-nonce',
+      });
+
+      vi.mocked(oauthModule.exchangeCodeForTokens).mockResolvedValueOnce({
+        accessToken: 'google-token-verified',
+      });
+      vi.mocked(oauthModule.fetchOAuthUserProfile).mockResolvedValueOnce({
+        provider: 'google',
+        providerAccountId: 'g-sub-verified-100',
+        email: 'verified.google@schule.ch',
+        name: 'Sarah Bestaetigt',
+        emailVerified: true,
+      });
+      vi.mocked(oauthModule.findFederatedIdentity).mockResolvedValueOnce(null);
+      vi.mocked(db.teacher.findUnique).mockResolvedValueOnce(null);
+      vi.mocked(db.teacher.create).mockResolvedValueOnce({
+        id: 'teacher-google-verified-100',
+        email: 'verified.google@schule.ch',
+        name: 'Sarah Bestaetigt',
+        passwordHash: 'oauth_disabled:222',
+        createdAt: new Date('2026-05-01T10:05:00.000Z'),
+        updatedAt: new Date('2026-05-01T10:05:00.000Z'),
+      } as unknown as Awaited<ReturnType<typeof db.teacher.create>>);
+
+      const reqTrue = new Request(`${PROD_PROXY_URL}?code=code-true&state=${stateTrue}`);
+      const resTrue = await GET(reqTrue, { params: Promise.resolve({ provider: 'google' }) });
+
+      expect(resTrue.status).toBe(307);
+      expect(new URL(resTrue.headers.get('location')!).pathname).toBe('/dashboard');
+      expect(emailVerificationModule.markEmailVerified).toHaveBeenCalledWith(
+        'teacher-google-verified-100',
+        'verified.google@schule.ch'
+      );
+      expect(await emailVerificationModule.isEmailVerified('teacher-google-verified-100')).toBe(
+        true
+      );
+      expect(getMockSentEmails().length).toBe(0);
+
+      // Verifiziertes Google-Konto hat auch bei aktiver Durchsetzung vollen API-Zugriff
+      const guardAllowed = await emailVerificationModule.requireVerifiedEmailForApi(
+        'teacher-google-verified-100'
+      );
+      expect(guardAllowed).toBeNull();
+    });
+
+    it('Microsoft-Profil ohne Verifizierungsclaim fuehrt zu unbestaetigtem Konto und leitet bei aktiver Durchsetzung auf /verify-email', async () => {
+      process.env.EMAIL_VERIFICATION_ENFORCED = 'true';
+      process.env.EMAIL_VERIFICATION_ALLOW_MOCK = 'true';
+
+      const msState = await signOAuthStateToken({
+        provider: 'microsoft',
+        action: 'login',
+        nonce: 'ms-signup-nonce',
+      });
+
+      vi.mocked(oauthModule.exchangeCodeForTokens).mockResolvedValueOnce({
+        accessToken: 'ms-token-100',
+      });
+      // Microsoft Graph /v1.0/me liefert keinen Verifizierungsclaim -> emailVerified: false
+      vi.mocked(oauthModule.fetchOAuthUserProfile).mockResolvedValueOnce({
+        provider: 'microsoft',
+        providerAccountId: 'ms-oid-unverified-100',
+        email: 'lehrer.ms@schule-zuerich.ch',
+        name: 'Reto Microsoft',
+        emailVerified: false,
+      });
+      vi.mocked(oauthModule.findFederatedIdentity).mockResolvedValueOnce(null);
+      vi.mocked(db.teacher.findUnique).mockResolvedValueOnce(null);
+      vi.mocked(db.teacher.create).mockResolvedValueOnce({
+        id: 'teacher-ms-unverified-100',
+        email: 'lehrer.ms@schule-zuerich.ch',
+        name: 'Reto Microsoft',
+        passwordHash: 'oauth_disabled:333',
+        createdAt: new Date('2026-05-01T11:00:00.000Z'),
+        updatedAt: new Date('2026-05-01T11:00:00.000Z'),
+      } as unknown as Awaited<ReturnType<typeof db.teacher.create>>);
+
+      const request = new Request(`${MS_PROD_PROXY_URL}?code=mscode&state=${msState}`);
+      const response = await GET(request, { params: Promise.resolve({ provider: 'microsoft' }) });
+
+      expect(response.status).toBe(307);
+      const redirectUrl = new URL(response.headers.get('location')!);
+      expect(redirectUrl.origin).toBe('https://pruefli.ch');
+      expect(redirectUrl.pathname).toBe('/verify-email');
+
+      expect(emailVerificationModule.markEmailVerified).not.toHaveBeenCalled();
+      expect(emailVerificationModule.markEmailVerificationPending).toHaveBeenCalledWith(
+        'teacher-ms-unverified-100',
+        'lehrer.ms@schule-zuerich.ch'
+      );
+      expect(await emailVerificationModule.isEmailVerified('teacher-ms-unverified-100')).toBe(
+        false
+      );
+
+      const sentEmails = getMockSentEmails();
+      expect(sentEmails.length).toBe(1);
+      expect(sentEmails[0].to.email).toBe('lehrer.ms@schule-zuerich.ch');
+      expect(sentEmails[0].template).toBe('verification');
+
+      const guardBlocked = await emailVerificationModule.requireVerifiedEmailForApi(
+        'teacher-ms-unverified-100'
+      );
+      expect(guardBlocked).not.toBeNull();
+      expect(guardBlocked?.status).toBe(403);
+    });
+
+    it('laesst bestehende verknuepfte Konten beim Social Login (Flow 2) unveraendert', async () => {
+      // Bestehendes verifiziertes Microsoft-Konto
+      await emailVerificationModule.markEmailVerified(
+        'teacher-existing-ms',
+        'bestand.ms@schule.ch'
+      );
+      vi.clearAllMocks();
+
+      const msState = await signOAuthStateToken({
+        provider: 'microsoft',
+        action: 'login',
+        nonce: 'ms-existing-login-nonce',
+      });
+
+      vi.mocked(oauthModule.exchangeCodeForTokens).mockResolvedValueOnce({
+        accessToken: 'ms-token-existing',
+      });
+      vi.mocked(oauthModule.fetchOAuthUserProfile).mockResolvedValueOnce({
+        provider: 'microsoft',
+        providerAccountId: 'ms-oid-existing',
+        email: 'bestand.ms@schule.ch',
+        name: 'Bestand Lehrperson',
+        emailVerified: false,
+      });
+      vi.mocked(oauthModule.findFederatedIdentity).mockResolvedValueOnce({
+        id: 'fed-ms-existing',
+        teacherId: 'teacher-existing-ms',
+        provider: 'microsoft',
+        providerAccountId: 'ms-oid-existing',
+        email: 'bestand.ms@schule.ch',
+        createdAt: new Date('2026-01-10T08:00:00.000Z'),
+      });
+      vi.mocked(db.teacher.findUnique).mockResolvedValueOnce({
+        id: 'teacher-existing-ms',
+        email: 'bestand.ms@schule.ch',
+        name: 'Bestand Lehrperson',
+        passwordHash: 'oauth_disabled:existing',
+        createdAt: new Date('2026-01-10T08:00:00.000Z'),
+        updatedAt: new Date('2026-01-10T08:00:00.000Z'),
+      } as unknown as Awaited<ReturnType<typeof db.teacher.findUnique>>);
+
+      const request = new Request(`${MS_PROD_PROXY_URL}?code=mscode&state=${msState}`);
+      const response = await GET(request, { params: Promise.resolve({ provider: 'microsoft' }) });
+
+      expect(response.status).toBe(307);
+      expect(new URL(response.headers.get('location')!).pathname).toBe('/dashboard');
+      expect(emailVerificationModule.markEmailVerificationPending).not.toHaveBeenCalled();
+      expect(await emailVerificationModule.isEmailVerified('teacher-existing-ms')).toBe(true);
     });
   });
 

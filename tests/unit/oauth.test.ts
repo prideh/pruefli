@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   isProviderConfigured,
   isProviderUiFlagEnabled,
@@ -8,6 +8,7 @@ import {
   getEnabledProviders,
   getProviderDisplayName,
   getAuthorizationUrl,
+  fetchOAuthUserProfile,
   linkFederatedIdentity,
   findFederatedIdentity,
   getFederatedIdentitiesForTeacher,
@@ -41,11 +42,13 @@ describe('OAuth Social Sign-in & Account Linking (lib/oauth.ts & lib/jwt.ts)', (
     delete process.env.OAUTH_UI_GOOGLE_ENABLED;
     delete process.env.OAUTH_UI_MICROSOFT_ENABLED;
     resetOAuthMemoryState();
+    vi.restoreAllMocks();
   });
 
   afterEach(() => {
     process.env = originalEnv;
     resetOAuthMemoryState();
+    vi.restoreAllMocks();
   });
 
   describe('Configuration-driven Provider Activation (Credentials)', () => {
@@ -386,6 +389,85 @@ describe('OAuth Social Sign-in & Account Linking (lib/oauth.ts & lib/jwt.ts)', (
       expect(url.searchParams.get('scope')).toBe('openid profile email User.Read');
       expect(url.searchParams.get('state')).toBe('state-token-456');
       expect(url.searchParams.get('prompt')).toBe('select_account');
+    });
+  });
+
+  describe('OAuth User Profile Parsing & Provider Verification Claims (Issue #100)', () => {
+    it('sets emailVerified=true for Google only when email_verified is strictly true', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sub: 'google-sub-verified',
+            email: 'Verified.Teacher@Schule.ch',
+            name: 'Anna Verifiziert',
+            email_verified: true,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      const profile = await fetchOAuthUserProfile('google', 'google-access-token');
+      expect(profile).toEqual({
+        provider: 'google',
+        providerAccountId: 'google-sub-verified',
+        email: 'verified.teacher@schule.ch',
+        name: 'Anna Verifiziert',
+        emailVerified: true,
+      });
+    });
+
+    it('sets emailVerified=false for Google when email_verified is false or missing', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sub: 'google-sub-unverified',
+            email: 'unverified@schule.ch',
+            name: 'Max Unbestaetigt',
+            email_verified: false,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      const falseProfile = await fetchOAuthUserProfile('google', 'google-access-token');
+      expect(falseProfile.emailVerified).toBe(false);
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sub: 'google-sub-missing-claim',
+            email: 'noclaim@schule.ch',
+            name: 'Kein Claim',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      const missingProfile = await fetchOAuthUserProfile('google', 'google-access-token');
+      expect(missingProfile.emailVerified).toBe(false);
+    });
+
+    it('sets emailVerified=false for Microsoft Graph /me profiles without verification claim', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'ms-oid-777',
+            mail: 'Lehrperson@Schule-Bern.ch',
+            userPrincipalName: 'lehrperson@schule-bern.ch',
+            displayName: 'Ursula Keller',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      const profile = await fetchOAuthUserProfile('microsoft', 'ms-access-token');
+      expect(profile).toEqual({
+        provider: 'microsoft',
+        providerAccountId: 'ms-oid-777',
+        email: 'lehrperson@schule-bern.ch',
+        name: 'Ursula Keller',
+        emailVerified: false,
+      });
     });
   });
 
