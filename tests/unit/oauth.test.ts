@@ -129,6 +129,7 @@ describe('OAuth Social Sign-in & Account Linking (lib/oauth.ts & lib/jwt.ts)', (
       expect(isProviderUiFlagEnabled('google')).toBe(true);
       expect(isProviderUiFlagEnabled('microsoft')).toBe(false);
 
+      process.env.MICROSOFT_CLIENT_ID = 'msid';
       process.env.OAUTH_UI_MICROSOFT_ENABLED = 'true';
       process.env.OAUTH_UI_GOOGLE_ENABLED = 'false';
 
@@ -345,6 +346,119 @@ describe('OAuth Social Sign-in & Account Linking (lib/oauth.ts & lib/jwt.ts)', (
       expect(response.status).toBe(307);
       const location = response.headers.get('location');
       expect(location).toContain('/login?error=provider_not_configured');
+    });
+  });
+
+  describe('OAuth Start Route Production-Proxy-Konstellation (Issue #102)', () => {
+    const PROD_START_PROXY_URL = 'http://localhost:10000/api/auth/oauth/google';
+
+    beforeEach(() => {
+      (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
+      delete process.env.APP_URL;
+      delete process.env.NEXT_PUBLIC_APP_URL;
+    });
+
+    it('leitet bei provider_not_configured auf die oeffentliche Origin https://pruefli.ch um und nicht auf localhost:10000', async () => {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+
+      const req = new Request(PROD_START_PROXY_URL);
+      const response = await getOAuthStartRoute(req, {
+        params: Promise.resolve({ provider: 'google' }),
+      });
+
+      expect(response.status).toBe(307);
+      const location = response.headers.get('location');
+      expect(location).toBeTruthy();
+      expect(location).not.toContain('localhost:10000');
+
+      const redirectUrl = new URL(location!);
+      expect(redirectUrl.origin).toBe('https://pruefli.ch');
+      expect(redirectUrl.pathname).toBe('/login');
+      expect(redirectUrl.searchParams.get('error')).toBe('provider_not_configured');
+    });
+
+    it('leitet bei ?action=link ohne aktive Sitzung (session_required) auf die oeffentliche Origin https://pruefli.ch um und nicht auf localhost:10000', async () => {
+      process.env.GOOGLE_CLIENT_ID = 'prod-google-id';
+      process.env.GOOGLE_CLIENT_SECRET = 'prod-google-secret';
+      process.env.JWT_SECRET = 'prod-jwt-secret-key-for-oauth-start-test';
+
+      const req = new Request(`${PROD_START_PROXY_URL}?action=link`);
+      const response = await getOAuthStartRoute(req, {
+        params: Promise.resolve({ provider: 'google' }),
+      });
+
+      expect(response.status).toBe(307);
+      const location = response.headers.get('location');
+      expect(location).toBeTruthy();
+      expect(location).not.toContain('localhost:10000');
+
+      const redirectUrl = new URL(location!);
+      expect(redirectUrl.origin).toBe('https://pruefli.ch');
+      expect(redirectUrl.pathname).toBe('/login');
+      expect(redirectUrl.searchParams.get('error')).toBe('session_required');
+    });
+
+    it('leitet bei Initialisierungsfehler (oauth_init_failed) auf die oeffentliche Origin https://pruefli.ch um und nicht auf localhost:10000', async () => {
+      process.env.GOOGLE_CLIENT_ID = 'prod-google-id';
+      process.env.GOOGLE_CLIENT_SECRET = 'prod-google-secret';
+      // Missing JWT_SECRET in production causes signOAuthStateToken to throw inside the try block
+      delete process.env.JWT_SECRET;
+
+      const req = new Request(PROD_START_PROXY_URL);
+      const response = await getOAuthStartRoute(req, {
+        params: Promise.resolve({ provider: 'google' }),
+      });
+
+      expect(response.status).toBe(307);
+      const location = response.headers.get('location');
+      expect(location).toBeTruthy();
+      expect(location).not.toContain('localhost:10000');
+
+      const redirectUrl = new URL(location!);
+      expect(redirectUrl.origin).toBe('https://pruefli.ch');
+      expect(redirectUrl.pathname).toBe('/login');
+      expect(redirectUrl.searchParams.get('error')).toBe('oauth_init_failed');
+    });
+
+    it('respektiert benutzerdefinierte APP_URL Umgebungsvariablen fuer alle Fehlerpfade der Start-Route', async () => {
+      process.env.APP_URL = 'https://custom.pruefli.ch';
+
+      // 1. provider_not_configured
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+      const resUnconfigured = await getOAuthStartRoute(new Request(PROD_START_PROXY_URL), {
+        params: Promise.resolve({ provider: 'google' }),
+      });
+      expect(resUnconfigured.status).toBe(307);
+      expect(resUnconfigured.headers.get('location')).toBe(
+        'https://custom.pruefli.ch/login?error=provider_not_configured'
+      );
+
+      // 2. session_required (?action=link without session)
+      process.env.GOOGLE_CLIENT_ID = 'prod-google-id';
+      process.env.GOOGLE_CLIENT_SECRET = 'prod-google-secret';
+      process.env.JWT_SECRET = 'prod-jwt-secret-key-for-oauth-start-test';
+      const resNoSession = await getOAuthStartRoute(
+        new Request(`${PROD_START_PROXY_URL}?action=link`),
+        {
+          params: Promise.resolve({ provider: 'google' }),
+        }
+      );
+      expect(resNoSession.status).toBe(307);
+      expect(resNoSession.headers.get('location')).toBe(
+        'https://custom.pruefli.ch/login?error=session_required'
+      );
+
+      // 3. oauth_init_failed
+      delete process.env.JWT_SECRET;
+      const resInitFailed = await getOAuthStartRoute(new Request(PROD_START_PROXY_URL), {
+        params: Promise.resolve({ provider: 'google' }),
+      });
+      expect(resInitFailed.status).toBe(307);
+      expect(resInitFailed.headers.get('location')).toBe(
+        'https://custom.pruefli.ch/login?error=oauth_init_failed'
+      );
     });
   });
 

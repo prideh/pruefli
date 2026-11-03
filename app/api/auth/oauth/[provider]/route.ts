@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { getAppUrl } from '@/lib/app-url';
 import { type OAuthProvider, isProviderConfigured, getAuthorizationUrl } from '@/lib/oauth';
 import { signOAuthStateToken } from '@/lib/jwt';
 import { getSession } from '@/lib/session';
@@ -28,7 +29,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     const oauthProvider = provider as OAuthProvider;
 
     if (!isProviderConfigured(oauthProvider)) {
-      const url = new URL('/login', request.url);
+      const url = new URL('/login', getAppUrl());
       url.searchParams.set('error', 'provider_not_configured');
       return NextResponse.redirect(url);
     }
@@ -38,9 +39,9 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     let teacherId: string | null = null;
 
     if (action === 'link') {
-      const session = await getSession();
+      const session = await getSession(request.headers.get('cookie') ? { request } : undefined);
       if (!session) {
-        const url = new URL('/login', request.url);
+        const url = new URL('/login', getAppUrl());
         url.searchParams.set('error', 'session_required');
         return NextResponse.redirect(url);
       }
@@ -59,7 +60,7 @@ export async function GET(request: Request, props: { params: Promise<{ provider:
     return NextResponse.redirect(authUrl);
   } catch (err) {
     console.error('Error initiating OAuth flow:', err);
-    const url = new URL('/login', request.url);
+    const url = new URL('/login', getAppUrl());
     url.searchParams.set('error', 'oauth_init_failed');
     return NextResponse.redirect(url);
   }
