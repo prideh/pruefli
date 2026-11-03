@@ -115,7 +115,7 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
     ]);
   });
 
-  it('provides all 8 Swiss subject profiles without Eszett and with qualified support levels', () => {
+  it('provides all 11 Swiss subject profiles without Eszett and with qualified support levels', () => {
     expect(SUBJECT_PROFILES.length).toBeGreaterThanOrEqual(8);
     for (const sp of SUBJECT_PROFILES) {
       expect(sp.label).not.toContain('ß');
@@ -174,6 +174,10 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
 
     // Specific subjects get their focus instruction
     expect(getSubjectFocusInstruction('Physik')).toContain('FACHFOKUS PHYSIK:');
+    // Language subjects and common variants get the language focus (Issue #105)
+    expect(getSubjectFocusInstruction('Französisch')).toContain('FACHFOKUS SPRACHE:');
+    expect(getSubjectFocusInstruction('English')).toContain('FACHFOKUS SPRACHE:');
+    expect(getSubjectFocusInstruction('Italienisch')).toContain('FACHFOKUS SPRACHE:');
     expect(getSubjectFocusInstruction('Biologie')).toContain('FACHFOKUS BIOLOGIE:');
     expect(getSubjectFocusInstruction('Informatik')).toContain('FACHFOKUS INFORMATIK');
 
@@ -451,12 +455,25 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       expect(examsPageSource).toContain('subject: copySubject.trim()');
       expect(examsPageSource).toContain('subject: genSubject.trim()');
 
-      // 3. Frei erfasste Faecher wie "Geschichte" oder "Franzoesisch" erhalten "Basis-Korrektur" (GENERIC_FALLBACK)
-      for (const customSubject of ['Geschichte', 'Französisch', 'Geografie', 'Musik']) {
+      // 3. Frei erfasste Faecher ohne Katalog-Bezug wie "Geschichte" erhalten "Basis-Korrektur" (GENERIC_FALLBACK)
+      for (const customSubject of ['Geschichte', 'Geografie', 'Musik']) {
         const info = getSubjectSupportInfo(customSubject);
         expect(info.supportLevel).toBe('GENERIC_FALLBACK');
         expect(info.supportBadge).toBe('Basis-Korrektur');
         expect(info.matchedProfile).toBeNull();
+      }
+
+      // 3b. Sprachfaecher (Katalog + Schreibvarianten) erhalten das Sprach-Fokus-Profil (Issue #105)
+      for (const langSubject of ['Französisch', 'Englisch', 'Italienisch']) {
+        const info = getSubjectSupportInfo(langSubject);
+        expect(info.supportLevel).toBe('FOCUS_PROFILE');
+        expect(info.supportBadge).toBe('Fokus-Profil');
+        expect(info.matchedProfile?.value).toBe(langSubject);
+      }
+      for (const langVariant of ['Franz', 'französisch', 'English', 'italienisch', 'Italiano']) {
+        const info = getSubjectSupportInfo(langVariant);
+        expect(info.supportLevel).toBe('FOCUS_PROFILE');
+        expect(info.supportBadge).toBe('Fokus-Profil');
       }
 
       // Bestehende 8 Katalog-Profile behalten ihren Status unveraendert
@@ -468,9 +485,9 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       expect(examDetailPageSource).toContain('getSubjectSupportInfo(exam?.subject).supportBadge');
 
       // 4. Erstbefuellung & Aufloesung von "Meine Faecher"
-      // Ohne gespeicherte Liste und ohne bestehende Pruefungen -> alle 8 Katalog-Presets
+      // Ohne gespeicherte Liste und ohne bestehende Pruefungen -> alle 11 Katalog-Presets
       const fallbackAll = resolveTeacherSubjects(null, []);
-      expect(fallbackAll).toHaveLength(8);
+      expect(fallbackAll).toHaveLength(11);
       expect(fallbackAll.map((s) => s.value)).toEqual(SUBJECT_PROFILES.map((p) => p.value));
 
       // Erstbefuellung aus bestehenden Pruefungen der Lehrperson (ohne explizite Konfiguration)
@@ -488,10 +505,10 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
         ['Physik', 'Mathematik', 'Französisch'],
         ['Biologie']
       );
-      // Katalog-Reihenfolge (Mathematik vor Physik) + eigene Faecher (Franzoesisch)
+      // Katalog-Reihenfolge (Mathematik vor Physik vor Franzoesisch, seit #105 Katalog-Fach)
       expect(customConfigured.map((s) => s.value)).toEqual(['Mathematik', 'Physik', 'Französisch']);
-      expect(customConfigured[2].isCatalog).toBe(false);
-      expect(customConfigured[2].supportInfo.supportBadge).toBe('Basis-Korrektur');
+      expect(customConfigured[2].isCatalog).toBe(true);
+      expect(customConfigured[2].supportInfo.supportBadge).toBe('Fokus-Profil');
 
       // Filter- & Ansichts-Faecher kombinieren "Meine Faecher" mit tatsaechlich in Pruefungen vorkommenden Faechern
       const filterAndView = resolveFilterAndViewSubjects(
@@ -635,7 +652,7 @@ describe('Swiss Grading Formulas & Rounding (lib/grading.ts)', () => {
       expect(frStat.examsCount).toBe(0);
       expect(frStat.submissionsCount).toBe(0);
       expect(frStat.averageGrade).toBe('N/A');
-      expect(frStat.supportInfo.supportBadge).toBe('Basis-Korrektur');
+      expect(frStat.supportInfo.supportBadge).toBe('Fokus-Profil');
 
       const histStat = breakdown.find((b) => b.value === 'Geschichte')!;
       expect(histStat.examsCount).toBe(1);
