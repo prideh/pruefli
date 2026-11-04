@@ -223,6 +223,22 @@ describe('Transaktions-E-Mails via Brevo & Auth Workflows (Issue #59)', () => {
         expect(tpl.htmlContent).not.toContain('Bildungsinformatik Schweiz');
       }
     });
+
+    it('enthaelt im HTML-Template der Verifizierungs-E-Mail kein falsches Freischalt-Versprechen (Issue #109)', () => {
+      const { htmlContent, textContent } = renderVerificationEmail(
+        'Sabine Grossmann',
+        'https://pruefli.ch/verify-email?token=xyz'
+      );
+
+      expect(htmlContent).toContain(
+        'Vielen Dank für deine Registrierung bei <strong>prüefli</strong>. Bitte bestätige deine E-Mail-Adresse mit folgendem Link:'
+      );
+      expect(htmlContent).not.toContain('um dein Konto zu aktivieren');
+      expect(htmlContent).not.toContain('vollen Zugriff auf alle Korrektur-Funktionen');
+      expect(textContent).toContain(
+        'Bitte bestätige deine E-Mail-Adresse, indem du folgenden Link aufrufst:'
+      );
+    });
   });
 
   describe('Kryptographische Token-Sicherheit (JWT & Jose)', () => {

@@ -140,7 +140,7 @@ https://pruefli.ch`;
             <td style="padding: 36px 32px 28px 32px;">
               <h1 style="font-size: 20px; font-weight: 750; color: #0f172a; margin-top: 0; margin-bottom: 16px;">Grüezi ${safeName}</h1>
               <p style="font-size: 15px; line-height: 1.6; color: #334155; margin-bottom: 24px;">
-                Vielen Dank für deine Registrierung bei <strong>prüefli</strong>. Bitte bestätige deine E-Mail-Adresse, um dein Konto zu aktivieren und vollen Zugriff auf alle Korrektur-Funktionen zu erhalten.
+                Vielen Dank für deine Registrierung bei <strong>prüefli</strong>. Bitte bestätige deine E-Mail-Adresse mit folgendem Link:
               </p>
               <!-- Action Button -->
               <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 28px 0;">
