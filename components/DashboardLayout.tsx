@@ -771,11 +771,31 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         {teacher?.session?.expiringSoon && !expiryWarningDismissed && (
           <Alert
             severity="warning"
-            sx={{ mb: 3, borderRadius: '10px' }}
-            action={
+            sx={{
+              mb: 3,
+              borderRadius: '10px',
+              alignItems: 'flex-start',
+              '& .MuiAlert-message': { width: '100%', minWidth: 0, flex: 1 },
+            }}
+            onClose={() => setExpiryWarningDismissed(true)}
+          >
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1.5}
+              sx={{
+                alignItems: { xs: 'stretch', sm: 'flex-start', md: 'center' },
+                justifyContent: 'space-between',
+                width: '100%',
+              }}
+            >
+              <Box sx={{ flex: 1, minWidth: 0, width: '100%', overflowWrap: 'break-word' }}>
+                Deine Sitzung läuft in Kürze ab. Bitte melde dich rechtzeitig neu an, damit deine
+                Arbeit nicht unterbrochen wird.
+              </Box>
               <Button
                 color="inherit"
                 size="small"
+                variant="outlined"
                 onClick={async () => {
                   try {
                     await fetch('/api/auth/logout', { method: 'POST' });
@@ -785,36 +805,67 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   clearSessionCache();
                   router.push(buildLoginRedirectUrl(pathname));
                 }}
-                sx={{ textTransform: 'none', fontWeight: 700 }}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  width: { xs: '100%', sm: 'auto' },
+                }}
               >
                 Jetzt neu anmelden
               </Button>
-            }
-            onClose={() => setExpiryWarningDismissed(true)}
-          >
-            Deine Sitzung läuft in Kürze ab. Bitte melde dich rechtzeitig neu an, damit deine Arbeit
-            nicht unterbrochen wird.
+            </Stack>
           </Alert>
         )}
         {teacher && teacher.isEmailVerified === false && !verificationDismissed && (
           <Alert
             severity={resendNotification ? resendSeverity : 'warning'}
-            sx={{ mb: 3, borderRadius: '10px' }}
-            action={
+            sx={{
+              mb: 3,
+              borderRadius: '10px',
+              alignItems: 'flex-start',
+              px: { xs: 1.5, sm: 2 },
+              '& .MuiAlert-icon': { mr: { xs: 1.25, sm: 1.5 } },
+              '& .MuiAlert-action': { pl: { xs: 0.5, sm: 2 }, mr: { xs: -0.5, sm: -1 } },
+              '& .MuiAlert-message': { width: '100%', minWidth: 0, flex: 1 },
+            }}
+            onClose={() => setVerificationDismissed(true)}
+          >
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1.5}
+              sx={{
+                alignItems: { xs: 'stretch', sm: 'flex-start', md: 'center' },
+                justifyContent: 'space-between',
+                width: '100%',
+              }}
+            >
+              <Box sx={{ flex: 1, minWidth: 0, width: '100%', overflowWrap: 'break-word' }}>
+                {resendNotification ||
+                  `Bitte bestätige deine E-Mail-Adresse (${teacher.email}), um KI-Funktionen (automatische Korrektur und KI-Prüfungserstellung) freizuschalten. Klassen, Schülerinnen und Schüler sowie manuelle Prüfungen kannst du bereits frei einrichten.`}
+              </Box>
               <Button
                 color="inherit"
                 size="small"
+                variant="outlined"
                 onClick={handleResendVerification}
                 disabled={resendingVerification}
-                sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap' }}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  fontSize: { xs: '0.8rem', sm: '0.8125rem' },
+                  lineHeight: 1.3,
+                  py: { xs: 0.75, sm: 0.5 },
+                  px: 1.5,
+                  whiteSpace: { xs: 'normal', sm: 'nowrap' },
+                  flexShrink: 0,
+                  width: { xs: '100%', sm: 'auto' },
+                }}
               >
                 {resendingVerification ? 'Wird gesendet...' : 'Bestätigungs-E-Mail erneut senden'}
               </Button>
-            }
-            onClose={() => setVerificationDismissed(true)}
-          >
-            {resendNotification ||
-              `Bitte bestätige deine E-Mail-Adresse (${teacher.email}), um KI-Funktionen (automatische Korrektur und KI-Prüfungserstellung) freizuschalten. Klassen, Schülerinnen und Schüler sowie manuelle Prüfungen kannst du bereits frei einrichten.`}
+            </Stack>
           </Alert>
         )}
         {children}

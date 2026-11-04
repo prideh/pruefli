@@ -66,6 +66,19 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
       page.getByRole('button', { name: /Smartphone-Kamera \(Universal-QR-Scan\)/i })
     ).toBeDisabled();
 
+    // Issue #112: On 390x844 mobile viewport, verification banners use full width without character-wide wrapping or horizontal overflow
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileBannerBox = await page
+      .getByTestId('paid-ai-verification-banner')
+      .first()
+      .locator('.MuiAlert-message')
+      .boundingBox();
+    expect(mobileBannerBox).not.toBeNull();
+    expect(mobileBannerBox!.width).toBeGreaterThanOrEqual(240);
+    const mobileScrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(mobileScrollWidth).toBeLessThanOrEqual(390);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
     // Non-LLM route remains allowed (200 OK) for unverified account in default mode (#110)
     const allowedClassesRes = await page.request.get('/api/classes');
     expect(allowedClassesRes.status()).toBe(200);

@@ -92,4 +92,23 @@ describe('UX Language & Tone Consistency', () => {
     expect(registerFile).not.toContain('Mit der Registrierung akzeptieren Sie unsere');
     expect(registerFile).not.toContain('\u00DF');
   });
+
+  it('EmailVerificationAiBanner und DashboardLayout verwenden durchgehend die du-Form und responsives Stack-Layout ohne schmale Alert-Action-Spalte auf Mobile (Issue #112)', () => {
+    const bannerFile = fs.readFileSync(
+      path.resolve(__dirname, '../../components/EmailVerificationAiBanner.tsx'),
+      'utf-8'
+    );
+    expect(bannerFile).toContain('kannst du bereits frei');
+    expect(bannerFile).toContain('deine E-Mail-Adresse');
+    expect(bannerFile).toContain('in deinem Postfach bestätigt hast');
+    expect(bannerFile).toContain('Bitte klicke auf den');
+    expect(bannerFile).toContain('Bitte warte kurz vor dem nächsten Versand.');
+    expect(bannerFile).not.toContain('können Sie');
+    expect(bannerFile).not.toContain('Ihre E-Mail-Adresse');
+    expect(bannerFile).not.toContain('Ihrem Postfach');
+    expect(bannerFile).not.toContain('klicken Sie');
+    expect(bannerFile).not.toContain('warten Sie');
+    expect(bannerFile).toContain("direction={{ xs: 'column', md: 'row' }}");
+    expect(bannerFile).not.toContain('\u00DF');
+  });
 });
