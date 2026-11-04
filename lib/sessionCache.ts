@@ -22,6 +22,24 @@ export interface TeacherSession {
 let cachedTeacher: TeacherSession | null = null;
 let hasCheckedAuth = false;
 const inMemoryDraftFallback = new Map<string, string>();
+const teacherListeners = new Set<() => void>();
+
+function notifyTeacherListeners() {
+  teacherListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+export function subscribeTeacherSession(listener: () => void): () => void {
+  teacherListeners.add(listener);
+  return () => {
+    teacherListeners.delete(listener);
+  };
+}
 
 export function getCachedTeacher(): TeacherSession | null {
   if (typeof window === 'undefined') return null;
@@ -30,8 +48,33 @@ export function getCachedTeacher(): TeacherSession | null {
 
 export function setCachedTeacher(teacher: TeacherSession | null) {
   if (typeof window === 'undefined') return;
-  cachedTeacher = teacher;
+  if (teacher && cachedTeacher && cachedTeacher.id === teacher.id) {
+    cachedTeacher = {
+      ...cachedTeacher,
+      ...teacher,
+      isEmailVerified:
+        teacher.isEmailVerified !== undefined
+          ? teacher.isEmailVerified
+          : cachedTeacher.isEmailVerified,
+      emailVerificationRequired:
+        teacher.emailVerificationRequired !== undefined
+          ? teacher.emailVerificationRequired
+          : cachedTeacher.emailVerificationRequired,
+      isGrandfathered:
+        teacher.isGrandfathered !== undefined
+          ? teacher.isGrandfathered
+          : cachedTeacher.isGrandfathered,
+      liveSendingEnabled:
+        teacher.liveSendingEnabled !== undefined
+          ? teacher.liveSendingEnabled
+          : cachedTeacher.liveSendingEnabled,
+      session: teacher.session !== undefined ? teacher.session : cachedTeacher.session,
+    };
+  } else {
+    cachedTeacher = teacher;
+  }
   hasCheckedAuth = true;
+  notifyTeacherListeners();
 }
 
 export function getHasCheckedAuth(): boolean {
@@ -44,6 +87,7 @@ export function clearSessionCache() {
   if (typeof window === 'undefined') return;
   cachedTeacher = null;
   hasCheckedAuth = false;
+  notifyTeacherListeners();
 }
 
 /**

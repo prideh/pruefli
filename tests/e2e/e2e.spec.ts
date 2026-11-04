@@ -36,16 +36,7 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     }
     await page.setViewportSize({ width: 1280, height: 800 });
 
-    // --- STEP 1: Register a new teacher -> Restricted Verification State -> Confirm via Link -> Full Access (#98) ---
-    await page.context().addCookies([
-      {
-        name: 'pruefli_enforce_email_verification',
-        value: 'true',
-        domain: 'localhost',
-        path: '/',
-      },
-    ]);
-
+    // --- STEP 1: Register a new teacher -> Verify #110 Paid-AI Gate (Default Mode) + #98 Opt-In Gate -> Confirm via Link -> Full Access ---
     await page.goto('/register');
     await page.getByLabel(/Name/i).first().fill(teacherName);
     await page
@@ -62,7 +53,51 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
 
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
 
-    // Unverified teacher lands on restricted "E-Mail bestätigen" view without sidebar or app content
+    // Issue #110 (Default mode without all-or-nothing gate):
+    // Manual browsing & setup remain open, while paid AI entry points show banner + disabled trigger
+    await expect(page.getByTestId('email-verification-gate')).toHaveCount(0);
+    await expect(page.getByText('Prüfungskorrektur starten')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Klassen' }).first()).toBeVisible();
+    await expect(page.getByTestId('paid-ai-verification-banner').first()).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Bestätigungs-E-Mail erneut senden/i }).first()
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Smartphone-Kamera \(Universal-QR-Scan\)/i })
+    ).toBeDisabled();
+
+    // Non-LLM route remains allowed (200 OK) for unverified account in default mode (#110)
+    const allowedClassesRes = await page.request.get('/api/classes');
+    expect(allowedClassesRes.status()).toBe(200);
+
+    // Direct call to paid LLM route is rejected with 403 EMAIL_VERIFICATION_REQUIRED (#110)
+    const blockedAiRes = await page.request.post('/api/exams/generate', {
+      data: { materialText: 'Lehrplan Algebra Kapitel 1' },
+    });
+    expect(blockedAiRes.status()).toBe(403);
+    const blockedAiJson = await blockedAiRes.json();
+    expect(blockedAiJson.code).toBe('EMAIL_VERIFICATION_REQUIRED');
+    expect(blockedAiJson.emailVerificationRequired).toBe(true);
+
+    const meResDefault = await page.request.get('/api/auth/me');
+    expect(meResDefault.status()).toBe(200);
+    const meJsonDefault = await meResDefault.json();
+    expect(meJsonDefault.isEmailVerified).toBe(false);
+    expect(meJsonDefault.paidAiVerificationRequired).toBe(true);
+    expect(meJsonDefault.emailVerificationRequired).toBe(false);
+
+    // Optional all-or-nothing gate (#98) when explicitly opted in via cookie
+    await page.context().addCookies([
+      {
+        name: 'pruefli_enforce_email_verification',
+        value: 'true',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+    await page.reload();
+
+    // Unverified teacher with #98 cookie lands on restricted "E-Mail bestätigen" view
     await expect(page.getByTestId('email-verification-gate')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'E-Mail bestätigen' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Bestätigung erneut senden/i })).toBeVisible();
@@ -70,13 +105,13 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     await expect(page.getByText('Prüfungskorrektur starten')).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Klassen' })).toHaveCount(0);
 
-    // Server-side API enforcement rejects unverified account with HTTP 403
+    // Server-side API enforcement with #98 cookie rejects unverified account with HTTP 403
     const blockedClassesRes = await page.request.get('/api/classes');
     expect(blockedClassesRes.status()).toBe(403);
     const blockedClassesJson = await blockedClassesRes.json();
     expect(blockedClassesJson.code).toBe('EMAIL_VERIFICATION_REQUIRED');
 
-    // Confirm email via verification link -> unlocks full access
+    // Confirm email via verification link -> unlocks full access + paid AI controls
     const meResBefore = await page.request.get('/api/auth/me');
     expect(meResBefore.status()).toBe(200);
     const meJsonBefore = await meResBefore.json();
@@ -94,7 +129,11 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
 
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
     await expect(page.getByTestId('email-verification-gate')).toHaveCount(0);
+    await expect(page.getByTestId('paid-ai-verification-banner')).toHaveCount(0);
     await expect(page.getByText('Prüfungskorrektur starten')).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Smartphone-Kamera \(Universal-QR-Scan\)/i })
+    ).toBeEnabled();
 
     // Verify sidebar does NOT show cluttering "Protokoll" link
     await expect(page.getByRole('link', { name: 'Protokoll' })).toHaveCount(0);

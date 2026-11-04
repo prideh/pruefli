@@ -12,6 +12,7 @@ import {
 } from '@/lib/rate-limit';
 import * as sessionModule from '@/lib/session';
 import * as jwtModule from '@/lib/jwt';
+import { markEmailVerified } from '@/lib/email-verification';
 import { POST as correctPost } from '@/app/api/correct/route';
 import { POST as generatePost } from '@/app/api/exams/generate/route';
 import { POST as regenerateTaskPost } from '@/app/api/exams/[id]/regenerate-task/route';
@@ -41,7 +42,7 @@ vi.mock('@/lib/db', () => ({
 describe('AI Rate Limiting (lib/rate-limit.ts)', () => {
   const originalEnv = { ...process.env };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env = { ...originalEnv };
     delete process.env.AI_RATE_LIMIT_MAX_REQUESTS;
     delete process.env.AI_RATE_LIMIT_LIMIT;
@@ -67,6 +68,19 @@ describe('AI Rate Limiting (lib/rate-limit.ts)', () => {
     delete process.env.AI_QUOTA_PARSE_RUBRIC_MAX_REQUESTS;
     delete process.env.AI_QUOTA_REPLACE_MAX_REQUESTS;
     resetRateLimits();
+    for (const id of [
+      'teacher-1',
+      'lehrer-1',
+      'lehrer-2',
+      'lehrer-correct-test',
+      'lehrer-generate-test',
+      'lehrer-regen-test',
+      'teacher-relay-test',
+      'lehrer-parse-test',
+      'lehrer-replace-test',
+    ]) {
+      await markEmailVerified(id, `${id}@schule.ch`);
+    }
   });
 
   afterEach(() => {

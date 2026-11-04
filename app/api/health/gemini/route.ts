@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { requireVerifiedEmailForApi } from '@/lib/email-verification';
+import {
+  requireVerifiedEmailForApi,
+  requireVerifiedEmailForPaidAi,
+} from '@/lib/email-verification';
 import { checkGeminiHealth, probeGeminiGenerateContent } from '@/lib/gemini';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +21,8 @@ export async function GET(request?: Request) {
     const probe = url?.searchParams.get('probe');
 
     if (probe === 'generateContent') {
+      const unverifiedAiResponse = await requireVerifiedEmailForPaidAi(session.userId, request);
+      if (unverifiedAiResponse) return unverifiedAiResponse;
       const probeResult = await probeGeminiGenerateContent();
       return NextResponse.json(probeResult);
     }

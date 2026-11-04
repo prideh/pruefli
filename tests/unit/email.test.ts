@@ -50,7 +50,12 @@ import {
   isEmailVerified,
   resetVerificationMemoryState,
 } from '@/lib/email-verification';
-import { signJWT, signEmailVerificationToken, signPasswordResetToken } from '@/lib/jwt';
+import {
+  signJWT,
+  signEmailVerificationToken,
+  signPasswordResetToken,
+  signMobileRelayToken,
+} from '@/lib/jwt';
 import { hashPassword, verifyPassword } from '@/lib/auth';
 import { resetRateLimits } from '@/lib/rate-limit';
 import { POST as forgotPasswordPOST } from '@/app/api/auth/forgot-password/route';
@@ -65,6 +70,13 @@ import { GET as examsGET } from '@/app/api/exams/route';
 import { GET as submissionsGET } from '@/app/api/submissions/route';
 import { GET as subjectsGET } from '@/app/api/subjects/route';
 import { GET as logsGET } from '@/app/api/logs/route';
+import { POST as correctPOST } from '@/app/api/correct/route';
+import { POST as generatePOST } from '@/app/api/exams/generate/route';
+import { POST as regenerateTaskPOST } from '@/app/api/exams/[id]/regenerate-task/route';
+import { POST as parseRubricPOST } from '@/app/api/exams/parse-rubric/route';
+import { POST as replacePOST } from '@/app/api/submissions/[id]/replace/route';
+import { POST as mobileRelayUploadPOST } from '@/app/api/mobile-relay/upload/route';
+import { GET as geminiHealthGET } from '@/app/api/health/gemini/route';
 
 describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issue #70)', () => {
   const originalEnv = process.env;
@@ -849,6 +861,144 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
       expect(resendOAuthRes.status).toBe(200);
       expect(resendOAuthData).toEqual(resendData);
       expect(getMockSentEmails()).toHaveLength(1);
+    });
+  });
+
+  describe('8. Gezielte Sperre bezahlter KI-Endpunkte fuer unbestaetigte E-Mail-Konten (Issue #110)', () => {
+    it('lehnt direkte API-Aufrufe auf alle LLM-Routen fuer unbestaetigte Konten mit 403 EMAIL_VERIFICATION_REQUIRED ab, waehrend das pauschale #98-Gate aus bleibt', async () => {
+      // Pauschales Gate (#98) bleibt deaktiviert
+      delete process.env.EMAIL_VERIFICATION_ENFORCED;
+
+      // teacher-1 ist unbestaetigt
+      mockGetSession.mockResolvedValue({ userId: 'teacher-1' });
+
+      // /api/auth/me liefert 200 OK mit isEmailVerified: false, emailVerificationRequired: false (#98 aus)
+      const meRes = await meGET();
+      const meData = await meRes.json();
+      expect(meRes.status).toBe(200);
+      expect(meData.isEmailVerified).toBe(false);
+      expect(meData.emailVerificationRequired).toBe(false);
+
+      // 1. POST /api/correct -> 403 EMAIL_VERIFICATION_REQUIRED
+      const correctRes = await correctPOST(
+        new Request('http://localhost/api/correct', { method: 'POST' })
+      );
+      expect(correctRes.status).toBe(403);
+      expect(await correctRes.json()).toMatchObject({
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        emailVerificationRequired: true,
+      });
+
+      // 2. POST /api/exams/generate -> 403 EMAIL_VERIFICATION_REQUIRED
+      const genRes = await generatePOST(
+        new Request('http://localhost/api/exams/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ classId: 'c1', subject: 'Mathematik', materialText: 'Material' }),
+        })
+      );
+      expect(genRes.status).toBe(403);
+      expect(await genRes.json()).toMatchObject({
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        emailVerificationRequired: true,
+      });
+
+      // 3. POST /api/exams/[id]/regenerate-task -> 403 EMAIL_VERIFICATION_REQUIRED
+      const regenRes = await regenerateTaskPOST(
+        new Request('http://localhost/api/exams/ex-1/regenerate-task', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: '1' }),
+        }),
+        { params: Promise.resolve({ id: 'ex-1' }) }
+      );
+      expect(regenRes.status).toBe(403);
+      expect(await regenRes.json()).toMatchObject({
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        emailVerificationRequired: true,
+      });
+
+      // 4. POST /api/exams/parse-rubric -> 403 EMAIL_VERIFICATION_REQUIRED
+      const parseRes = await parseRubricPOST(
+        new Request('http://localhost/api/exams/parse-rubric', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rubricText: 'Aufgabe 1: 5 Punkte' }),
+        })
+      );
+      expect(parseRes.status).toBe(403);
+      expect(await parseRes.json()).toMatchObject({
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        emailVerificationRequired: true,
+      });
+
+      // 5. POST /api/submissions/[id]/replace -> 403 EMAIL_VERIFICATION_REQUIRED
+      const replaceRes = await replacePOST(
+        new Request('http://localhost/api/submissions/sub-1/replace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }),
+        { params: Promise.resolve({ id: 'sub-1' }) }
+      );
+      expect(replaceRes.status).toBe(403);
+      expect(await replaceRes.json()).toMatchObject({
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        emailVerificationRequired: true,
+      });
+
+      // 6. POST /api/mobile-relay/upload -> 403 EMAIL_VERIFICATION_REQUIRED
+      const relayToken = await signMobileRelayToken({
+        teacherId: 'teacher-1',
+        targetMode: 'SUBMISSION',
+      });
+      const relayForm = new FormData();
+      relayForm.append('token', relayToken);
+      const relayRes = await mobileRelayUploadPOST(
+        new Request('http://localhost/api/mobile-relay/upload', {
+          method: 'POST',
+          body: relayForm,
+        })
+      );
+      expect(relayRes.status).toBe(403);
+      expect(await relayRes.json()).toMatchObject({
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        emailVerificationRequired: true,
+      });
+
+      // 7. GET /api/health/gemini?probe=generateContent -> 403 EMAIL_VERIFICATION_REQUIRED
+      const healthProbeRes = await geminiHealthGET(
+        new Request('http://localhost/api/health/gemini?probe=generateContent')
+      );
+      expect(healthProbeRes.status).toBe(403);
+      expect(await healthProbeRes.json()).toMatchObject({
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        emailVerificationRequired: true,
+      });
+
+      // Nach Bestaetigung der E-Mail-Adresse via Link ist die 403-Sperre aufgehoben
+      const verifyToken = await signEmailVerificationToken({
+        teacherId: 'teacher-1',
+        email: 'lehrer@schule.ch',
+      });
+      const verifyRes = await verifyEmailPOST(
+        new Request('http://localhost/api/auth/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: verifyToken }),
+        })
+      );
+      expect(verifyRes.status).toBe(200);
+
+      // Verifiziertes Konto wird nicht mehr mit 403 EMAIL_VERIFICATION_REQUIRED abgewiesen
+      const parseAfterVerify = await parseRubricPOST(
+        new Request('http://localhost/api/exams/parse-rubric', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rubricText: '' }),
+        })
+      );
+      expect(parseAfterVerify.status).not.toBe(403);
     });
   });
 });

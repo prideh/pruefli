@@ -9,6 +9,7 @@ import * as sessionModule from '@/lib/session';
 import * as jwtModule from '@/lib/jwt';
 import * as authModule from '@/lib/auth';
 import * as rateLimitModule from '@/lib/rate-limit';
+import { markEmailVerified } from '@/lib/email-verification';
 import { db } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
@@ -89,8 +90,11 @@ vi.mock('@/lib/cache', () => ({
 }));
 
 describe('Haertung: Interne Fehlermeldungen nicht an API-Clients zurueckgeben', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
+    await markEmailVerified('t-1', 't1@schule.ch');
+    await markEmailVerified('teacher-1', 'teacher1@schule.ch');
+    await markEmailVerified('teacher-123', 'teacher123@schule.ch');
     vi.mocked(rateLimitModule.checkAiRateLimit).mockResolvedValue({
       allowed: true,
       limit: 60,

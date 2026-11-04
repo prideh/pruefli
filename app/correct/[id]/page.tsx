@@ -37,6 +37,9 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { getErrorMessage } from '@/lib/api-error';
 import AddIcon from '@mui/icons-material/Add';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
+import EmailVerificationAiBanner, {
+  useTeacherSession,
+} from '@/components/EmailVerificationAiBanner';
 import QrScannerDialog from '@/components/QrScannerDialog';
 import { invalidateSubmissions } from '@/lib/dataCache';
 import {
@@ -92,6 +95,7 @@ export default function CorrectWorkspace() {
   const [addTaskMaxPoints, setAddTaskMaxPoints] = useState<number>(5);
   const [addTaskLoading, setAddTaskLoading] = useState<boolean>(false);
   const [addTaskError, setAddTaskError] = useState<string>('');
+  const { isUnverified } = useTeacherSession();
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
   const [retryError, setRetryError] = useState<string>('');
   const [retryOverridePrompt, setRetryOverridePrompt] = useState<{
@@ -550,6 +554,11 @@ export default function CorrectWorkspace() {
               {retryError}
             </Alert>
           )}
+          <EmailVerificationAiBanner
+            compact
+            featureLabel="Das erneute Starten einer KI-Korrektur"
+            sx={{ mt: 2 }}
+          />
         </Box>
 
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
@@ -576,7 +585,7 @@ export default function CorrectWorkspace() {
             <Button
               variant="contained"
               color={isDuplicateError ? 'error' : 'primary'}
-              disabled={isRetrying}
+              disabled={isUnverified || isRetrying}
               onClick={() => handleRetry()}
               startIcon={
                 isRetrying ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeIcon />

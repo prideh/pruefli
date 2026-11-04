@@ -174,7 +174,7 @@ import {
   signOAuthPendingLinkToken,
   signOAuthConfirmLinkEmailToken,
 } from '@/lib/jwt';
-import { resetVerificationMemoryState } from '@/lib/email-verification';
+import { markEmailVerified, resetVerificationMemoryState } from '@/lib/email-verification';
 import { proxy } from '@/proxy';
 
 // Route Handlers across all protected domains
@@ -650,6 +650,8 @@ describe.each(['test', 'production'] as const)(
 
       fixture = createTenantFixture();
       wireDbMocks(fixture);
+      await markEmailVerified('teacher-a', 'lehrer.a@schule.ch');
+      await markEmailVerified('teacher-b', 'lehrer.b@schule.ch');
 
       vi.mocked(classArchiveModule.getArchivedClassIds).mockResolvedValue(new Set<string>());
       vi.mocked(classArchiveModule.getClassArchivedAt).mockResolvedValue(null);

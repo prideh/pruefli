@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { requireVerifiedEmailForApi } from '@/lib/email-verification';
+import { requireVerifiedEmailForPaidAi } from '@/lib/email-verification';
 import { checkAiRateLimit, createRateLimitResponse } from '@/lib/rate-limit';
 import { validateRubricOrTemplatePayload, createPayloadErrorResponse } from '@/lib/payload-limits';
 import { validateReferenceUpload } from '@/lib/document-validation';
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     if (!session) {
       return NextResponse.json({ error: 'Nicht autorisiert.' }, { status: 401 });
     }
-    const unverifiedResponse = await requireVerifiedEmailForApi(session.userId, request);
+    const unverifiedResponse = await requireVerifiedEmailForPaidAi(session.userId, request);
     if (unverifiedResponse) return unverifiedResponse;
 
     // Rate limiting for AI endpoints

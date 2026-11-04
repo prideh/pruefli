@@ -40,6 +40,21 @@ async function main() {
     },
   });
 
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS teacher_email_verifications (
+      teacher_id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      verified_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO teacher_email_verifications (teacher_id, email, verified_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (teacher_id) DO UPDATE SET email = EXCLUDED.email, verified_at = NOW();`,
+    teacher.id,
+    email
+  );
+
   console.log(`👤 Default teacher: ${teacher.name} (${teacher.email})`);
 
   // Clean existing classes for this teacher to prevent primary key / unique constraint failures on re-run

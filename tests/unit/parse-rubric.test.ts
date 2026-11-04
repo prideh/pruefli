@@ -9,6 +9,7 @@ import {
 import { parseSerializedDocumentPayload, isSerializedDocumentPayload } from '@/lib/grading';
 import { computeRubricParseHash, clearLlmCache, LLM_PROMPT_VERSIONS } from '@/lib/llm-cache';
 import { getRateLimitStore } from '@/lib/rate-limit';
+import { markEmailVerified } from '@/lib/email-verification';
 
 const mockGetSession = vi.fn();
 vi.mock('@/lib/session', () => ({
@@ -95,6 +96,8 @@ describe('Aufgabenstruktur-Extraktion aus Bild-Musterloesung (#68)', () => {
   beforeEach(async () => {
     await clearLlmCache();
     await getRateLimitStore().reset();
+    await markEmailVerified('teacher-1', 'teacher1@schule.ch');
+    await markEmailVerified('teacher-e2e-68', 'qa@pruefli.ch');
     mockGenerateContent.mockReset();
     mockGetSession.mockReset();
     mockGetSession.mockResolvedValue({

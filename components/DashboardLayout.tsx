@@ -798,33 +798,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         )}
         {teacher && teacher.isEmailVerified === false && !verificationDismissed && (
           <Alert
-            severity={
-              resendNotification
-                ? resendSeverity
-                : teacher.liveSendingEnabled === false
-                  ? 'warning'
-                  : 'info'
-            }
+            severity={resendNotification ? resendSeverity : 'warning'}
             sx={{ mb: 3, borderRadius: '10px' }}
             action={
-              teacher.liveSendingEnabled !== false ? (
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={handleResendVerification}
-                  disabled={resendingVerification}
-                  sx={{ textTransform: 'none', fontWeight: 700 }}
-                >
-                  {resendingVerification ? 'Wird gesendet...' : 'Bestätigung erneut senden'}
-                </Button>
-              ) : undefined
+              <Button
+                color="inherit"
+                size="small"
+                onClick={handleResendVerification}
+                disabled={resendingVerification}
+                sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap' }}
+              >
+                {resendingVerification ? 'Wird gesendet...' : 'Bestätigungs-E-Mail erneut senden'}
+              </Button>
             }
             onClose={() => setVerificationDismissed(true)}
           >
             {resendNotification ||
-              (teacher.liveSendingEnabled === false
-                ? 'Der E-Mail-Versand ist derzeit nicht aktiv. Es wurde keine Bestätigungs-E-Mail versendet — du kannst dein prüefli-Konto dennoch ohne Einschränkung nutzen.'
-                : `Bitte bestätige deine E-Mail-Adresse (${teacher.email}), um dein prüefli-Konto vollständig zu aktivieren.`)}
+              `Bitte bestätige deine E-Mail-Adresse (${teacher.email}), um KI-Funktionen (automatische Korrektur und KI-Prüfungserstellung) freizuschalten. Klassen, Schülerinnen und Schüler sowie manuelle Prüfungen kannst du bereits frei einrichten.`}
           </Alert>
         )}
         {children}

@@ -17,6 +17,7 @@ import { POST as parseRubricPost } from '@/app/api/exams/parse-rubric/route';
 import * as rateLimitModule from '@/lib/rate-limit';
 import * as sessionModule from '@/lib/session';
 import * as jwtModule from '@/lib/jwt';
+import { markEmailVerified } from '@/lib/email-verification';
 import fs from 'fs';
 import path from 'path';
 
@@ -65,7 +66,7 @@ vi.mock('@/lib/storage', () => ({
 describe('Kostenkontrolle: Grössenlimits für Unterrichtsmaterial und Scans', () => {
   const originalEnv = { ...process.env };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env = { ...originalEnv };
     delete process.env.MAX_SCAN_FILE_SIZE_BYTES;
     delete process.env.MAX_MATERIAL_TEXT_CHARS;
@@ -76,6 +77,7 @@ describe('Kostenkontrolle: Grössenlimits für Unterrichtsmaterial und Scans', (
     delete process.env.MAX_RUBRIC_TEXT_CHARS;
     delete process.env.MAX_RUBRIC_DOC_BYTES;
     vi.restoreAllMocks();
+    await markEmailVerified('teacher-1', 'teacher1@schule.ch');
 
     vi.mocked(rateLimitModule.checkAiRateLimit).mockResolvedValue({
       allowed: true,

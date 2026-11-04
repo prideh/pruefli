@@ -42,6 +42,9 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import DashboardLayout from '@/components/DashboardLayout';
+import EmailVerificationAiBanner, {
+  useTeacherSession,
+} from '@/components/EmailVerificationAiBanner';
 import ErrorState from '@/components/ErrorState';
 import QrScannerDialog from '@/components/QrScannerDialog';
 import { useDataCache, invalidateExams } from '@/lib/dataCache';
@@ -484,8 +487,10 @@ export default function ExamsPage() {
     { taskId: string; title: string; maxPoints: number }[]
   >([]);
 
+  const { isUnverified } = useTeacherSession();
+
   const autoParseRubric = async (rubricValue: string, allowOverride = false) => {
-    if (!rubricValue || rubricValue.trim() === '') return;
+    if (isUnverified || !rubricValue || rubricValue.trim() === '') return;
     setParsingRubric(true);
     setCreateError('');
     if (!allowOverride && !rubricOverrideConfirmed) {
@@ -836,7 +841,7 @@ export default function ExamsPage() {
             <Button
               variant="contained"
               startIcon={<AutoAwesomeIcon />}
-              disabled={loading || !!error || classes.length === 0}
+              disabled={isUnverified || loading || !!error || classes.length === 0}
               onClick={() => {
                 setGenError('');
                 const targetId = activeClassId || (classes[0]?.id ?? '');
@@ -878,6 +883,8 @@ export default function ExamsPage() {
             </Button>
           </Stack>
         </Box>
+
+        <EmailVerificationAiBanner featureLabel="Die KI-Prüfungserstellung und automatische Aufgabenanalyse" />
 
         {error ? (
           <ErrorState
@@ -1714,21 +1721,28 @@ export default function ExamsPage() {
                 />
 
                 {examRubric && parsedTasks.length === 0 && !parsingRubric && (
-                  <Button
-                    variant="outlined"
-                    color="primary"
-                    startIcon={<AutoAwesomeIcon />}
-                    onClick={handleParseRubric}
-                    sx={{
-                      textTransform: 'none',
-                      fontWeight: 700,
-                      borderRadius: '8px',
-                      borderColor: 'primary.main',
-                      alignSelf: 'flex-start',
-                    }}
-                  >
-                    Aufgabenstruktur mit KI analysieren
-                  </Button>
+                  <Stack spacing={1}>
+                    <EmailVerificationAiBanner
+                      compact
+                      featureLabel="Die automatische KI-Aufgabenanalyse"
+                    />
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      startIcon={<AutoAwesomeIcon />}
+                      disabled={isUnverified}
+                      onClick={handleParseRubric}
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        borderRadius: '8px',
+                        borderColor: 'primary.main',
+                        alignSelf: 'flex-start',
+                      }}
+                    >
+                      Aufgabenstruktur mit KI analysieren
+                    </Button>
+                  </Stack>
                 )}
 
                 {parsingRubric && (
@@ -2165,6 +2179,7 @@ export default function ExamsPage() {
             </DialogTitle>
             <DialogContent>
               <Stack spacing={2.5} sx={{ mt: 1 }}>
+                <EmailVerificationAiBanner compact featureLabel="Die KI-Prüfungsgenerierung" />
                 <Alert severity="info" sx={{ borderRadius: '8px' }}>
                   <strong>Determinismus & Grounding:</strong> prüefli generiert die
                   Aufgabenstellung, Musterlösung und Punkteverteilung ausschliesslich aus deinem
@@ -2450,7 +2465,7 @@ export default function ExamsPage() {
               <Button
                 type="submit"
                 variant="contained"
-                disabled={genLoading}
+                disabled={isUnverified || genLoading}
                 startIcon={
                   genLoading ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeIcon />
                 }

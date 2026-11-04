@@ -12,6 +12,7 @@ export interface EmailVerificationStatus {
   isGrandfathered: boolean;
   enforcementEnabled: boolean;
   emailVerificationRequired: boolean;
+  paidAiVerificationRequired: boolean;
   liveSendingEnabled: boolean;
   cutoffDate: string;
 }
@@ -346,6 +347,7 @@ export async function getEmailVerificationStatus(
     isGrandfathered: grandfathered,
     enforcementEnabled,
     emailVerificationRequired,
+    paidAiVerificationRequired: !verified,
     liveSendingEnabled: isLiveSendingEnabled(),
     cutoffDate: getEmailVerificationCutoffDate().toISOString(),
   };
@@ -381,6 +383,32 @@ export async function requireVerifiedEmailForApi(
   return NextResponse.json(
     {
       error: 'Bitte bestätige zuerst deine E-Mail-Adresse, um auf diese Funktion zuzugreifen.',
+      code: EMAIL_VERIFICATION_REQUIRED_CODE,
+      emailVerificationRequired: true,
+    },
+    { status: 403 }
+  );
+}
+
+/**
+ * Central server-side guard for paid AI / LLM-triggering routes (Issue #110).
+ * Always requires a confirmed email address (`isEmailVerified(teacherId)`), independent of the
+ * broad `EMAIL_VERIFICATION_ENFORCED` flag and without automatic grandfathering/cutoff exemptions.
+ * Returns HTTP 403 with `code: 'EMAIL_VERIFICATION_REQUIRED'` when unverified, or `null` when permitted.
+ */
+export async function requireVerifiedEmailForPaidAi(
+  teacherId: string,
+  _request?: Request
+): Promise<NextResponse | null> {
+  const verified = await isEmailVerified(teacherId);
+  if (verified) {
+    return null;
+  }
+
+  return NextResponse.json(
+    {
+      error:
+        'Bitte bestätige zuerst deine E-Mail-Adresse, um kostenpflichtige KI-Funktionen (Korrektur und Prüfungsgenerierung) zu nutzen.',
       code: EMAIL_VERIFICATION_REQUIRED_CODE,
       emailVerificationRequired: true,
     },

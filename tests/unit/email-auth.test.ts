@@ -22,6 +22,7 @@ import {
 } from '@/lib/jwt';
 import {
   markEmailVerified,
+  markEmailVerificationPending,
   isEmailVerified,
   isEmailVerificationFlagEnabled,
   isEmailVerificationEnforcementEnabled,
@@ -29,6 +30,7 @@ import {
   isTeacherGrandfathered,
   getEmailVerificationStatus,
   requireVerifiedEmailForApi,
+  requireVerifiedEmailForPaidAi,
   EMAIL_VERIFICATION_REQUIRED_CODE,
   ENFORCE_EMAIL_VERIFICATION_COOKIE,
   resetVerificationMemoryState,
@@ -426,14 +428,95 @@ describe('Transaktions-E-Mails via Brevo & Auth Workflows (Issue #59)', () => {
       const files = [
         '../../lib/email-verification.ts',
         '../../components/DashboardLayout.tsx',
+        '../../components/EmailVerificationAiBanner.tsx',
+        '../../components/QrScannerDialog.tsx',
         '../../app/verify-email/page.tsx',
+        '../../app/dashboard/page.tsx',
+        '../../app/exams/page.tsx',
+        '../../app/exams/[id]/page.tsx',
+        '../../app/correct/[id]/page.tsx',
         '../../app/api/auth/me/route.ts',
         '../../app/api/auth/login/route.ts',
         '../../app/api/auth/register/route.ts',
+        '../../app/api/correct/route.ts',
+        '../../app/api/exams/generate/route.ts',
+        '../../app/api/exams/[id]/regenerate-task/route.ts',
+        '../../app/api/exams/parse-rubric/route.ts',
+        '../../app/api/submissions/[id]/replace/route.ts',
+        '../../app/api/mobile-relay/upload/route.ts',
       ];
       for (const rel of files) {
         const content = fs.readFileSync(path.resolve(__dirname, rel), 'utf-8');
         expect(content, `Datei ${rel} enthaelt Eszett`).not.toMatch(/\u00df/);
+      }
+    });
+  });
+
+  describe('Gezieltes Gating bezahlter KI-Aufrufe an bestaetigte E-Mail (Issue #110)', () => {
+    it('laesst das pauschale Gate (#98) standardmaessig deaktiviert, sperrt aber bezahlte KI-Aufrufe ohne Bestandsgarantie fuer unbestaetigte Konten mit 403 EMAIL_VERIFICATION_REQUIRED', async () => {
+      // Standardzustand: EMAIL_VERIFICATION_ENFORCED ist NICHT gesetzt -> pauschales Gate bleibt aus
+      delete process.env.EMAIL_VERIFICATION_ENFORCED;
+      expect(isEmailVerificationFlagEnabled()).toBe(false);
+      expect(await isEmailVerificationEnforcementEnabled()).toBe(false);
+
+      const unverifiedTeacherId = `teacher-unverified-110-${Date.now()}`;
+      await markEmailVerificationPending(unverifiedTeacherId, 'unverified110@schule.ch');
+
+      // Selbst mit altem createdAt vor dem Cutoff gibt es fuer bezahlte KI-Aufrufe KEINE automatische Bestandsgarantie
+      const status = await getEmailVerificationStatus(unverifiedTeacherId, {
+        email: 'unverified110@schule.ch',
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      });
+      expect(status.isEmailVerified).toBe(false);
+      expect(status.emailVerificationRequired).toBe(false); // Pauschales #98-Gate bleibt aus
+      expect(status.paidAiVerificationRequired).toBe(true); // Gezieltes #110-KI-Gate ist aktiv
+
+      // Normale Nicht-LLM-Endpunkte bleiben frei zugaenglich
+      expect(await requireVerifiedEmailForApi(unverifiedTeacherId)).toBeNull();
+
+      // Bezahlte KI-Endpunkte liefern HTTP 403 mit EMAIL_VERIFICATION_REQUIRED
+      const blockedAiRes = await requireVerifiedEmailForPaidAi(unverifiedTeacherId);
+      expect(blockedAiRes).not.toBeNull();
+      expect(blockedAiRes?.status).toBe(403);
+      const blockedBody = await blockedAiRes!.json();
+      expect(blockedBody.code).toBe(EMAIL_VERIFICATION_REQUIRED_CODE);
+      expect(blockedBody.emailVerificationRequired).toBe(true);
+      expect(blockedBody.error).toContain('E-Mail-Adresse');
+
+      // Nach E-Mail-Bestaetigung (oder OAuth-Verknuepfung) sind bezahlte KI-Aufrufe sofort freigeschaltet
+      await markEmailVerified(unverifiedTeacherId, 'unverified110@schule.ch');
+      const verifiedStatus = await getEmailVerificationStatus(unverifiedTeacherId, {
+        email: 'unverified110@schule.ch',
+      });
+      expect(verifiedStatus.isEmailVerified).toBe(true);
+      expect(verifiedStatus.paidAiVerificationRequired).toBe(false);
+      expect(await requireVerifiedEmailForPaidAi(unverifiedTeacherId)).toBeNull();
+    });
+
+    it('bindet EmailVerificationAiBanner und deaktivierte Trigger-Buttons an allen Einstiegspunkten bezahlter KI-Funktionen ein', () => {
+      const bannerSource = fs.readFileSync(
+        path.resolve(__dirname, '../../components/EmailVerificationAiBanner.tsx'),
+        'utf-8'
+      );
+      expect(bannerSource).toContain('paid-ai-verification-banner');
+      expect(bannerSource).toContain('Bestätigungs-E-Mail erneut senden');
+      expect(bannerSource).toContain('/api/auth/resend-verification');
+
+      const uiEntryPoints = [
+        '../../app/dashboard/page.tsx',
+        '../../app/exams/page.tsx',
+        '../../app/exams/[id]/page.tsx',
+        '../../app/correct/[id]/page.tsx',
+        '../../components/QrScannerDialog.tsx',
+      ];
+      for (const rel of uiEntryPoints) {
+        const content = fs.readFileSync(path.resolve(__dirname, rel), 'utf-8');
+        expect(content, `${rel} muss EmailVerificationAiBanner einbinden`).toContain(
+          'EmailVerificationAiBanner'
+        );
+        expect(content, `${rel} muss useTeacherSession fuer isUnverified nutzen`).toContain(
+          'isUnverified'
+        );
       }
     });
   });

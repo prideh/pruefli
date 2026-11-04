@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import { requireVerifiedEmailForApi } from '@/lib/email-verification';
+import { isEmailVerified, requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags, invalidateExamCache } from '@/lib/cache';
 import { parseExamMetadata } from '@/lib/exam-meta';
 import { validateReferenceUpload } from '@/lib/document-validation';
@@ -213,10 +213,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const verifiedEmail = await isEmailVerified(session.userId);
+
     if (rubricText) {
       const rubricDocValidation = await validateReferenceUpload(rubricText, 'Die Musterlösung', {
         overrideDocumentType,
         teacherId: session.userId,
+        skipAiClassification: !verifiedEmail,
       });
       if (!rubricDocValidation.valid) {
         return NextResponse.json(
@@ -238,6 +241,7 @@ export async function POST(request: Request) {
         {
           overrideDocumentType,
           teacherId: session.userId,
+          skipAiClassification: !verifiedEmail,
         }
       );
       if (!templateDocValidation.valid) {

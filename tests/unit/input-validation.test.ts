@@ -18,6 +18,7 @@ import * as geminiModule from '@/lib/gemini';
 import * as examGenModule from '@/lib/exam-generator';
 import * as sessionModule from '@/lib/session';
 import * as jwtModule from '@/lib/jwt';
+import { markEmailVerified } from '@/lib/email-verification';
 
 // =============================================================================
 // Instrument and mock model calls to verify NO LLM call occurs in rejection path
@@ -318,10 +319,11 @@ startxref
 }
 
 describe('Eingabe-Validierung vor jeder Modell-Nutzung (Issue #56)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mockStorageMap.clear();
     process.env.GEMINI_API_KEY = 'test-gemini-key';
+    await markEmailVerified('teacher-1', 'teacher1@schule.ch');
 
     vi.mocked(sessionModule.getSession).mockResolvedValue({
       userId: 'teacher-1',

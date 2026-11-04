@@ -25,6 +25,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import EmailVerificationAiBanner, {
+  useTeacherSession,
+} from '@/components/EmailVerificationAiBanner';
 import { deduplicateRelayFiles } from '@/lib/relay-dedup';
 
 export type QrTargetMode =
@@ -69,6 +72,8 @@ export default function QrScannerDialog({
   onRefreshSubmissions,
   onDocumentScanned,
 }: QrScannerDialogProps) {
+  const { isUnverified } = useTeacherSession();
+  const isPaidSubmissionScan = targetMode !== 'RUBRIC' && targetMode !== 'EXAM_TEMPLATE';
   const isDevMode =
     typeof showDevOptions === 'boolean'
       ? showDevOptions
@@ -503,6 +508,12 @@ export default function QrScannerDialog({
           </Box>
 
           {/* Direct PC Upload fallback when scanning for a specific exam or student */}
+          {isPaidSubmissionScan && (
+            <EmailVerificationAiBanner
+              compact
+              featureLabel="Das Einscannen und Hochladen von Schülerarbeiten"
+            />
+          )}
           {(targetMode === 'SUBMISSION' || targetMode === 'REPLACE_SUBMISSION') && examId && (
             <>
               <Divider sx={{ fontSize: '0.75rem', color: 'text.secondary', fontWeight: 700 }}>
@@ -541,7 +552,7 @@ export default function QrScannerDialog({
                 <Button
                   variant="outlined"
                   startIcon={pcUploading ? <CircularProgress size={16} /> : <CloudUploadIcon />}
-                  disabled={pcUploading || !token}
+                  disabled={(isPaidSubmissionScan && isUnverified) || pcUploading || !token}
                   onClick={() => pcFileInputRef.current?.click()}
                   sx={{
                     textTransform: 'none',

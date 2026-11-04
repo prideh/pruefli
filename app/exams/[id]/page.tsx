@@ -61,6 +61,9 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import type { ExamTaskAnalysis } from '@/lib/task-analysis';
 import { BarChart } from '@mui/x-charts/BarChart';
 import DashboardLayout from '@/components/DashboardLayout';
+import EmailVerificationAiBanner, {
+  useTeacherSession,
+} from '@/components/EmailVerificationAiBanner';
 import ErrorState from '@/components/ErrorState';
 import QrScannerDialog from '@/components/QrScannerDialog';
 import PdfBatchSplitDialog from '@/components/PdfBatchSplitDialog';
@@ -218,6 +221,7 @@ export default function ExamDetailsPage() {
     }
   );
 
+  const { isUnverified } = useTeacherSession();
   const exam = cachedExamDetails?.exam || null;
   const isClassArchived = Boolean(exam?.isClassArchived);
   const stats = cachedExamDetails?.stats || null;
@@ -971,7 +975,9 @@ export default function ExamDetailsPage() {
                     <CloudUploadIcon />
                   )
                 }
-                disabled={exam?.isApproved === false || isClassArchived || batchUploading}
+                disabled={
+                  isUnverified || exam?.isApproved === false || isClassArchived || batchUploading
+                }
                 onClick={() => {
                   const input = document.createElement('input');
                   input.type = 'file';
@@ -1004,7 +1010,7 @@ export default function ExamDetailsPage() {
               <Button
                 variant="contained"
                 startIcon={<QrCodeScannerIcon />}
-                disabled={exam?.isApproved === false || isClassArchived}
+                disabled={isUnverified || exam?.isApproved === false || isClassArchived}
                 onClick={() => {
                   setQrTargetMode('SUBMISSION');
                   setQrStudent(null);
@@ -1063,6 +1069,8 @@ export default function ExamDetailsPage() {
             )}
           </Box>
         </Stack>
+
+        <EmailVerificationAiBanner featureLabel="Das Hochladen und Korrigieren von Schülerarbeiten sowie das Neugenerieren von Aufgaben" />
 
         {batchUploadMessage && (
           <Alert
@@ -2039,6 +2047,7 @@ export default function ExamDetailsPage() {
                             <Button
                               size="small"
                               variant="outlined"
+                              disabled={isUnverified}
                               startIcon={
                                 <AutoAwesomeIcon sx={{ fontSize: '0.95rem !important' }} />
                               }
@@ -2699,7 +2708,11 @@ export default function ExamDetailsPage() {
                             variant="contained"
                             color="error"
                             size="small"
-                            disabled={isClassArchived || retryingSubmissionId === failedSub.id}
+                            disabled={
+                              isUnverified ||
+                              isClassArchived ||
+                              retryingSubmissionId === failedSub.id
+                            }
                             onClick={() => void handleRetryFailedSubmission(failedSub.id)}
                             sx={{ textTransform: 'none', fontWeight: 700 }}
                           >
@@ -2933,7 +2946,9 @@ export default function ExamDetailsPage() {
                                   color="error"
                                   size="small"
                                   disabled={
-                                    isClassArchived || retryingSubmissionId === student.submissionId
+                                    isUnverified ||
+                                    isClassArchived ||
+                                    retryingSubmissionId === student.submissionId
                                   }
                                   onClick={() => {
                                     if (student.submissionId) {
@@ -2980,7 +2995,9 @@ export default function ExamDetailsPage() {
                                 color="success"
                                 size="small"
                                 startIcon={<PlayArrowIcon />}
-                                disabled={exam?.isApproved === false || isClassArchived}
+                                disabled={
+                                  isUnverified || exam?.isApproved === false || isClassArchived
+                                }
                                 onClick={() => {
                                   setQrTargetMode('SUBMISSION');
                                   setQrStudent({
@@ -3020,6 +3037,10 @@ export default function ExamDetailsPage() {
           </DialogTitle>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
+              <EmailVerificationAiBanner
+                compact
+                featureLabel="Das Neugenerieren einzelner Aufgaben"
+              />
               {regenError && <Alert severity="error">{regenError}</Alert>}
               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                 Die Aufgabe <strong>{regenTaskTitle}</strong> wird basierend auf dem hinterlegten
@@ -3049,7 +3070,7 @@ export default function ExamDetailsPage() {
             <Button
               onClick={handleRegenerateTask}
               variant="contained"
-              disabled={regenLoading}
+              disabled={isUnverified || regenLoading}
               startIcon={
                 regenLoading ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeIcon />
               }

@@ -56,6 +56,9 @@ import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import DashboardLayout from '@/components/DashboardLayout';
+import EmailVerificationAiBanner, {
+  useTeacherSession,
+} from '@/components/EmailVerificationAiBanner';
 import QrScannerDialog from '@/components/QrScannerDialog';
 import PdfBatchSplitDialog from '@/components/PdfBatchSplitDialog';
 import { isPdfFile, inspectPdfBytes, type PdfPageInfo } from '@/lib/pdf-batch';
@@ -692,6 +695,8 @@ export default function Dashboard() {
   );
 
   // 1. Verify Authentication & Load Initial Data
+  const { isUnverified } = useTeacherSession();
+
   useEffect(() => {
     let active = true;
     const cached = getCachedTeacher();
@@ -705,7 +710,14 @@ export default function Dashboard() {
         }
         const data = await res.json();
         if (active) {
-          setCachedTeacher(data.teacher);
+          setCachedTeacher({
+            ...data.teacher,
+            isEmailVerified: data.isEmailVerified,
+            emailVerificationRequired: data.emailVerificationRequired,
+            isGrandfathered: data.isGrandfathered,
+            liveSendingEnabled: data.liveSendingEnabled,
+            session: data.session ?? null,
+          });
           setAuthChecking(false);
 
           if (!cached) {
@@ -1507,7 +1519,7 @@ export default function Dashboard() {
                                     ? 'error'
                                     : 'primary'
                                 }
-                                disabled={replacingSubmissionId === job.id}
+                                disabled={isUnverified || replacingSubmissionId === job.id}
                                 onClick={() => handleReplaceSubmission(job.id)}
                                 startIcon={
                                   replacingSubmissionId === job.id ? (
@@ -1613,6 +1625,7 @@ export default function Dashboard() {
             variant="outlined"
             size="large"
             startIcon={<QrCodeScannerIcon />}
+            disabled={isUnverified}
             onClick={() => {
               setQrDialogMode('universal');
               setQrTargetMode('SUBMISSION');
@@ -1637,6 +1650,8 @@ export default function Dashboard() {
             Smartphone-Kamera (Universal-QR-Scan)
           </Button>
         </Stack>
+
+        <EmailVerificationAiBanner featureLabel="Das Starten von KI-Korrekturen und der Smartphone-QR-Scan" />
 
         {error && (
           <Alert
@@ -2368,6 +2383,7 @@ export default function Dashboard() {
                         variant="outlined"
                         size="small"
                         startIcon={<QrCodeScannerIcon />}
+                        disabled={isUnverified}
                         onClick={async () => {
                           if (selectedExamId === 'NEW' && selectedClassId) {
                             if (!examTitle.trim()) {
@@ -2625,6 +2641,9 @@ export default function Dashboard() {
 
                     {(() => {
                       const missingRequirements: string[] = [];
+                      if (isUnverified) {
+                        missingRequirements.push('E-Mail-Adresse bestätigen (Link im Postfach)');
+                      }
                       if (!selectedClassId) {
                         missingRequirements.push('Klasse auswählen (Schritt ①)');
                       }
@@ -2647,10 +2666,16 @@ export default function Dashboard() {
                           'Mindestens eine Schülerarbeit hochladen (Schritt ③)'
                         );
                       }
-                      const isStartDisabled = missingRequirements.length > 0 || loading;
+                      const isStartDisabled =
+                        isUnverified || missingRequirements.length > 0 || loading;
 
                       return (
                         <>
+                          <EmailVerificationAiBanner
+                            compact
+                            featureLabel="Das Starten einer KI-Korrektur"
+                            sx={{ mt: 2 }}
+                          />
                           {/* Start Button */}
                           <Button
                             onClick={() => startAnalysis(false)}
