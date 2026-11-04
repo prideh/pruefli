@@ -156,8 +156,14 @@ export default function ForgotPasswordPage() {
                   </Typography>
                 ) : (
                   <Typography variant="body2" sx={{ color: '#64748b', lineHeight: 1.6 }}>
-                    In dieser Umgebung ist der Live-E-Mail-Versand deaktiviert (Mock-Transport). Es
-                    können derzeit keine E-Mails zugestellt werden.
+                    Bitte versuche es später erneut oder wende dich bei Fragen an{' '}
+                    <a
+                      href="mailto:support@pruefli.ch"
+                      style={{ color: '#1b77d1', fontWeight: 600, textDecoration: 'none' }}
+                    >
+                      support@pruefli.ch
+                    </a>
+                    .
                   </Typography>
                 )}
                 <Link href="/login" passHref style={{ textDecoration: 'none' }}>

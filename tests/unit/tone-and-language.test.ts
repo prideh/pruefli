@@ -59,4 +59,37 @@ describe('UX Language & Tone Consistency', () => {
     expect(classesFile).not.toContain('label="Klassenbezeichnung"');
     expect(classesFile).toContain('Bitte gib einen Klassennamen an.');
   });
+
+  it('/forgot-password zeigt keinen internen Mock-Transport-Jargon auf der Oberflaeche (Issue #106)', () => {
+    const forgotPasswordFile = fs.readFileSync(
+      path.resolve(__dirname, '../../app/forgot-password/page.tsx'),
+      'utf-8'
+    );
+    expect(forgotPasswordFile).not.toContain('Mock-Transport');
+    expect(forgotPasswordFile).not.toContain('In dieser Umgebung ist der Live-E-Mail-Versand');
+    expect(forgotPasswordFile).toContain('support@pruefli.ch');
+    expect(forgotPasswordFile).not.toContain('\u00DF');
+  });
+
+  it('Klassenkarten auf /classes pluralisieren die Pruefungszahl korrekt bei 1 Pruefung (Issue #106)', () => {
+    const classesFile = fs.readFileSync(
+      path.resolve(__dirname, '../../app/classes/page.tsx'),
+      'utf-8'
+    );
+    expect(classesFile).toContain(
+      "{cls.totalExams} {cls.totalExams === 1 ? 'Prüfung' : 'Prüfungen'}"
+    );
+    expect(classesFile).not.toContain('{cls.totalExams} Prüfungen');
+    expect(classesFile).not.toContain('\u00DF');
+  });
+
+  it('/register verwendet durchgehend die einheitliche du-Form auch im Datenschutz-Hinweis (Issue #106)', () => {
+    const registerFile = fs.readFileSync(
+      path.resolve(__dirname, '../../app/register/page.tsx'),
+      'utf-8'
+    );
+    expect(registerFile).toContain('Mit der Registrierung akzeptierst du unsere');
+    expect(registerFile).not.toContain('Mit der Registrierung akzeptieren Sie unsere');
+    expect(registerFile).not.toContain('\u00DF');
+  });
 });

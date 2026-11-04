@@ -433,7 +433,7 @@ export default function RegisterPage() {
                     lineHeight: 1.5,
                   }}
                 >
-                  Mit der Registrierung akzeptieren Sie unsere{' '}
+                  Mit der Registrierung akzeptierst du unsere{' '}
                   <Link
                     href="/privacy"
                     style={{

@@ -821,7 +821,7 @@ export default function ClassesPage() {
                             Prüfungen
                           </Typography>
                           <Typography variant="body2" sx={{ fontWeight: 700, color: '#334155' }}>
-                            {cls.totalExams} Prüfungen
+                            {cls.totalExams} {cls.totalExams === 1 ? 'Prüfung' : 'Prüfungen'}
                           </Typography>
                         </Stack>
                       </Grid>
