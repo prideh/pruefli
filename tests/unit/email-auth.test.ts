@@ -5,6 +5,7 @@ import {
   sendPasswordResetEmail,
   renderVerificationEmail,
   renderPasswordResetEmail,
+  renderOAuthLinkConfirmationEmail,
   getMockSentEmails,
   clearMockSentEmails,
   isLiveSendingEnabled,
@@ -198,6 +199,29 @@ describe('Transaktions-E-Mails via Brevo & Auth Workflows (Issue #59)', () => {
       expect(textContent).toContain('Zurücksetzen deines Passworts');
       expect(textContent).toContain('1 Stunde gültig');
       expect(textContent).toContain('unverändert gültig');
+    });
+
+    it('zeigt im HTML-Footer aller drei Transaktions-Vorlagen nur "prüefli" ohne "Bildungsinformatik Schweiz" (Issue #108)', () => {
+      const verification = renderVerificationEmail(
+        'Sabine Grossmann',
+        'https://pruefli.ch/verify-email?token=xyz'
+      );
+      const passwordReset = renderPasswordResetEmail(
+        'Urs Schweizer',
+        'https://pruefli.ch/reset-password?token=abc'
+      );
+      const oauthLink = renderOAuthLinkConfirmationEmail(
+        'Frau Meier',
+        'Google',
+        'https://pruefli.ch/link-confirm?token=def'
+      );
+
+      for (const tpl of [verification, passwordReset, oauthLink]) {
+        expect(tpl.htmlContent).toContain(
+          '<p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">prüefli</p>'
+        );
+        expect(tpl.htmlContent).not.toContain('Bildungsinformatik Schweiz');
+      }
     });
   });
 

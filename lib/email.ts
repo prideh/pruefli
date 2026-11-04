@@ -166,7 +166,7 @@ https://pruefli.ch`;
           <!-- Footer -->
           <tr>
             <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 32px; font-size: 12px; color: #64748b; text-align: left;">
-              <p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">prüefli – Bildungsinformatik Schweiz</p>
+              <p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">prüefli</p>
               <p style="margin: 0; color: #94a3b8;">
                 Diese E-Mail wurde automatisch von <a href="https://pruefli.ch" style="color: #64748b; text-decoration: underline;">pruefli.ch</a> versendet.
               </p>
@@ -260,7 +260,7 @@ https://pruefli.ch`;
           <!-- Footer -->
           <tr>
             <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 32px; font-size: 12px; color: #64748b; text-align: left;">
-              <p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">prüefli – Bildungsinformatik Schweiz</p>
+              <p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">prüefli</p>
               <p style="margin: 0; color: #94a3b8;">
                 Diese E-Mail wurde automatisch von <a href="https://pruefli.ch" style="color: #64748b; text-decoration: underline;">pruefli.ch</a> versendet.
               </p>
@@ -522,7 +522,7 @@ https://pruefli.ch`;
           <!-- Footer -->
           <tr>
             <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 32px; font-size: 12px; color: #64748b; text-align: left;">
-              <p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">prüefli – Bildungsinformatik Schweiz</p>
+              <p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">prüefli</p>
               <p style="margin: 0; color: #94a3b8;">
                 Diese E-Mail wurde automatisch von <a href="https://pruefli.ch" style="color: #64748b; text-decoration: underline;">pruefli.ch</a> versendet.
               </p>
