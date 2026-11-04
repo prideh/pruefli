@@ -87,6 +87,8 @@ export default function QrScannerDialog({
   } | null>(null);
   const [pcUploading, setPcUploading] = useState(false);
   const [pcUploadSuccess, setPcUploadSuccess] = useState('');
+  const [pendingOverrideFiles, setPendingOverrideFiles] = useState<File[]>([]);
+  const [canOverrideError, setCanOverrideError] = useState(false);
 
   const lastHandledDocIdRef = useRef<string | null>(null);
   const pcFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -95,6 +97,8 @@ export default function QrScannerDialog({
     async (originOverride?: string) => {
       setLoading(true);
       setError('');
+      setCanOverrideError(false);
+      setPendingOverrideFiles([]);
       setReceivedDocInfo(null);
       setPcUploadSuccess('');
       try {
@@ -183,19 +187,23 @@ export default function QrScannerDialog({
     }
   };
 
-  const handlePcFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawFiles = e.target.files ? Array.from(e.target.files) : [];
-    e.target.value = '';
-    const files = deduplicateRelayFiles(rawFiles);
+  const uploadPcFiles = async (files: File[], allowOverride = false) => {
     if (files.length === 0 || !token) return;
 
     setPcUploading(true);
     setError('');
     setPcUploadSuccess('');
+    if (!allowOverride) {
+      setCanOverrideError(false);
+      setPendingOverrideFiles([]);
+    }
     try {
       const formData = new FormData();
       formData.append('token', token);
       formData.append('targetMode', targetMode);
+      if (allowOverride) {
+        formData.append('overrideDocumentType', 'true');
+      }
       if (examId) formData.append('examId', examId);
       if (studentId) formData.append('studentId', studentId);
       if (submissionId) formData.append('submissionId', submissionId);
@@ -205,11 +213,21 @@ export default function QrScannerDialog({
         method: 'POST',
         body: formData,
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || 'Upload fehlgeschlagen.');
+        if (data?.canOverride) {
+          setCanOverrideError(true);
+          setPendingOverrideFiles(files);
+        } else {
+          setCanOverrideError(false);
+          setPendingOverrideFiles([]);
+        }
+        setError(data?.error || 'Upload fehlgeschlagen.');
+        return;
       }
 
+      setCanOverrideError(false);
+      setPendingOverrideFiles([]);
       const effectiveCount = typeof data?.pagesCount === 'number' ? data.pagesCount : files.length;
       setPcUploadSuccess(
         studentName
@@ -220,10 +238,20 @@ export default function QrScannerDialog({
         onRefreshSubmissions();
       }
     } catch (err) {
+      setCanOverrideError(false);
+      setPendingOverrideFiles([]);
       setError(err instanceof Error ? err.message : 'Fehler beim Datei-Upload.');
     } finally {
       setPcUploading(false);
     }
+  };
+
+  const handlePcFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFiles = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = '';
+    const files = deduplicateRelayFiles(rawFiles);
+    if (files.length === 0 || !token) return;
+    await uploadPcFiles(files, false);
   };
 
   const getModeHeader = () => {
@@ -344,14 +372,33 @@ export default function QrScannerDialog({
               severity="error"
               sx={{ borderRadius: '10px' }}
               action={
-                <Button
-                  color="inherit"
-                  size="small"
-                  onClick={() => generateQrSession()}
-                  sx={{ textTransform: 'none', fontWeight: 700 }}
-                >
-                  Erneut versuchen
-                </Button>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                  {canOverrideError && pendingOverrideFiles.length > 0 && (
+                    <Button
+                      color="inherit"
+                      size="small"
+                      variant="outlined"
+                      disabled={pcUploading}
+                      onClick={() => void uploadPcFiles(pendingOverrideFiles, true)}
+                      sx={{ textTransform: 'none', fontWeight: 700 }}
+                    >
+                      Trotzdem als Prüfung behandeln
+                    </Button>
+                  )}
+                  <Button
+                    color="inherit"
+                    size="small"
+                    disabled={pcUploading}
+                    onClick={() =>
+                      pendingOverrideFiles.length > 0
+                        ? void uploadPcFiles(pendingOverrideFiles, false)
+                        : void generateQrSession()
+                    }
+                    sx={{ textTransform: 'none', fontWeight: 700 }}
+                  >
+                    Erneut versuchen
+                  </Button>
+                </Stack>
               }
             >
               {error}

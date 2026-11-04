@@ -227,26 +227,37 @@ export default function ExamDetailsPage() {
 
   const [retryingSubmissionId, setRetryingSubmissionId] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryOverrideSubmissionId, setRetryOverrideSubmissionId] = useState<string | null>(null);
 
-  const handleRetryFailedSubmission = async (submissionId: string) => {
+  const handleRetryFailedSubmission = async (submissionId: string, allowOverride = false) => {
     if (!submissionId) return;
     setRetryingSubmissionId(submissionId);
     setRetryError(null);
+    if (!allowOverride) {
+      setRetryOverrideSubmissionId(null);
+    }
     try {
       const res = await fetch(`/api/submissions/${submissionId}/replace`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ overrideDocumentType: allowOverride }),
       });
       if (!res.ok) {
-        const msg = await getErrorMessage(res, 'Korrektur konnte nicht erneut gestartet werden.');
-        setRetryError(msg);
+        const errData = await res.json().catch(() => ({}));
+        if (errData?.canOverride) {
+          setRetryOverrideSubmissionId(submissionId);
+        } else {
+          setRetryOverrideSubmissionId(null);
+        }
+        setRetryError(errData?.error || 'Korrektur konnte nicht erneut gestartet werden.');
         return;
       }
+      setRetryOverrideSubmissionId(null);
       invalidateSubmissions(submissionId, examId, exam?.classId);
       invalidateExams(examId, exam?.classId);
       fetchData();
     } catch (err) {
+      setRetryOverrideSubmissionId(null);
       setRetryError(
         err instanceof Error ? err.message : 'Korrektur konnte nicht erneut gestartet werden.'
       );
@@ -393,14 +404,19 @@ export default function ExamDetailsPage() {
     type: 'success' | 'warning' | 'error';
     text: string;
   } | null>(null);
+  const [pendingOverrideBatchFiles, setPendingOverrideBatchFiles] = useState<File[]>([]);
 
-  const uploadExamBatchWorks = async (filesToUpload: File[]) => {
+  const uploadExamBatchWorks = async (filesToUpload: File[], allowOverride = false) => {
     if (!exam?.id || !exam?.classId || filesToUpload.length === 0) return;
     setBatchUploading(true);
     setBatchUploadMessage(null);
+    if (!allowOverride) {
+      setPendingOverrideBatchFiles([]);
+    }
 
     let successCount = 0;
     const failedFiles: { fileName: string; error: string }[] = [];
+    const overrideEligibleFiles: File[] = [];
 
     for (let idx = 0; idx < filesToUpload.length; idx++) {
       const f = filesToUpload[idx];
@@ -410,6 +426,9 @@ export default function ExamDetailsPage() {
         formData.append('classId', exam.classId);
         formData.append('examId', exam.id);
         formData.append('studentExam', f);
+        if (allowOverride) {
+          formData.append('overrideDocumentType', 'true');
+        }
 
         const res = await fetch('/api/correct', {
           method: 'POST',
@@ -417,6 +436,9 @@ export default function ExamDetailsPage() {
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
+          if (errData?.canOverride) {
+            overrideEligibleFiles.push(f);
+          }
           throw new Error(errData.error || `Fehler beim Upload von ${f.name}`);
         }
         successCount++;
@@ -428,6 +450,7 @@ export default function ExamDetailsPage() {
 
     setBatchUploading(false);
     setBatchUploadStep('');
+    setPendingOverrideBatchFiles(overrideEligibleFiles);
 
     if (successCount > 0) {
       invalidateSubmissions(undefined, exam.id, exam.classId);
@@ -1044,7 +1067,24 @@ export default function ExamDetailsPage() {
         {batchUploadMessage && (
           <Alert
             severity={batchUploadMessage.type}
-            onClose={() => setBatchUploadMessage(null)}
+            onClose={() => {
+              setBatchUploadMessage(null);
+              setPendingOverrideBatchFiles([]);
+            }}
+            action={
+              pendingOverrideBatchFiles.length > 0 ? (
+                <Button
+                  color="inherit"
+                  size="small"
+                  variant="outlined"
+                  disabled={batchUploading}
+                  onClick={() => void uploadExamBatchWorks(pendingOverrideBatchFiles, true)}
+                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                >
+                  Trotzdem als Prüfung behandeln
+                </Button>
+              ) : undefined
+            }
             sx={{ borderRadius: '12px' }}
           >
             {batchUploadMessage.text}
@@ -2569,7 +2609,26 @@ export default function ExamDetailsPage() {
             {retryError && (
               <Alert
                 severity="error"
-                onClose={() => setRetryError(null)}
+                onClose={() => {
+                  setRetryError(null);
+                  setRetryOverrideSubmissionId(null);
+                }}
+                action={
+                  retryOverrideSubmissionId ? (
+                    <Button
+                      color="inherit"
+                      size="small"
+                      variant="outlined"
+                      disabled={Boolean(retryingSubmissionId)}
+                      onClick={() =>
+                        void handleRetryFailedSubmission(retryOverrideSubmissionId, true)
+                      }
+                      sx={{ textTransform: 'none', fontWeight: 700 }}
+                    >
+                      Trotzdem als Prüfung behandeln
+                    </Button>
+                  ) : undefined
+                }
                 sx={{ mb: 2, borderRadius: '8px' }}
               >
                 {retryError}

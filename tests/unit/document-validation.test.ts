@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import zlib from 'node:zlib';
 import { Buffer } from 'node:buffer';
 import {
@@ -431,6 +433,48 @@ describe('Dokumenttyp-Erkennung & Validierungs-Gate (lib/document-validation.ts)
       expect(consentRes.reason).toBe('NON_EXAM_DOCUMENT');
       expect(consentRes.error).toContain('Einverständniserklärung');
       expect(consentRes.error).not.toContain('vollständig leer');
+    });
+  });
+
+  describe('Scan-Dialog & Prüfungsseite Override-Option (#111)', () => {
+    it('rendert im Scan-Dialog (QrScannerDialog) bei canOverride: true den Button "Trotzdem als Prüfung behandeln" und sendet overrideDocumentType=true', () => {
+      const dialogPath = path.resolve(process.cwd(), 'components/QrScannerDialog.tsx');
+      const dialogSource = fs.readFileSync(dialogPath, 'utf8');
+
+      expect(dialogSource).toContain('canOverrideError');
+      expect(dialogSource).toContain('pendingOverrideFiles');
+      expect(dialogSource).toContain('data?.canOverride');
+      expect(dialogSource).toContain("formData.append('overrideDocumentType', 'true')");
+      expect(dialogSource).toContain('Trotzdem als Prüfung behandeln');
+      expect(dialogSource).toContain('uploadPcFiles(pendingOverrideFiles, true)');
+      expect(dialogSource).not.toMatch(/\u00df/);
+    });
+
+    it('unterstützt auch auf der Prüfungs-Detailseite (/exams/[id]) den Override "Trotzdem als Prüfung behandeln" bei canOverride: true', () => {
+      const examPagePath = path.resolve(process.cwd(), 'app/exams/[id]/page.tsx');
+      const examPageSource = fs.readFileSync(examPagePath, 'utf8');
+
+      expect(examPageSource).toContain('pendingOverrideBatchFiles');
+      expect(examPageSource).toContain('retryOverrideSubmissionId');
+      expect(examPageSource).toContain("formData.append('overrideDocumentType', 'true')");
+      expect(examPageSource).toContain('overrideDocumentType: allowOverride');
+      expect(examPageSource).toContain('Trotzdem als Prüfung behandeln');
+      expect(examPageSource).not.toMatch(/\u00df/);
+    });
+
+    it('hält die bestehenden canOverride-Bedingungen strikt ein (BLANK_SCAN ist nicht übersteuerbar, NON_EXAM_DOCUMENT schon)', async () => {
+      const genuineBlankPng = createTestPng(100, 100, () => 255);
+      const blankRes = await validateDocument(
+        {
+          buffer: genuineBlankPng,
+          name: 'blank.png',
+          mimeType: 'image/png',
+        },
+        { overrideDocumentType: true }
+      );
+      expect(blankRes.valid).toBe(false);
+      expect(blankRes.reason).toBe('BLANK_SCAN');
+      expect(blankRes.canOverride).toBeUndefined();
     });
   });
 
