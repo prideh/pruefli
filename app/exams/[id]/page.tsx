@@ -1071,23 +1071,33 @@ export default function ExamDetailsPage() {
               setBatchUploadMessage(null);
               setPendingOverrideBatchFiles([]);
             }}
-            action={
-              pendingOverrideBatchFiles.length > 0 ? (
+            sx={{
+              borderRadius: '12px',
+              '& .MuiAlert-message': { width: '100%' },
+            }}
+          >
+            <Stack spacing={1.25} sx={{ alignItems: 'flex-start' }}>
+              <Typography variant="body2" sx={{ color: 'inherit', lineHeight: 1.45 }}>
+                {batchUploadMessage.text}
+              </Typography>
+              {pendingOverrideBatchFiles.length > 0 && (
                 <Button
                   color="inherit"
                   size="small"
                   variant="outlined"
                   disabled={batchUploading}
                   onClick={() => void uploadExamBatchWorks(pendingOverrideBatchFiles, true)}
-                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    borderColor: 'currentColor',
+                  }}
                 >
                   Trotzdem als Prüfung behandeln
                 </Button>
-              ) : undefined
-            }
-            sx={{ borderRadius: '12px' }}
-          >
-            {batchUploadMessage.text}
+              )}
+            </Stack>
           </Alert>
         )}
 
@@ -2613,8 +2623,17 @@ export default function ExamDetailsPage() {
                   setRetryError(null);
                   setRetryOverrideSubmissionId(null);
                 }}
-                action={
-                  retryOverrideSubmissionId ? (
+                sx={{
+                  mb: 2,
+                  borderRadius: '8px',
+                  '& .MuiAlert-message': { width: '100%' },
+                }}
+              >
+                <Stack spacing={1.25} sx={{ alignItems: 'flex-start' }}>
+                  <Typography variant="body2" sx={{ color: 'inherit', lineHeight: 1.45 }}>
+                    {retryError}
+                  </Typography>
+                  {retryOverrideSubmissionId && (
                     <Button
                       color="inherit"
                       size="small"
@@ -2623,15 +2642,17 @@ export default function ExamDetailsPage() {
                       onClick={() =>
                         void handleRetryFailedSubmission(retryOverrideSubmissionId, true)
                       }
-                      sx={{ textTransform: 'none', fontWeight: 700 }}
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap',
+                        borderColor: 'currentColor',
+                      }}
                     >
                       Trotzdem als Prüfung behandeln
                     </Button>
-                  ) : undefined
-                }
-                sx={{ mb: 2, borderRadius: '8px' }}
-              >
-                {retryError}
+                  )}
+                </Stack>
               </Alert>
             )}
 

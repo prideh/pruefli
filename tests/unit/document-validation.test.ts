@@ -437,7 +437,7 @@ describe('Dokumenttyp-Erkennung & Validierungs-Gate (lib/document-validation.ts)
   });
 
   describe('Scan-Dialog & Prüfungsseite Override-Option (#111)', () => {
-    it('rendert im Scan-Dialog (QrScannerDialog) bei canOverride: true den Button "Trotzdem als Prüfung behandeln" und sendet overrideDocumentType=true', () => {
+    it('rendert im Scan-Dialog (QrScannerDialog) bei canOverride: true den Button "Trotzdem als Prüfung behandeln" in einer eigenen Zeile ohne schmalen Umbruch und sendet overrideDocumentType=true', () => {
       const dialogPath = path.resolve(process.cwd(), 'components/QrScannerDialog.tsx');
       const dialogSource = fs.readFileSync(dialogPath, 'utf8');
 
@@ -447,6 +447,8 @@ describe('Dokumenttyp-Erkennung & Validierungs-Gate (lib/document-validation.ts)
       expect(dialogSource).toContain("formData.append('overrideDocumentType', 'true')");
       expect(dialogSource).toContain('Trotzdem als Prüfung behandeln');
       expect(dialogSource).toContain('uploadPcFiles(pendingOverrideFiles, true)');
+      expect(dialogSource).toContain("'& .MuiAlert-message': { width: '100%', minWidth: 0 }");
+      expect(dialogSource).toContain("whiteSpace: { xs: 'normal', sm: 'nowrap' }");
       expect(dialogSource).not.toMatch(/\u00df/);
     });
 

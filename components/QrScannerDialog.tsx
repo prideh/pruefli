@@ -317,7 +317,18 @@ export default function QrScannerDialog({
   const modeHeader = getModeHeader();
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      sx={{
+        '& .MuiDialog-paper': {
+          m: { xs: 1.5, sm: 4 },
+          width: { xs: 'calc(100% - 24px)', sm: '100%' },
+        },
+      }}
+    >
       <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1.5, pb: 1 }}>
         <QrCodeScannerIcon color="primary" />
         {targetMode === 'RUBRIC'
@@ -370,9 +381,25 @@ export default function QrScannerDialog({
           {error && (
             <Alert
               severity="error"
-              sx={{ borderRadius: '10px' }}
-              action={
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              sx={{
+                borderRadius: '10px',
+                '& .MuiAlert-message': { width: '100%', minWidth: 0 },
+              }}
+            >
+              <Stack spacing={1.25}>
+                <Typography variant="body2" sx={{ color: 'inherit', lineHeight: 1.45 }}>
+                  {error}
+                </Typography>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1}
+                  useFlexGap
+                  sx={{
+                    alignItems: { xs: 'stretch', sm: 'center' },
+                    flexWrap: 'wrap',
+                    width: '100%',
+                  }}
+                >
                   {canOverrideError && pendingOverrideFiles.length > 0 && (
                     <Button
                       color="inherit"
@@ -380,7 +407,18 @@ export default function QrScannerDialog({
                       variant="outlined"
                       disabled={pcUploading}
                       onClick={() => void uploadPcFiles(pendingOverrideFiles, true)}
-                      sx={{ textTransform: 'none', fontWeight: 700 }}
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        fontSize: { xs: '0.8rem', sm: '0.85rem' },
+                        px: { xs: 1.5, sm: 2 },
+                        py: 0.75,
+                        lineHeight: 1.3,
+                        width: { xs: '100%', sm: 'auto' },
+                        maxWidth: '100%',
+                        whiteSpace: { xs: 'normal', sm: 'nowrap' },
+                        borderColor: 'currentColor',
+                      }}
                     >
                       Trotzdem als Prüfung behandeln
                     </Button>
@@ -388,20 +426,30 @@ export default function QrScannerDialog({
                   <Button
                     color="inherit"
                     size="small"
+                    variant="outlined"
                     disabled={pcUploading}
                     onClick={() =>
                       pendingOverrideFiles.length > 0
                         ? void uploadPcFiles(pendingOverrideFiles, false)
                         : void generateQrSession()
                     }
-                    sx={{ textTransform: 'none', fontWeight: 700 }}
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 700,
+                      fontSize: { xs: '0.8rem', sm: '0.85rem' },
+                      px: { xs: 1.5, sm: 2 },
+                      py: 0.75,
+                      lineHeight: 1.3,
+                      width: { xs: '100%', sm: 'auto' },
+                      maxWidth: '100%',
+                      whiteSpace: { xs: 'normal', sm: 'nowrap' },
+                      borderColor: 'currentColor',
+                    }}
                   >
                     Erneut versuchen
                   </Button>
                 </Stack>
-              }
-            >
-              {error}
+              </Stack>
             </Alert>
           )}
 
