@@ -114,6 +114,7 @@ export async function POST(request: Request) {
       },
       isEmailVerified: false,
       emailVerificationRequired: verificationStatus.emailVerificationRequired,
+      paidAiVerificationRequired: verificationStatus.paidAiVerificationRequired,
       enforcementEnabled: verificationStatus.enforcementEnabled,
       liveSendingEnabled: liveSending,
       emailVerification: {

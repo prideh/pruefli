@@ -61,6 +61,7 @@ export async function POST(request: Request) {
       },
       isEmailVerified: verificationStatus.isEmailVerified,
       emailVerificationRequired: verificationStatus.emailVerificationRequired,
+      paidAiVerificationRequired: verificationStatus.paidAiVerificationRequired,
       isGrandfathered: verificationStatus.isGrandfathered,
       enforcementEnabled: verificationStatus.enforcementEnabled,
     });
