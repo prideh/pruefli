@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import {
+  DUPLICATE_STUDENT_NAME_WARNING,
+  hasDuplicateStudentName,
+  normalizeStudentNameForComparison,
+} from '@/lib/grading';
 
 describe('Feature: Bulk Student Add to Class', () => {
   it('Klassendetailseite enthaelt den Button "Mehrere Schüler hinzufügen"', () => {
@@ -94,5 +99,51 @@ describe('Feature: Bulk Student Add to Class', () => {
       'utf-8'
     );
     expect(classDetailFile).not.toContain('ß');
+  });
+});
+
+describe('Feature: Soft Duplicate Student Name Warning in Single-Add Dialogs (Issue #107)', () => {
+  it('erkennt identische Schuelernamen case-insensitive und Whitespace-bereinigt', () => {
+    expect(normalizeStudentNameForComparison('  Max   Muster  ')).toBe('max muster');
+    expect(normalizeStudentNameForComparison('')).toBe('');
+    expect(normalizeStudentNameForComparison(null)).toBe('');
+
+    const classRoster = [{ name: 'Max Muster' }, { name: 'Sophie Meier' }];
+    expect(hasDuplicateStudentName(classRoster, 'Max Muster')).toBe(true);
+    expect(hasDuplicateStudentName(classRoster, '  max   muster ')).toBe(true);
+    expect(hasDuplicateStudentName(classRoster, 'SOPHIE MEIER')).toBe(true);
+    expect(hasDuplicateStudentName(classRoster, 'Max Mustermann')).toBe(false);
+    expect(hasDuplicateStudentName(classRoster, '   ')).toBe(false);
+
+    const examRoster = [{ studentName: 'Lukas Keller' }];
+    expect(hasDuplicateStudentName(examRoster, 'lukas keller')).toBe(true);
+    expect(hasDuplicateStudentName(examRoster, 'Anna Keller')).toBe(false);
+  });
+
+  it('definiert den weichen Warnhinweis ohne Eszett', () => {
+    expect(DUPLICATE_STUDENT_NAME_WARNING).toBe(
+      'Ein/e Schüler/in mit diesem Namen existiert bereits in dieser Klasse – trotzdem hinzufügen?'
+    );
+    expect(DUPLICATE_STUDENT_NAME_WARNING).not.toContain('\u00df');
+  });
+
+  it('integriert die weiche Duplikat-Warnung und Bestaetigungs-Schaltflaeche in allen drei Einzel-Dialogen', () => {
+    const dialogFiles = [
+      '../../app/classes/[id]/page.tsx',
+      '../../app/exams/[id]/page.tsx',
+      '../../app/dashboard/page.tsx',
+    ];
+
+    for (const relPath of dialogFiles) {
+      const source = fs.readFileSync(path.resolve(__dirname, relPath), 'utf-8');
+      expect(source).toContain('hasDuplicateStudentName');
+      expect(source).toContain('DUPLICATE_STUDENT_NAME_WARNING');
+      expect(source).toContain('confirmDuplicateStudent');
+      expect(source).toContain(
+        '<Alert severity="warning">{DUPLICATE_STUDENT_NAME_WARNING}</Alert>'
+      );
+      expect(source).toContain("'Trotzdem hinzufügen'");
+      expect(source).not.toContain('\u00df');
+    }
   });
 });

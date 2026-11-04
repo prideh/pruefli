@@ -76,6 +76,8 @@ import {
   resolveDefaultExamSubjectForClass,
   isSerializedDocumentPayload,
   computeAssignedGradeAverage,
+  DUPLICATE_STUDENT_NAME_WARNING,
+  hasDuplicateStudentName,
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
@@ -544,6 +546,7 @@ export default function Dashboard() {
 
   const [openCreateStudent, setOpenCreateStudent] = useState<boolean>(false);
   const [newStudentName, setNewStudentName] = useState<string>('');
+  const [confirmDuplicateStudent, setConfirmDuplicateStudent] = useState<boolean>(false);
   const [targetClassForStudent, setTargetClassForStudent] = useState<string>('');
   const [createStudentLoading, setCreateStudentLoading] = useState<boolean>(false);
   const [createStudentError, setCreateStudentError] = useState<string>('');
@@ -594,6 +597,15 @@ export default function Dashboard() {
       setCreateStudentError('Keine Klasse ausgewählt.');
       return;
     }
+    const existingClassStudents =
+      targetClassId === selectedClassId && students.length > 0
+        ? students
+        : studentsByClass[targetClassId] || students;
+    if (hasDuplicateStudentName(existingClassStudents, trimmed) && !confirmDuplicateStudent) {
+      setCreateStudentError('');
+      setConfirmDuplicateStudent(true);
+      return;
+    }
     setCreateStudentLoading(true);
     setCreateStudentError('');
     try {
@@ -625,6 +637,7 @@ export default function Dashboard() {
       }
       setOpenCreateStudent(false);
       setNewStudentName('');
+      setConfirmDuplicateStudent(false);
     } catch (err) {
       setCreateStudentError(
         err instanceof Error ? err.message : 'Fehler beim Erstellen des Schülers.'
@@ -1830,6 +1843,8 @@ export default function Dashboard() {
                               const val = e.target.value;
                               if (val === 'CREATE_STUDENT') {
                                 setTargetClassForStudent(selectedClassId);
+                                setCreateStudentError('');
+                                setConfirmDuplicateStudent(false);
                                 setOpenCreateStudent(true);
                                 return;
                               }
@@ -1878,6 +1893,8 @@ export default function Dashboard() {
                                 variant="text"
                                 onClick={() => {
                                   setTargetClassForStudent(selectedClassId);
+                                  setCreateStudentError('');
+                                  setConfirmDuplicateStudent(false);
                                   setOpenCreateStudent(true);
                                 }}
                                 sx={{
@@ -2805,6 +2822,8 @@ export default function Dashboard() {
                                 }}
                                 onOpenCreateStudent={() => {
                                   setTargetClassForStudent(activeClassIdForAssign);
+                                  setCreateStudentError('');
+                                  setConfirmDuplicateStudent(false);
                                   setOpenCreateStudent(true);
                                 }}
                                 onAssign={handleManualAssign}
@@ -3276,6 +3295,7 @@ export default function Dashboard() {
         onClose={(_e, reason) => {
           if (createStudentLoading || reason === 'backdropClick') return;
           setOpenCreateStudent(false);
+          setConfirmDuplicateStudent(false);
         }}
         maxWidth="xs"
         fullWidth
@@ -3287,6 +3307,9 @@ export default function Dashboard() {
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
               {createStudentError && <Alert severity="error">{createStudentError}</Alert>}
+              {confirmDuplicateStudent && (
+                <Alert severity="warning">{DUPLICATE_STUDENT_NAME_WARNING}</Alert>
+              )}
               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                 Gib den Vor- und Nachnamen der Schülerin oder des Schülers ein.
               </Typography>
@@ -3296,7 +3319,11 @@ export default function Dashboard() {
                 fullWidth
                 variant="outlined"
                 value={newStudentName}
-                onChange={(e) => setNewStudentName(e.target.value)}
+                onChange={(e) => {
+                  setNewStudentName(e.target.value);
+                  if (confirmDuplicateStudent) setConfirmDuplicateStudent(false);
+                  if (createStudentError) setCreateStudentError('');
+                }}
                 autoFocus
                 required
                 disabled={createStudentLoading}
@@ -3310,6 +3337,7 @@ export default function Dashboard() {
                 setOpenCreateStudent(false);
                 setNewStudentName('');
                 setCreateStudentError('');
+                setConfirmDuplicateStudent(false);
               }}
               disabled={createStudentLoading}
               sx={{ textTransform: 'none', fontWeight: 650 }}
@@ -3319,6 +3347,7 @@ export default function Dashboard() {
             <Button
               type="submit"
               variant="contained"
+              color={confirmDuplicateStudent ? 'warning' : 'primary'}
               disabled={createStudentLoading || !newStudentName.trim()}
               startIcon={
                 createStudentLoading ? (
@@ -3330,11 +3359,15 @@ export default function Dashboard() {
               sx={{
                 textTransform: 'none',
                 fontWeight: 700,
-                backgroundColor: '#1b77d1',
+                ...(confirmDuplicateStudent ? {} : { backgroundColor: '#1b77d1' }),
                 borderRadius: '8px',
               }}
             >
-              {createStudentLoading ? 'Wird gespeichert...' : 'Hinzufügen'}
+              {createStudentLoading
+                ? 'Wird gespeichert...'
+                : confirmDuplicateStudent
+                  ? 'Trotzdem hinzufügen'
+                  : 'Hinzufügen'}
             </Button>
           </DialogActions>
         </form>

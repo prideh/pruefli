@@ -1037,3 +1037,36 @@ export function formatClassDeletedCompletionMessage(
   }
   return `Die archivierte Klasse „${cleanName}“ wurde endgültig und unwiderruflich gelöscht.`;
 }
+
+export const DUPLICATE_STUDENT_NAME_WARNING =
+  'Ein/e Schüler/in mit diesem Namen existiert bereits in dieser Klasse – trotzdem hinzufügen?';
+
+/**
+ * Normalisiert einen Schuelernamen fuer den Duplikatvergleich (Trimming, Mehrfach-Leerzeichen, Kleinschreibung).
+ */
+export function normalizeStudentNameForComparison(name?: string | null): string {
+  if (typeof name !== 'string') return '';
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Prueft, ob ein Schuelername in der bestehenden Klassenliste bereits vorkommt (case-insensitive, Whitespace-normalisiert).
+ */
+export function hasDuplicateStudentName(
+  existingStudents: ReadonlyArray<
+    { name?: string | null; studentName?: string | null } | string | null | undefined
+  >,
+  candidateName?: string | null
+): boolean {
+  const normalizedCandidate = normalizeStudentNameForComparison(candidateName);
+  if (!normalizedCandidate || !Array.isArray(existingStudents)) return false;
+
+  for (const item of existingStudents) {
+    if (!item) continue;
+    const existingRaw = typeof item === 'string' ? item : (item.name ?? item.studentName ?? '');
+    if (normalizeStudentNameForComparison(existingRaw) === normalizedCandidate) {
+      return true;
+    }
+  }
+  return false;
+}

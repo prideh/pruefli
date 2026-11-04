@@ -77,6 +77,8 @@ import {
   getSubjectSupportInfo,
   isSerializedDocumentPayload,
   parseSerializedDocumentPayload,
+  DUPLICATE_STUDENT_NAME_WARNING,
+  hasDuplicateStudentName,
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
@@ -377,6 +379,7 @@ export default function ExamDetailsPage() {
   // Add Student Dialog State
   const [openAddStudent, setOpenAddStudent] = useState(false);
   const [addStudentName, setAddStudentName] = useState('');
+  const [confirmDuplicateStudent, setConfirmDuplicateStudent] = useState(false);
   const [addStudentLoading, setAddStudentLoading] = useState(false);
   const [addStudentError, setAddStudentError] = useState('');
 
@@ -496,6 +499,12 @@ export default function ExamDetailsPage() {
       return;
     }
 
+    if (hasDuplicateStudentName(roster, trimmed) && !confirmDuplicateStudent) {
+      setAddStudentError('');
+      setConfirmDuplicateStudent(true);
+      return;
+    }
+
     setAddStudentLoading(true);
     setAddStudentError('');
 
@@ -516,6 +525,7 @@ export default function ExamDetailsPage() {
       await fetchData();
       setOpenAddStudent(false);
       setAddStudentName('');
+      setConfirmDuplicateStudent(false);
     } catch (err) {
       setAddStudentError(
         err instanceof Error ? err.message : 'Schüler/in konnte nicht hinzugefügt werden.'
@@ -2677,6 +2687,7 @@ export default function ExamDetailsPage() {
                         onClick={() => {
                           setAddStudentError('');
                           setAddStudentName('');
+                          setConfirmDuplicateStudent(false);
                           setOpenAddStudent(true);
                         }}
                         sx={{
@@ -3139,6 +3150,7 @@ export default function ExamDetailsPage() {
           onClose={(_e, reason) => {
             if (addStudentLoading || reason === 'backdropClick') return;
             setOpenAddStudent(false);
+            setConfirmDuplicateStudent(false);
           }}
           maxWidth="xs"
           fullWidth
@@ -3150,6 +3162,9 @@ export default function ExamDetailsPage() {
             <DialogContent>
               <Stack spacing={2} sx={{ mt: 1 }}>
                 {addStudentError && <Alert severity="error">{addStudentError}</Alert>}
+                {confirmDuplicateStudent && (
+                  <Alert severity="warning">{DUPLICATE_STUDENT_NAME_WARNING}</Alert>
+                )}
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                   Füge der Klasse <strong>{exam?.className}</strong> eine Schülerin oder einen
                   Schüler hinzu.
@@ -3160,7 +3175,11 @@ export default function ExamDetailsPage() {
                   fullWidth
                   variant="outlined"
                   value={addStudentName}
-                  onChange={(e) => setAddStudentName(e.target.value)}
+                  onChange={(e) => {
+                    setAddStudentName(e.target.value);
+                    if (confirmDuplicateStudent) setConfirmDuplicateStudent(false);
+                    if (addStudentError) setAddStudentError('');
+                  }}
                   autoFocus
                   required
                   disabled={addStudentLoading}
@@ -3170,7 +3189,10 @@ export default function ExamDetailsPage() {
             </DialogContent>
             <DialogActions sx={{ p: 2, pt: 0 }}>
               <Button
-                onClick={() => setOpenAddStudent(false)}
+                onClick={() => {
+                  setOpenAddStudent(false);
+                  setConfirmDuplicateStudent(false);
+                }}
                 disabled={addStudentLoading}
                 sx={{ textTransform: 'none', fontWeight: 650 }}
               >
@@ -3179,6 +3201,7 @@ export default function ExamDetailsPage() {
               <Button
                 type="submit"
                 variant="contained"
+                color={confirmDuplicateStudent ? 'warning' : 'primary'}
                 disabled={addStudentLoading || !addStudentName.trim()}
                 startIcon={
                   addStudentLoading ? <CircularProgress size={16} color="inherit" /> : <AddIcon />
@@ -3186,11 +3209,15 @@ export default function ExamDetailsPage() {
                 sx={{
                   textTransform: 'none',
                   fontWeight: 700,
-                  backgroundColor: '#1b77d1',
+                  ...(confirmDuplicateStudent ? {} : { backgroundColor: '#1b77d1' }),
                   borderRadius: '8px',
                 }}
               >
-                {addStudentLoading ? 'Wird hinzugefügt...' : 'Hinzufügen'}
+                {addStudentLoading
+                  ? 'Wird hinzugefügt...'
+                  : confirmDuplicateStudent
+                    ? 'Trotzdem hinzufügen'
+                    : 'Hinzufügen'}
               </Button>
             </DialogActions>
           </form>

@@ -68,6 +68,8 @@ import {
   formatClassDeletionConsequences,
   isClassDeleteConfirmationValid,
   formatClassDeletedCompletionMessage,
+  DUPLICATE_STUDENT_NAME_WARNING,
+  hasDuplicateStudentName,
   type ClassSubjectStatItem,
   type ClassDeletionImpact,
 } from '@/lib/grading';
@@ -210,6 +212,7 @@ export default function ClassDetailsPage() {
   // Dialogs States
   const [openAddStudent, setOpenAddStudent] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
+  const [confirmDuplicateStudent, setConfirmDuplicateStudent] = useState(false);
   const [studentActionLoading, setStudentActionLoading] = useState(false);
   const [studentActionError, setStudentActionError] = useState('');
 
@@ -421,6 +424,12 @@ export default function ClassDetailsPage() {
       return;
     }
 
+    if (hasDuplicateStudentName(students, newStudentName) && !confirmDuplicateStudent) {
+      setStudentActionError('');
+      setConfirmDuplicateStudent(true);
+      return;
+    }
+
     setStudentActionLoading(true);
     setStudentActionError('');
 
@@ -442,6 +451,7 @@ export default function ClassDetailsPage() {
 
       setOpenAddStudent(false);
       setNewStudentName('');
+      setConfirmDuplicateStudent(false);
       invalidateStudents(undefined, classId);
       await fetchData(); // Refresh data
     } catch (err) {
@@ -1290,7 +1300,11 @@ export default function ClassDetailsPage() {
                   variant="outlined"
                   startIcon={<AddIcon />}
                   disabled={isArchived}
-                  onClick={() => setOpenAddStudent(true)}
+                  onClick={() => {
+                    setStudentActionError('');
+                    setConfirmDuplicateStudent(false);
+                    setOpenAddStudent(true);
+                  }}
                   sx={{
                     borderRadius: '8px',
                     textTransform: 'none',
@@ -1330,7 +1344,11 @@ export default function ClassDetailsPage() {
                     <Button
                       variant="contained"
                       startIcon={<AddIcon />}
-                      onClick={() => setOpenAddStudent(true)}
+                      onClick={() => {
+                        setStudentActionError('');
+                        setConfirmDuplicateStudent(false);
+                        setOpenAddStudent(true);
+                      }}
                       sx={{
                         borderRadius: '8px',
                         textTransform: 'none',
@@ -1885,6 +1903,7 @@ export default function ClassDetailsPage() {
           onClose={(_e, reason) => {
             if (studentActionLoading || reason === 'backdropClick') return;
             setOpenAddStudent(false);
+            setConfirmDuplicateStudent(false);
           }}
           maxWidth="xs"
           fullWidth
@@ -1896,13 +1915,20 @@ export default function ClassDetailsPage() {
             <DialogContent>
               <Stack spacing={2} sx={{ mt: 1 }}>
                 {studentActionError && <Alert severity="error">{studentActionError}</Alert>}
+                {confirmDuplicateStudent && (
+                  <Alert severity="warning">{DUPLICATE_STUDENT_NAME_WARNING}</Alert>
+                )}
                 <TextField
                   label="Name des Schülers / der Schülerin"
                   placeholder="z.B. Max Mustermann"
                   fullWidth
                   variant="outlined"
                   value={newStudentName}
-                  onChange={(e) => setNewStudentName(e.target.value)}
+                  onChange={(e) => {
+                    setNewStudentName(e.target.value);
+                    if (confirmDuplicateStudent) setConfirmDuplicateStudent(false);
+                    if (studentActionError) setStudentActionError('');
+                  }}
                   autoFocus
                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
                 />
@@ -1910,7 +1936,10 @@ export default function ClassDetailsPage() {
             </DialogContent>
             <DialogActions sx={{ p: 2, pt: 0 }}>
               <Button
-                onClick={() => setOpenAddStudent(false)}
+                onClick={() => {
+                  setOpenAddStudent(false);
+                  setConfirmDuplicateStudent(false);
+                }}
                 sx={{ textTransform: 'none', fontWeight: 650 }}
               >
                 Abbrechen
@@ -1918,15 +1947,22 @@ export default function ClassDetailsPage() {
               <Button
                 type="submit"
                 variant="contained"
+                color={confirmDuplicateStudent ? 'warning' : 'primary'}
                 disabled={studentActionLoading}
                 sx={{
                   textTransform: 'none',
                   fontWeight: 700,
-                  backgroundColor: '#1b77d1',
+                  ...(confirmDuplicateStudent ? {} : { backgroundColor: '#1b77d1' }),
                   borderRadius: '8px',
                 }}
               >
-                {studentActionLoading ? <CircularProgress size={20} /> : 'Einschreiben'}
+                {studentActionLoading ? (
+                  <CircularProgress size={20} />
+                ) : confirmDuplicateStudent ? (
+                  'Trotzdem hinzufügen'
+                ) : (
+                  'Einschreiben'
+                )}
               </Button>
             </DialogActions>
           </form>
