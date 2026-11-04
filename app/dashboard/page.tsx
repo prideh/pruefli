@@ -1932,417 +1932,465 @@ export default function Dashboard() {
               </Card>
 
               {/* Step 2: Select Exam / Rubric */}
-              {selectedClassId && (
-                <Card sx={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none' }}>
-                  <CardContent sx={{ padding: '24px' }}>
-                    <Typography
-                      variant="h6"
-                      component="h3"
-                      sx={{
-                        color: '#0f172a',
-                        fontWeight: 700,
-                        marginBottom: '20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                      }}
-                    >
-                      <Box component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-                        ②
-                      </Box>{' '}
-                      Prüfung & Musterlösung
-                    </Typography>
+              <Card
+                data-testid="correction-step-2-card"
+                sx={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none' }}
+              >
+                <CardContent sx={{ padding: '24px' }}>
+                  <Typography
+                    variant="h6"
+                    component="h3"
+                    sx={{
+                      color: '#0f172a',
+                      fontWeight: 700,
+                      marginBottom: '20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <Box component="span" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+                      ②
+                    </Box>{' '}
+                    Prüfung & Musterlösung
+                  </Typography>
 
-                    <Stack spacing={3}>
-                      {/* Select existing or create new */}
-                      <FormControl fullWidth size="medium">
-                        <InputLabel id="exam-select-label">Prüfung auswählen</InputLabel>
-                        <Select
-                          labelId="exam-select-label"
-                          value={selectedExamId}
-                          label="Prüfung auswählen"
-                          onChange={(e) => {
-                            setSelectedExamId(e.target.value);
-                            setError('');
+                  <Stack spacing={3}>
+                    {!selectedClassId && (
+                      <Box
+                        data-testid="step-2-class-hint"
+                        sx={{
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          backgroundColor: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 1,
+                        }}
+                      >
+                        <InfoOutlinedIcon
+                          sx={{
+                            color: '#0284c7',
+                            fontSize: '1.2rem',
+                            mt: '2px',
+                            flexShrink: 0,
                           }}
-                          sx={{ borderRadius: '8px' }}
+                        />
+                        <Typography
+                          variant="caption"
+                          sx={{ color: '#475569', lineHeight: 1.45, display: 'block' }}
                         >
-                          <MenuItem value="NEW">
-                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                              <AddCircleIcon sx={{ color: 'success.main', fontSize: '1.2rem' }} />
-                              <Typography
-                                variant="body2"
-                                sx={{ fontWeight: 'bold', color: 'success.main' }}
-                              >
-                                [Neue Prüfung erstellen]
-                              </Typography>
-                            </Stack>
-                          </MenuItem>
-                          {exams.map((ex) => (
-                            <MenuItem key={ex.id} value={ex.id}>
-                              {ex.title} ({ex.subject}) — Max: {ex.maxPoints} P.
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                          Wähle in Schritt ① eine Klasse aus (oder{' '}
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => setOpenCreateClass(true)}
+                            sx={{
+                              p: 0,
+                              textTransform: 'none',
+                              fontWeight: 700,
+                              minWidth: 'auto',
+                              verticalAlign: 'baseline',
+                              fontSize: 'inherit',
+                            }}
+                          >
+                            erstelle eine Klasse
+                          </Button>
+                          ), um bestehende Prüfungen dieser Klasse zu laden. Neue Prüfungsangaben
+                          und die Musterlösung kannst du bereits hier eintragen.
+                        </Typography>
+                      </Box>
+                    )}
 
-                      {/* Input fields for NEW Exam */}
-                      {selectedExamId === 'NEW' && (
-                        <Stack spacing={2.5} sx={{ borderLeft: '3px solid #1b77d1', pl: 2, py: 1 }}>
-                          <Grid container spacing={2}>
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                              <TextField
-                                label="Prüfungstitel"
-                                value={examTitle}
-                                onChange={(e) => setExamTitle(e.target.value)}
-                                placeholder="z.B. Klassenarbeit 1: Lineare Gleichungen"
-                                fullWidth
-                                size="small"
-                                required
-                              />
-                            </Grid>
-                            <Grid size={{ xs: 12, sm: 3 }}>
-                              <FormControl fullWidth size="small">
-                                <InputLabel id="subject-select-label">Fach (KI-Profil)</InputLabel>
-                                <Select
-                                  labelId="subject-select-label"
-                                  value={effectiveExamSubject}
-                                  label="Fach (KI-Profil)"
-                                  onChange={(e) => setExamSubject(e.target.value)}
-                                >
-                                  {classSubjectOptions.map((sp) => (
-                                    <MenuItem key={sp.value} value={sp.value}>
-                                      {sp.label} ({sp.supportInfo.supportBadge})
-                                    </MenuItem>
-                                  ))}
-                                </Select>
-                                <FormHelperText
-                                  sx={{ fontSize: '0.73rem', color: 'text.secondary' }}
-                                >
-                                  {getSubjectSupportInfo(effectiveExamSubject).supportBadge}:{' '}
-                                  {getSubjectSupportInfo(effectiveExamSubject).profileFocus}
-                                </FormHelperText>
-                              </FormControl>
-                            </Grid>
-                            <Grid size={{ xs: 12, sm: 3 }}>
-                              <TextField
-                                label="Maximalpunktzahl"
-                                type="number"
-                                value={examMaxPoints}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value);
-                                  setExamMaxPoints(val > 0 ? val : 0);
-                                }}
-                                slotProps={{
-                                  htmlInput: { min: 1, step: 0.5 },
-                                }}
-                                fullWidth
-                                size="small"
-                                required
-                                helperText="Max. Punkte (z. B. 20)"
-                              />
-                            </Grid>
-                          </Grid>
-
-                          {/* Primary Field: Musterlösung */}
-                          <Stack spacing={1.25}>
+                    {/* Select existing or create new */}
+                    <FormControl fullWidth size="medium">
+                      <InputLabel id="exam-select-label">Prüfung auswählen</InputLabel>
+                      <Select
+                        labelId="exam-select-label"
+                        value={selectedExamId}
+                        label="Prüfung auswählen"
+                        onChange={(e) => {
+                          setSelectedExamId(e.target.value);
+                          setError('');
+                        }}
+                        sx={{ borderRadius: '8px' }}
+                      >
+                        <MenuItem value="NEW">
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <AddCircleIcon sx={{ color: 'success.main', fontSize: '1.2rem' }} />
                             <Typography
-                              variant="caption"
-                              sx={{ fontWeight: 700, color: 'text.secondary' }}
+                              variant="body2"
+                              sx={{ fontWeight: 'bold', color: 'success.main' }}
                             >
-                              Musterlösung / Erwartungshorizont der Lehrperson:
+                              [Neue Prüfung erstellen]
                             </Typography>
-                            <Typography
-                              variant="caption"
-                              sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}
-                            >
-                              Hier die Lösungsvorgabe oder das Kriterienraster hinterlegen (als Text
-                              oder Datei). Die Schülerarbeiten werden anschliessend in Schritt ③
-                              hochgeladen.
-                            </Typography>
-                            {rubricFile || isSerializedDocumentPayload(rubricText) ? (
-                              <Box
-                                sx={{
-                                  border: '1px solid #e2e8f0',
-                                  padding: '12px 16px',
-                                  borderRadius: '8px',
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  background: '#f8fafc',
-                                }}
-                              >
-                                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                                  <DescriptionIcon sx={{ color: 'primary.main' }} />
-                                  <Typography
-                                    variant="body2"
-                                    sx={{ color: 'text.primary', fontWeight: 600 }}
-                                  >
-                                    {rubricFile
-                                      ? `Musterlösung: ${rubricFile.name}`
-                                      : `Smartphone-Musterlösung geladen (${rubricScannedPages || 1} ${(rubricScannedPages || 1) === 1 ? 'Seite' : 'Seiten'})`}
-                                  </Typography>
-                                </Stack>
-                                <Button
-                                  size="small"
-                                  color="error"
-                                  onClick={() => {
-                                    setRubricFile(null);
-                                    setRubricText('');
-                                    setRubricScannedPages(0);
-                                  }}
-                                >
-                                  Löschen
-                                </Button>
-                              </Box>
-                            ) : (
-                              <>
-                                <TextField
-                                  placeholder="Trage hier die Musterlösung, Formeln oder Bepunktungsvorgaben ein (z.B. 'Aufgabe 1: 4x-12=8, Erg. x=5, Max 3P. Folgefehler erlaubt')"
-                                  value={rubricText}
-                                  multiline
-                                  rows={3}
-                                  onChange={(e) => setRubricText(e.target.value)}
-                                  fullWidth
-                                />
-                                <Stack
-                                  direction="row"
-                                  spacing={1.5}
-                                  sx={{ alignItems: 'center', flexWrap: 'wrap' }}
-                                >
-                                  <input
-                                    type="file"
-                                    accept="application/pdf,text/plain,image/*"
-                                    id="rubricFile"
-                                    onChange={(e) => {
-                                      if (e.target.files && e.target.files[0]) {
-                                        setRubricFile(e.target.files[0]);
-                                      }
-                                    }}
-                                    style={{ display: 'none' }}
-                                  />
-                                  <Button
-                                    component="label"
-                                    htmlFor="rubricFile"
-                                    variant="outlined"
-                                    size="small"
-                                    sx={{
-                                      color: 'text.primary',
-                                      borderColor: '#e2e8f0',
-                                      fontWeight: 600,
-                                      textTransform: 'none',
-                                    }}
-                                  >
-                                    Datei auswählen (PDF/Bild)
-                                  </Button>
-                                  <Button
-                                    variant="outlined"
-                                    size="small"
-                                    startIcon={<QrCodeScannerIcon />}
-                                    onClick={() => {
-                                      setQrDialogMode('contextual');
-                                      setQrTargetMode('RUBRIC');
-                                      setQrDialogOpen(true);
-                                    }}
-                                    sx={{
-                                      borderColor: '#1b77d1',
-                                      color: '#1b77d1',
-                                      fontWeight: 700,
-                                      textTransform: 'none',
-                                    }}
-                                  >
-                                    Per Smartphone scannen (QR)
-                                  </Button>
-                                </Stack>
-                              </>
-                            )}
                           </Stack>
+                        </MenuItem>
+                        {exams.map((ex) => (
+                          <MenuItem key={ex.id} value={ex.id}>
+                            {ex.title} ({ex.subject}) — Max: {ex.maxPoints} P.
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
 
-                          {/* Collapsible Advanced Options (Notenformel, Rundung, Vorlage, Hinweise) */}
-                          <Box>
-                            <Button
+                    {/* Input fields for NEW Exam */}
+                    {selectedExamId === 'NEW' && (
+                      <Stack spacing={2.5} sx={{ borderLeft: '3px solid #1b77d1', pl: 2, py: 1 }}>
+                        <Grid container spacing={2}>
+                          <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField
+                              label="Prüfungstitel"
+                              value={examTitle}
+                              onChange={(e) => setExamTitle(e.target.value)}
+                              placeholder="z.B. Klassenarbeit 1: Lineare Gleichungen"
+                              fullWidth
                               size="small"
-                              variant="text"
-                              onClick={() => setShowAdvancedExamOptions((prev) => !prev)}
+                              required
+                            />
+                          </Grid>
+                          <Grid size={{ xs: 12, sm: 3 }}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel id="subject-select-label">Fach (KI-Profil)</InputLabel>
+                              <Select
+                                labelId="subject-select-label"
+                                value={effectiveExamSubject}
+                                label="Fach (KI-Profil)"
+                                onChange={(e) => setExamSubject(e.target.value)}
+                              >
+                                {classSubjectOptions.map((sp) => (
+                                  <MenuItem key={sp.value} value={sp.value}>
+                                    {sp.label} ({sp.supportInfo.supportBadge})
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                              <FormHelperText sx={{ fontSize: '0.73rem', color: 'text.secondary' }}>
+                                {getSubjectSupportInfo(effectiveExamSubject).supportBadge}:{' '}
+                                {getSubjectSupportInfo(effectiveExamSubject).profileFocus}
+                              </FormHelperText>
+                            </FormControl>
+                          </Grid>
+                          <Grid size={{ xs: 12, sm: 3 }}>
+                            <TextField
+                              label="Maximalpunktzahl"
+                              type="number"
+                              value={examMaxPoints}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setExamMaxPoints(val > 0 ? val : 0);
+                              }}
+                              slotProps={{
+                                htmlInput: { min: 1, step: 0.5 },
+                              }}
+                              fullWidth
+                              size="small"
+                              required
+                              helperText="Max. Punkte (z. B. 20)"
+                            />
+                          </Grid>
+                        </Grid>
+
+                        {/* Primary Field: Musterlösung */}
+                        <Stack spacing={1.25}>
+                          <Typography
+                            variant="caption"
+                            sx={{ fontWeight: 700, color: 'text.secondary' }}
+                          >
+                            Musterlösung / Erwartungshorizont der Lehrperson:
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}
+                          >
+                            Hier die Lösungsvorgabe oder das Kriterienraster hinterlegen (als Text
+                            oder Datei). Die Schülerarbeiten werden anschliessend in Schritt ③
+                            hochgeladen.
+                          </Typography>
+                          {rubricFile || isSerializedDocumentPayload(rubricText) ? (
+                            <Box
                               sx={{
-                                textTransform: 'none',
-                                fontWeight: 700,
-                                color: '#475569',
-                                px: 1,
-                                py: 0.5,
+                                border: '1px solid #e2e8f0',
+                                padding: '12px 16px',
+                                borderRadius: '8px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                background: '#f8fafc',
                               }}
                             >
-                              {showAdvancedExamOptions ? '▾' : '▸'} Erweiterte Optionen
-                              (Notenformel, Vorlagenblatt & Bewertungshinweise)
-                            </Button>
-
-                            {showAdvancedExamOptions && (
-                              <Stack
-                                spacing={2}
-                                sx={{
-                                  mt: 1.5,
-                                  p: 2,
-                                  borderRadius: '10px',
-                                  backgroundColor: '#f8fafc',
-                                  border: '1px solid #e2e8f0',
+                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                <DescriptionIcon sx={{ color: 'primary.main' }} />
+                                <Typography
+                                  variant="body2"
+                                  sx={{ color: 'text.primary', fontWeight: 600 }}
+                                >
+                                  {rubricFile
+                                    ? `Musterlösung: ${rubricFile.name}`
+                                    : `Smartphone-Musterlösung geladen (${rubricScannedPages || 1} ${(rubricScannedPages || 1) === 1 ? 'Seite' : 'Seiten'})`}
+                                </Typography>
+                              </Stack>
+                              <Button
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  setRubricFile(null);
+                                  setRubricText('');
+                                  setRubricScannedPages(0);
                                 }}
                               >
-                                <Grid container spacing={2}>
-                                  <Grid size={{ xs: 12, sm: 6 }}>
-                                    <FormControl fullWidth size="small">
-                                      <InputLabel>Notenformel (Schweizer Skala 1–6)</InputLabel>
-                                      <Select
-                                        value={gradingFormula}
-                                        label="Notenformel (Schweizer Skala 1–6)"
-                                        onChange={(e) =>
-                                          setGradingFormula(e.target.value as GradingFormula)
-                                        }
-                                      >
-                                        {GRADING_FORMULA_OPTIONS.map((opt) => (
-                                          <MenuItem key={opt.value} value={opt.value}>
-                                            {opt.label}
-                                          </MenuItem>
-                                        ))}
-                                      </Select>
-                                    </FormControl>
-                                  </Grid>
-                                  <Grid size={{ xs: 12, sm: 6 }}>
-                                    <FormControl fullWidth size="small">
-                                      <InputLabel>Notenrundung</InputLabel>
-                                      <Select
-                                        value={gradeRounding}
-                                        label="Notenrundung"
-                                        onChange={(e) =>
-                                          setGradeRounding(e.target.value as GradeRounding)
-                                        }
-                                      >
-                                        {GRADE_ROUNDING_OPTIONS.map((opt) => (
-                                          <MenuItem key={opt.value} value={opt.value}>
-                                            {opt.label}
-                                          </MenuItem>
-                                        ))}
-                                      </Select>
-                                    </FormControl>
-                                  </Grid>
-                                </Grid>
+                                Löschen
+                              </Button>
+                            </Box>
+                          ) : (
+                            <>
+                              <TextField
+                                placeholder="Trage hier die Musterlösung, Formeln oder Bepunktungsvorgaben ein (z.B. 'Aufgabe 1: 4x-12=8, Erg. x=5, Max 3P. Folgefehler erlaubt')"
+                                value={rubricText}
+                                multiline
+                                rows={3}
+                                onChange={(e) => setRubricText(e.target.value)}
+                                fullWidth
+                              />
+                              <Stack
+                                direction="row"
+                                spacing={1.5}
+                                sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                              >
+                                <input
+                                  type="file"
+                                  accept="application/pdf,text/plain,image/*"
+                                  id="rubricFile"
+                                  onChange={(e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                      setRubricFile(e.target.files[0]);
+                                    }
+                                  }}
+                                  style={{ display: 'none' }}
+                                />
+                                <Button
+                                  component="label"
+                                  htmlFor="rubricFile"
+                                  variant="outlined"
+                                  size="small"
+                                  sx={{
+                                    color: 'text.primary',
+                                    borderColor: '#e2e8f0',
+                                    fontWeight: 600,
+                                    textTransform: 'none',
+                                  }}
+                                >
+                                  Datei auswählen (PDF/Bild)
+                                </Button>
+                                <Button
+                                  variant="outlined"
+                                  size="small"
+                                  startIcon={<QrCodeScannerIcon />}
+                                  disabled={isUnverified}
+                                  onClick={() => {
+                                    setQrDialogMode('contextual');
+                                    setQrTargetMode('RUBRIC');
+                                    setQrDialogOpen(true);
+                                  }}
+                                  sx={{
+                                    borderColor: '#1b77d1',
+                                    color: '#1b77d1',
+                                    fontWeight: 700,
+                                    textTransform: 'none',
+                                  }}
+                                >
+                                  Per Smartphone scannen (QR)
+                                </Button>
+                              </Stack>
+                            </>
+                          )}
+                        </Stack>
 
-                                <Stack spacing={1}>
-                                  <Typography
-                                    variant="caption"
-                                    sx={{ fontWeight: 700, color: 'text.secondary' }}
+                        {/* Collapsible Advanced Options (Notenformel, Rundung, Vorlage, Hinweise) */}
+                        <Box>
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => setShowAdvancedExamOptions((prev) => !prev)}
+                            sx={{
+                              textTransform: 'none',
+                              fontWeight: 700,
+                              color: '#475569',
+                              px: 1,
+                              py: 0.5,
+                            }}
+                          >
+                            {showAdvancedExamOptions ? '▾' : '▸'} Erweiterte Optionen (Notenformel,
+                            Vorlagenblatt & Bewertungshinweise)
+                          </Button>
+
+                          {showAdvancedExamOptions && (
+                            <Stack
+                              spacing={2}
+                              sx={{
+                                mt: 1.5,
+                                p: 2,
+                                borderRadius: '10px',
+                                backgroundColor: '#f8fafc',
+                                border: '1px solid #e2e8f0',
+                              }}
+                            >
+                              <Grid container spacing={2}>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                  <FormControl fullWidth size="small">
+                                    <InputLabel>Notenformel (Schweizer Skala 1–6)</InputLabel>
+                                    <Select
+                                      value={gradingFormula}
+                                      label="Notenformel (Schweizer Skala 1–6)"
+                                      onChange={(e) =>
+                                        setGradingFormula(e.target.value as GradingFormula)
+                                      }
+                                    >
+                                      {GRADING_FORMULA_OPTIONS.map((opt) => (
+                                        <MenuItem key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </MenuItem>
+                                      ))}
+                                    </Select>
+                                  </FormControl>
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                  <FormControl fullWidth size="small">
+                                    <InputLabel>Notenrundung</InputLabel>
+                                    <Select
+                                      value={gradeRounding}
+                                      label="Notenrundung"
+                                      onChange={(e) =>
+                                        setGradeRounding(e.target.value as GradeRounding)
+                                      }
+                                    >
+                                      {GRADE_ROUNDING_OPTIONS.map((opt) => (
+                                        <MenuItem key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </MenuItem>
+                                      ))}
+                                    </Select>
+                                  </FormControl>
+                                </Grid>
+                              </Grid>
+
+                              <Stack spacing={1}>
+                                <Typography
+                                  variant="caption"
+                                  sx={{ fontWeight: 700, color: 'text.secondary' }}
+                                >
+                                  Leeres Aufgabenblatt / Vorlagenprüfung (optional):
+                                </Typography>
+                                {examTemplateFile || examTemplateScannedPayload ? (
+                                  <Stack
+                                    direction="row"
+                                    spacing={1}
+                                    sx={{
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      border: '1px solid #e2e8f0',
+                                      p: '8px 12px',
+                                      borderRadius: '8px',
+                                      backgroundColor: '#ffffff',
+                                    }}
                                   >
-                                    Leeres Aufgabenblatt / Vorlagenprüfung (optional):
-                                  </Typography>
-                                  {examTemplateFile || examTemplateScannedPayload ? (
-                                    <Stack
-                                      direction="row"
-                                      spacing={1}
-                                      sx={{
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        border: '1px solid #e2e8f0',
-                                        p: '8px 12px',
-                                        borderRadius: '8px',
-                                        backgroundColor: '#ffffff',
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      {examTemplateFile
+                                        ? examTemplateFile.name
+                                        : `Smartphone-Vorlage geladen (${examTemplateScannedPages} ${examTemplateScannedPages === 1 ? 'Seite' : 'Seiten'})`}
+                                    </Typography>
+                                    <Button
+                                      size="small"
+                                      color="error"
+                                      onClick={() => {
+                                        setExamTemplateFile(null);
+                                        setExamTemplateScannedPayload('');
+                                        setExamTemplateScannedPages(0);
                                       }}
                                     >
-                                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                        {examTemplateFile
-                                          ? examTemplateFile.name
-                                          : `Smartphone-Vorlage geladen (${examTemplateScannedPages} ${examTemplateScannedPages === 1 ? 'Seite' : 'Seiten'})`}
-                                      </Typography>
-                                      <Button
-                                        size="small"
-                                        color="error"
-                                        onClick={() => {
-                                          setExamTemplateFile(null);
-                                          setExamTemplateScannedPayload('');
-                                          setExamTemplateScannedPages(0);
-                                        }}
-                                      >
-                                        Entfernen
-                                      </Button>
-                                    </Stack>
-                                  ) : (
-                                    <Stack
-                                      direction="row"
-                                      spacing={1.5}
-                                      sx={{ alignItems: 'center', flexWrap: 'wrap' }}
-                                    >
-                                      <input
-                                        type="file"
-                                        accept="application/pdf,text/plain,image/*"
-                                        id="examTemplateFile"
-                                        onChange={(e) => {
-                                          if (e.target.files && e.target.files[0]) {
-                                            setExamTemplateFile(e.target.files[0]);
-                                          }
-                                        }}
-                                        style={{ display: 'none' }}
-                                      />
-                                      <Button
-                                        component="label"
-                                        htmlFor="examTemplateFile"
-                                        variant="outlined"
-                                        size="small"
-                                        sx={{
-                                          color: 'text.primary',
-                                          borderColor: '#cbd5e1',
-                                          backgroundColor: '#ffffff',
-                                          fontWeight: 600,
-                                          textTransform: 'none',
-                                        }}
-                                      >
-                                        Aufgabenblatt hochladen (PDF/Bild)
-                                      </Button>
-                                      <Button
-                                        variant="outlined"
-                                        size="small"
-                                        startIcon={<QrCodeScannerIcon />}
-                                        onClick={() => {
-                                          setQrDialogMode('contextual');
-                                          setQrTargetMode('EXAM_TEMPLATE');
-                                          setQrDialogOpen(true);
-                                        }}
-                                        sx={{
-                                          borderColor: '#1b77d1',
-                                          color: '#1b77d1',
-                                          backgroundColor: '#ffffff',
-                                          fontWeight: 700,
-                                          textTransform: 'none',
-                                        }}
-                                      >
-                                        Vorlage per Smartphone scannen (QR)
-                                      </Button>
-                                    </Stack>
-                                  )}
-                                </Stack>
-
-                                <Stack spacing={1}>
-                                  <Typography
-                                    variant="caption"
-                                    sx={{ fontWeight: 700, color: 'text.secondary' }}
+                                      Entfernen
+                                    </Button>
+                                  </Stack>
+                                ) : (
+                                  <Stack
+                                    direction="row"
+                                    spacing={1.5}
+                                    sx={{ alignItems: 'center', flexWrap: 'wrap' }}
                                   >
-                                    Zusätzliche Bewertungshinweise für die KI (optional):
-                                  </Typography>
-                                  <TextField
-                                    placeholder="z. B. 'Fehlende Masseinheiten geben 0.5 P. Abzug; auch grafische Lösung bei Aufgabe 2 voll gültig'"
-                                    value={gradingNotes}
-                                    onChange={(e) => setGradingNotes(e.target.value)}
-                                    size="small"
-                                    fullWidth
-                                    sx={{ backgroundColor: '#ffffff' }}
-                                  />
-                                </Stack>
+                                    <input
+                                      type="file"
+                                      accept="application/pdf,text/plain,image/*"
+                                      id="examTemplateFile"
+                                      onChange={(e) => {
+                                        if (e.target.files && e.target.files[0]) {
+                                          setExamTemplateFile(e.target.files[0]);
+                                        }
+                                      }}
+                                      style={{ display: 'none' }}
+                                    />
+                                    <Button
+                                      component="label"
+                                      htmlFor="examTemplateFile"
+                                      variant="outlined"
+                                      size="small"
+                                      sx={{
+                                        color: 'text.primary',
+                                        borderColor: '#cbd5e1',
+                                        backgroundColor: '#ffffff',
+                                        fontWeight: 600,
+                                        textTransform: 'none',
+                                      }}
+                                    >
+                                      Aufgabenblatt hochladen (PDF/Bild)
+                                    </Button>
+                                    <Button
+                                      variant="outlined"
+                                      size="small"
+                                      startIcon={<QrCodeScannerIcon />}
+                                      disabled={isUnverified}
+                                      onClick={() => {
+                                        setQrDialogMode('contextual');
+                                        setQrTargetMode('EXAM_TEMPLATE');
+                                        setQrDialogOpen(true);
+                                      }}
+                                      sx={{
+                                        borderColor: '#1b77d1',
+                                        color: '#1b77d1',
+                                        backgroundColor: '#ffffff',
+                                        fontWeight: 700,
+                                        textTransform: 'none',
+                                      }}
+                                    >
+                                      Vorlage per Smartphone scannen (QR)
+                                    </Button>
+                                  </Stack>
+                                )}
                               </Stack>
-                            )}
-                          </Box>
-                        </Stack>
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              )}
+
+                              <Stack spacing={1}>
+                                <Typography
+                                  variant="caption"
+                                  sx={{ fontWeight: 700, color: 'text.secondary' }}
+                                >
+                                  Zusätzliche Bewertungshinweise für die KI (optional):
+                                </Typography>
+                                <TextField
+                                  placeholder="z. B. 'Fehlende Masseinheiten geben 0.5 P. Abzug; auch grafische Lösung bei Aufgabe 2 voll gültig'"
+                                  value={gradingNotes}
+                                  onChange={(e) => setGradingNotes(e.target.value)}
+                                  size="small"
+                                  fullWidth
+                                  sx={{ backgroundColor: '#ffffff' }}
+                                />
+                              </Stack>
+                            </Stack>
+                          )}
+                        </Box>
+                      </Stack>
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
 
               {/* Step 3: Student Upload Scan */}
               {selectedStudentId && (

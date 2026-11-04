@@ -429,6 +429,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
             name: 'Neue Lehrperson',
             email: 'neu@schule.ch',
             password: 'SecurePass123!',
+            confirmPassword: 'SecurePass123!',
           }),
         })
       );
@@ -665,6 +666,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
             name: 'Sandra Frei',
             email: 'sandra.frei@schule.ch',
             password: 'ValidPassword123!',
+            confirmPassword: 'ValidPassword123!',
           }),
         })
       );
@@ -776,6 +778,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
             name: 'Frau Meier',
             email: 'lehrer@schule.ch',
             password: 'NewAttemptPassword123!',
+            confirmPassword: 'NewAttemptPassword123!',
           }),
         })
       );
@@ -790,6 +793,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
             name: 'Herr Google',
             email: 'oauth.lehrer@schule.ch',
             password: 'NewAttemptPassword123!',
+            confirmPassword: 'NewAttemptPassword123!',
           }),
         })
       );
@@ -804,6 +808,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
             name: 'Herr Keller',
             email: 'verified@schule.ch',
             password: 'NewAttemptPassword123!',
+            confirmPassword: 'NewAttemptPassword123!',
           }),
         })
       );

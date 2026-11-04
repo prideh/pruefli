@@ -32,6 +32,7 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -107,7 +108,7 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !confirmPassword) {
       setExistingAccountError(false);
       setResendMessage(null);
       setError('Bitte fülle alle Felder aus.');
@@ -121,6 +122,13 @@ export default function RegisterPage() {
       return;
     }
 
+    if (password !== confirmPassword) {
+      setExistingAccountError(false);
+      setResendMessage(null);
+      setError('Die eingegebenen Passwörter stimmen nicht überein.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setExistingAccountError(false);
@@ -130,7 +138,7 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, confirmPassword }),
       });
 
       const result = await res.json();
@@ -369,6 +377,48 @@ export default function RegisterPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   helperText="Mindestens 6 Zeichen erforderlich (mindestens 8 Zeichen empfohlen)"
+                  slotProps={{
+                    input: {
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <LockIcon sx={{ color: 'text.secondary', fontSize: '1.2rem' }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setShowPassword(!showPassword)}
+                            edge="end"
+                            size="small"
+                          >
+                            {showPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    },
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: '10px',
+                    },
+                  }}
+                />
+
+                {/* Confirm Password Field */}
+                <TextField
+                  label="Passwort wiederholen"
+                  type={showPassword ? 'text' : 'password'}
+                  fullWidth
+                  variant="outlined"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  error={confirmPassword.length > 0 && password !== confirmPassword}
+                  helperText={
+                    confirmPassword.length > 0 && password !== confirmPassword
+                      ? 'Die eingegebenen Passwörter stimmen nicht überein.'
+                      : undefined
+                  }
                   slotProps={{
                     input: {
                       startAdornment: (

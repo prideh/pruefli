@@ -246,6 +246,7 @@ describe('Schutz: Anmelde- und Registrierungs-Endpunkte gegen Brute-Force absich
             name: `User ${i}`,
             email: `user${i}@schule.ch`,
             password: 'validPassword123',
+            confirmPassword: 'validPassword123',
           }),
         });
 

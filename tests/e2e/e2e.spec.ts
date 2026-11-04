@@ -36,7 +36,7 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
     }
     await page.setViewportSize({ width: 1280, height: 800 });
 
-    // --- STEP 1: Register a new teacher -> Verify #110 Paid-AI Gate (Default Mode) + #98 Opt-In Gate -> Confirm via Link -> Full Access ---
+    // --- STEP 1: Register a new teacher -> Verify #113 Password Confirmation + #114 Visible Step 2 + #110 Paid-AI Gate + #98 Opt-In Gate -> Confirm via Link -> Full Access ---
     await page.goto('/register');
     await page.getByLabel(/Name/i).first().fill(teacherName);
     await page
@@ -44,14 +44,43 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
       .first()
       .fill(teacherEmail);
     await page
-      .getByLabel(/Passwort/i)
+      .getByLabel(/^Passwort$/i)
       .first()
       .fill(teacherPassword);
+
+    // Issue #113: Mismatched password confirmation is rejected client-side and server-side
+    await page.getByLabel(/Passwort wiederholen/i).fill('AbweichendesPasswort123!');
+    await page
+      .getByRole('button', { name: /Registrieren|Konto erstellen|Account erstellen/i })
+      .click();
+    await expect(page.getByTestId('register-error-alert')).toContainText(
+      /Passwörter stimmen nicht überein/i
+    );
+
+    const mismatchApiRes = await page.request.post('/api/auth/register', {
+      data: {
+        name: teacherName,
+        email: teacherEmail,
+        password: teacherPassword,
+        confirmPassword: 'AbweichendesPasswort123!',
+      },
+    });
+    expect(mismatchApiRes.status()).toBe(400);
+    const mismatchApiJson = await mismatchApiRes.json();
+    expect(mismatchApiJson.error).toContain('Passwörter stimmen nicht überein');
+
+    // Fill matching password confirmation and submit registration
+    await page.getByLabel(/Passwort wiederholen/i).fill(teacherPassword);
     await page
       .getByRole('button', { name: /Registrieren|Konto erstellen|Account erstellen/i })
       .click();
 
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
+
+    // Issue #114: Fresh account without classes still shows Step ② ("Prüfung & Musterlösung") visibly between Step ① and Step ③
+    await expect(page.getByTestId('correction-step-2-card')).toBeVisible();
+    await expect(page.getByText('Prüfung & Musterlösung')).toBeVisible();
+    await expect(page.getByTestId('step-2-class-hint')).toBeVisible();
 
     // Issue #110 (Default mode without all-or-nothing gate):
     // Manual browsing & setup remain open, while paid AI entry points show banner + disabled trigger
@@ -362,9 +391,10 @@ test.describe('Full E2E Teacher & Mobile QR Relay Workflows', () => {
       .first()
       .fill(teacherEmail);
     await page
-      .getByLabel(/Passwort/i)
+      .getByLabel(/^Passwort$/i)
       .first()
       .fill(teacherPassword);
+    await page.getByLabel(/Passwort wiederholen/i).fill(teacherPassword);
     await page
       .getByRole('button', { name: /Registrieren|Konto erstellen|Account erstellen/i })
       .click();

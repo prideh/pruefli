@@ -173,6 +173,7 @@ describe('Haertung: Interne Fehlermeldungen nicht an API-Clients zurueckgeben', 
           name: 'Frau Meier',
           email: 'meier@schule.ch',
           password: 'securePassword123',
+          confirmPassword: 'securePassword123',
         }),
       });
 
@@ -197,6 +198,35 @@ describe('Haertung: Interne Fehlermeldungen nicht an API-Clients zurueckgeben', 
       expect(resShort.status).toBe(400);
       const body = await resShort.json();
       expect(body.error).toContain('mindestens 6 Zeichen');
+
+      const reqMismatch = new Request('http://localhost/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'A',
+          email: 'a@b.ch',
+          password: 'securePassword123',
+          confirmPassword: 'differentPassword123',
+        }),
+      });
+      const resMismatch = await registerPost(reqMismatch);
+      expect(resMismatch.status).toBe(400);
+      const mismatchBody = await resMismatch.json();
+      expect(mismatchBody.error).toBe('Die eingegebenen Passwörter stimmen nicht überein.');
+
+      const reqMissingConfirm = new Request('http://localhost/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'A',
+          email: 'a@b.ch',
+          password: 'securePassword123',
+        }),
+      });
+      const resMissingConfirm = await registerPost(reqMissingConfirm);
+      expect(resMissingConfirm.status).toBe(400);
+      const missingConfirmBody = await resMissingConfirm.json();
+      expect(missingConfirmBody.error).toBe('Die eingegebenen Passwörter stimmen nicht überein.');
     });
   });
 

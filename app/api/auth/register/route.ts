@@ -9,7 +9,10 @@ import { getEmailVerificationStatus, markEmailVerificationPending } from '@/lib/
 
 export async function POST(request: Request) {
   try {
-    const { name, email, password } = await request.json();
+    const body = await request.json();
+    const { name, email, password } = body;
+    const repeatedPassword =
+      body.confirmPassword ?? body.passwordConfirm ?? body.passwordConfirmation;
 
     if (!name || !email || !password) {
       return NextResponse.json(
@@ -21,6 +24,13 @@ export async function POST(request: Request) {
     if (password.length < 6) {
       return NextResponse.json(
         { error: 'Das Passwort muss mindestens 6 Zeichen lang sein.' },
+        { status: 400 }
+      );
+    }
+
+    if (!repeatedPassword || password !== repeatedPassword) {
+      return NextResponse.json(
+        { error: 'Die eingegebenen Passwörter stimmen nicht überein.' },
         { status: 400 }
       );
     }
