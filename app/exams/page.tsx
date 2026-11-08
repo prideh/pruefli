@@ -29,6 +29,8 @@ import {
   IconButton,
   Tooltip,
   FormHelperText,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import AddIcon from '@mui/icons-material/Add';
@@ -356,6 +358,7 @@ export default function ExamsPage() {
   const [genDifficulty, setGenDifficulty] = useState('Standard (Mittelschwer)');
   const [genTotalPoints, setGenTotalPoints] = useState<number>(20);
   const [genTaskCount, setGenTaskCount] = useState<number>(4);
+  const [genEnableQrSheet, setGenEnableQrSheet] = useState<boolean>(false);
   const [genMaterialPayload, setGenMaterialPayload] = useState<{
     mimeType: string;
     data: string;
@@ -439,6 +442,7 @@ export default function ExamsPage() {
           difficulty: genDifficulty,
           totalPoints: Number(genTotalPoints) || 20,
           taskCount: Number(genTaskCount) || 4,
+          enableQrSheet: genEnableQrSheet,
         }),
       });
 
@@ -2452,6 +2456,40 @@ export default function ExamsPage() {
                     />
                   </Grid>
                 </Grid>
+
+                <Box
+                  sx={{
+                    p: 1.5,
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    backgroundColor: '#f8fafc',
+                  }}
+                >
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={genEnableQrSheet}
+                        onChange={(e) => setGenEnableQrSheet(e.target.checked)}
+                        color="primary"
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                          QR-Code auf Aufgabenblatt einbetten (optional)
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          sx={{ color: 'text.secondary', display: 'block' }}
+                        >
+                          Standardmässig deaktiviert. Wenn aktiviert, wird beim Drucken des
+                          Aufgabenblatts ein maschinenlesbarer Prüfungs-QR-Code eingeblendet.
+                        </Typography>
+                      </Box>
+                    }
+                    sx={{ m: 0, alignItems: 'flex-start', gap: 1 }}
+                  />
+                </Box>
               </Stack>
             </DialogContent>
             <DialogActions sx={{ p: 2.5, pt: 1, justifyContent: 'space-between' }}>

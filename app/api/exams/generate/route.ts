@@ -43,6 +43,7 @@ export async function POST(request: Request) {
       title,
       gradingFormula = 'LINEAR_60',
       gradeRounding = '0.1',
+      enableQrSheet = false,
       bypassCache,
       overrideDocumentType: explicitOverride,
       override,
@@ -182,6 +183,7 @@ export async function POST(request: Request) {
         difficulty: difficulty || null,
         taskCount: Number(taskCount) || 4,
         totalPoints: finalMaxPoints,
+        enableQrSheet: Boolean(enableQrSheet),
       },
     });
 

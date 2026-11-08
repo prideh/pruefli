@@ -69,6 +69,11 @@ import QrScannerDialog from '@/components/QrScannerDialog';
 import PdfBatchSplitDialog from '@/components/PdfBatchSplitDialog';
 import { isPdfFile, inspectPdfBytes, type PdfPageInfo } from '@/lib/pdf-batch';
 import {
+  formatExamGradeExport,
+  SCHOOL_SYSTEM_EXPORT_OPTIONS,
+  type SchoolSystemExportFormat,
+} from '@/lib/school-systems';
+import {
   useDataCache,
   invalidateExams,
   invalidateSubmissions,
@@ -351,42 +356,30 @@ export default function ExamDetailsPage() {
     }
   };
 
+  const [exportFormat, setExportFormat] = useState<SchoolSystemExportFormat>('STANDARD_CSV');
+
   const handleExportCsv = () => {
     if (!exam || roster.length === 0) return;
-    const header = [
-      'Schüler/in',
-      'Status',
-      'Erzielte Punkte',
-      'Maximalpunkte',
-      'Note',
-      'Korrekturdatum',
-      'KI-Unsichere Schritte',
-    ];
-    const rows = roster.map((r) => [
-      `"${r.studentName.replace(/"/g, '""')}"`,
-      r.status === 'COMPLETED'
-        ? 'Abgeschlossen'
-        : r.status === 'DRAFT'
-          ? 'Entwurf'
-          : r.status === 'FAILED'
-            ? 'Fehlgeschlagen'
-            : r.status === 'PROCESSING' || r.status === 'PENDING'
-              ? 'In Verarbeitung'
-              : 'Ungestartet',
-      r.earnedPoints !== 'N/A' ? String(r.earnedPoints) : '',
-      String(exam.maxPoints || ''),
-      r.status === 'COMPLETED' ? String(r.grade) : '',
-      r.date !== '—' ? r.date : '',
-      String(r.uncertainStepsCount ?? 0),
-    ]);
-    const csvContent =
-      '\uFEFF' + [header.join(';'), ...rows.map((row) => row.join(';'))].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const { content, mimeType, filename } = formatExamGradeExport({
+      format: exportFormat,
+      examTitle: exam.title,
+      subject: exam.subject,
+      className: exam.className,
+      maxPoints: exam.maxPoints,
+      rows: roster.map((r) => ({
+        studentName: r.studentName,
+        status: r.status,
+        earnedPoints: r.earnedPoints,
+        grade: r.grade,
+        date: r.date,
+        uncertainStepsCount: r.uncertainStepsCount ?? 0,
+      })),
+    });
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const safeTitle = `${exam.className}_${exam.title}`.replace(/[^a-zA-Z0-9äöüÄÖÜ_-]/g, '_');
-    link.download = `Notenliste_${safeTitle}.csv`;
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -2614,15 +2607,68 @@ export default function ExamDetailsPage() {
                   Korrektur-Status (Klassenliste)
                 </Typography>
               </Stack>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={handleExportCsv}
-                disabled={roster.length === 0}
-                sx={{ textTransform: 'none', fontWeight: 700, borderRadius: '8px' }}
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
               >
-                Notenliste exportieren (CSV)
-              </Button>
+                {(() => {
+                  const uncertainItems = roster.filter(
+                    (r) => r.submissionId && (r.uncertainStepsCount ?? 0) > 0
+                  );
+                  const totalUncertain = uncertainItems.reduce(
+                    (sum, r) => sum + (r.uncertainStepsCount ?? 0),
+                    0
+                  );
+                  if (uncertainItems.length === 0) return null;
+                  return (
+                    <Tooltip title="Direkt zur ersten Arbeit mit KI-Unsicherheiten springen (Express-Queue)">
+                      <Button
+                        component={Link}
+                        href={`/correct/${uncertainItems[0].submissionId}?mode=uncertain`}
+                        variant="contained"
+                        size="small"
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          borderRadius: '8px',
+                          backgroundColor: '#d97706',
+                          color: '#ffffff',
+                          '&:hover': { backgroundColor: '#b45309' },
+                        }}
+                      >
+                        {`⚡ Unsicherheiten-Queue (${totalUncertain})`}
+                      </Button>
+                    </Tooltip>
+                  );
+                })()}
+                <FormControl size="small" sx={{ minWidth: 190 }}>
+                  <InputLabel id="exam-grade-export-format-label">Export-Format</InputLabel>
+                  <Select
+                    labelId="exam-grade-export-format-label"
+                    value={exportFormat}
+                    label="Export-Format"
+                    onChange={(e) => setExportFormat(e.target.value as SchoolSystemExportFormat)}
+                    disabled={roster.length === 0}
+                    sx={{ borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}
+                  >
+                    {SCHOOL_SYSTEM_EXPORT_OPTIONS.map((opt) => (
+                      <MenuItem key={opt.value} value={opt.value}>
+                        {opt.shortLabel}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleExportCsv}
+                  disabled={roster.length === 0}
+                  sx={{ textTransform: 'none', fontWeight: 700, borderRadius: '8px' }}
+                >
+                  Notenliste exportieren (CSV)
+                </Button>
+              </Stack>
             </Stack>
 
             {retryError && (

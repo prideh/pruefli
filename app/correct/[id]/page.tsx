@@ -37,6 +37,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { getErrorMessage } from '@/lib/api-error';
 import AddIcon from '@mui/icons-material/Add';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
+import PushPinIcon from '@mui/icons-material/PushPin';
 import EmailVerificationAiBanner, {
   useTeacherSession,
 } from '@/components/EmailVerificationAiBanner';
@@ -48,6 +49,11 @@ import {
   clearCorrectionDraft,
   buildLoginRedirectUrl,
 } from '@/lib/sessionCache';
+import {
+  resolveInitialTaskIndex,
+  findNextUncertaintyTarget,
+  buildSiblingNavigationHref,
+} from '@/lib/speed-grading';
 
 import { ExamCorrectionResult, CorrectedTask, CorrectedStep } from '../../../lib/gemini';
 import { calculateSwissGrade, parseStudentExamUrls } from '../../../lib/grading';
@@ -81,6 +87,8 @@ export default function CorrectWorkspace() {
 
   const [data, setData] = useState<WorkspaceSubmission | null>(null);
   const [activeTaskIndex, setActiveTaskIndex] = useState<number>(0);
+  const [isTaskPinned, setIsTaskPinned] = useState<boolean>(false);
+  const [isUncertainMode, setIsUncertainMode] = useState<boolean>(false);
   const [showSaveToast, setShowSaveToast] = useState<boolean>(false);
   const [noSession, setNoSession] = useState<boolean>(false);
   const [leftPanelTab, setLeftPanelTab] = useState<'transcript' | 'scan'>('scan');
@@ -156,6 +164,27 @@ export default function CorrectWorkspace() {
       }
       const parsed = (await res.json()) as WorkspaceSubmission;
 
+      const applyInitialTaskSelection = (tasks: CorrectedTask[]) => {
+        if (typeof window === 'undefined') return;
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryTask = urlParams.get('task');
+        const uncertainModeParam = urlParams.get('mode') === 'uncertain';
+        const storedPinnedTask = sessionStorage.getItem('pruefli_pinned_task_id');
+        if (queryTask || storedPinnedTask) {
+          setIsTaskPinned(true);
+        }
+        if (uncertainModeParam) {
+          setIsUncertainMode(true);
+        }
+        const initialIdx = resolveInitialTaskIndex({
+          tasks: tasks || [],
+          pinnedTaskId: storedPinnedTask,
+          queryTaskParam: queryTask,
+          isUncertainMode: uncertainModeParam,
+        });
+        setActiveTaskIndex(initialIdx);
+      };
+
       // Restore any unsaved local draft backed up before a session expiry
       const recoveredDraft = loadCorrectionDraft<
         CorrectedTask[],
@@ -180,6 +209,7 @@ export default function CorrectWorkspace() {
           note: newGrade,
         };
         setData(restoredSubmission);
+        applyInitialTaskSelection(restoredSubmission.aufgaben);
         setLeftPanelTab(restoredSubmission.studentExamUrl ? 'scan' : 'transcript');
         try {
           const saveRes = await fetch(`/api/submissions/${submissionId}`, {
@@ -201,6 +231,7 @@ export default function CorrectWorkspace() {
       }
 
       setData(parsed);
+      applyInitialTaskSelection(parsed.aufgaben);
       setLeftPanelTab(parsed.studentExamUrl ? 'scan' : 'transcript');
     } catch (e) {
       console.error('Failed to load submission from database', e);
@@ -978,15 +1009,49 @@ export default function CorrectWorkspace() {
             {(() => {
               const siblings = data.siblingSubmissions || [];
               const currentIdx = siblings.findIndex((s) => s.id === String(id));
+              const activeTaskObj = data.aufgaben[activeTaskIndex];
+              const navigateToSibling = (targetSubId: string, forceUncertainMode = false) => {
+                const href = buildSiblingNavigationHref({
+                  targetSubmissionId: targetSubId,
+                  isTaskPinned,
+                  activeTaskId: activeTaskObj?.aufgabeId || null,
+                  activeTaskIndex,
+                  isUncertainMode: forceUncertainMode || isUncertainMode,
+                });
+                router.push(href);
+              };
+
+              const nextUncertaintyTarget = findNextUncertaintyTarget({
+                currentSubmissionId: String(id),
+                activeTaskIndex,
+                tasks: data.aufgaben || [],
+                siblingSubmissions: siblings,
+              });
+              const totalCohortUncertain =
+                siblings.length > 0
+                  ? siblings.reduce((acc, s) => acc + (s.uncertainStepsCount || 0), 0)
+                  : (data.aufgaben || []).reduce(
+                      (acc, t) => acc + t.schritte.filter((st) => st.istUnsicher).length,
+                      0
+                    );
+
               if (siblings.length > 1 && currentIdx !== -1) {
                 const prevSib = currentIdx > 0 ? siblings[currentIdx - 1] : null;
                 const nextSib = currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
                 return (
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ alignItems: 'center', minWidth: 0, flexWrap: 'wrap' }}
+                  >
                     <Tooltip
                       title={
                         prevSib
-                          ? `Vorherige/r: ${prevSib.studentName}`
+                          ? `Vorherige/r: ${prevSib.studentName}${
+                              isTaskPinned && activeTaskObj
+                                ? ` (Aufg. ${activeTaskObj.aufgabeId} fixiert)`
+                                : ''
+                            }`
                           : 'Erste Arbeit in dieser Prüfung'
                       }
                     >
@@ -995,7 +1060,7 @@ export default function CorrectWorkspace() {
                           size="small"
                           variant="outlined"
                           disabled={!prevSib}
-                          onClick={() => prevSib && router.push(`/correct/${prevSib.id}`)}
+                          onClick={() => prevSib && navigateToSibling(prevSib.id)}
                           sx={{
                             minWidth: 32,
                             px: 1,
@@ -1012,7 +1077,7 @@ export default function CorrectWorkspace() {
 
                     <select
                       value={String(id)}
-                      onChange={(e) => router.push(`/correct/${e.target.value}`)}
+                      onChange={(e) => navigateToSibling(e.target.value)}
                       style={{
                         padding: '5px 10px',
                         borderRadius: '8px',
@@ -1041,7 +1106,11 @@ export default function CorrectWorkspace() {
                     <Tooltip
                       title={
                         nextSib
-                          ? `Nächste/r: ${nextSib.studentName}`
+                          ? `Nächste/r: ${nextSib.studentName}${
+                              isTaskPinned && activeTaskObj
+                                ? ` (Aufg. ${activeTaskObj.aufgabeId} fixiert)`
+                                : ''
+                            }`
                           : 'Letzte Arbeit in dieser Prüfung'
                       }
                     >
@@ -1050,7 +1119,7 @@ export default function CorrectWorkspace() {
                           size="small"
                           variant="outlined"
                           disabled={!nextSib}
-                          onClick={() => nextSib && router.push(`/correct/${nextSib.id}`)}
+                          onClick={() => nextSib && navigateToSibling(nextSib.id)}
                           sx={{
                             minWidth: 32,
                             px: 1,
@@ -1064,6 +1133,47 @@ export default function CorrectWorkspace() {
                         </Button>
                       </span>
                     </Tooltip>
+
+                    {nextUncertaintyTarget && totalCohortUncertain > 0 && (
+                      <Tooltip
+                        title={
+                          nextUncertaintyTarget.type === 'SAME_SUBMISSION_TASK'
+                            ? `Zur nächsten Aufgabe mit KI-Unsicherheit in dieser Arbeit springen`
+                            : `Zur nächsten Arbeit mit KI-Unsicherheit springen (${nextUncertaintyTarget.studentName})`
+                        }
+                      >
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => {
+                            setIsUncertainMode(true);
+                            if (nextUncertaintyTarget.type === 'SAME_SUBMISSION_TASK') {
+                              setActiveTaskIndex(nextUncertaintyTarget.taskIndex);
+                            } else {
+                              navigateToSibling(nextUncertaintyTarget.submissionId, true);
+                            }
+                          }}
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            fontSize: '0.78rem',
+                            py: 0.4,
+                            px: 1.25,
+                            borderRadius: '6px',
+                            backgroundColor: '#fef3c7',
+                            color: '#b45309',
+                            border: '1px solid #f59e0b',
+                            boxShadow: 'none',
+                            '&:hover': {
+                              backgroundColor: '#fde68a',
+                              boxShadow: 'none',
+                            },
+                          }}
+                        >
+                          {`⚡ Nächste Unsicherheit (${totalCohortUncertain})`}
+                        </Button>
+                      </Tooltip>
+                    )}
                   </Stack>
                 );
               }
@@ -1766,7 +1876,15 @@ export default function CorrectWorkspace() {
             >
               <Tabs
                 value={activeTaskIndex}
-                onChange={(_, val) => setActiveTaskIndex(val)}
+                onChange={(_, val) => {
+                  setActiveTaskIndex(val);
+                  if (isTaskPinned && typeof window !== 'undefined') {
+                    const selectedTask = data.aufgaben[val];
+                    if (selectedTask) {
+                      sessionStorage.setItem('pruefli_pinned_task_id', selectedTask.aufgabeId);
+                    }
+                  }
+                }}
                 variant="scrollable"
                 scrollButtons="auto"
                 sx={{
@@ -1849,16 +1967,65 @@ export default function CorrectWorkspace() {
                   );
                 })}
               </Tabs>
-              {!isReadOnly && (
-                <Box
-                  sx={{
-                    px: 2,
-                    borderLeft: '1px solid #e2e8f0',
-                    height: '52px',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
+              <Box
+                sx={{
+                  px: 1.5,
+                  borderLeft: '1px solid #e2e8f0',
+                  height: '52px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                }}
+              >
+                <Tooltip
+                  title={
+                    isTaskPinned
+                      ? 'Horizontal-Modus aktiv: Aktuelle Aufgabe bleibt beim Wechsel zwischen Schüler/innen fixiert (klicken zum Lösen)'
+                      : 'Horizontal-Modus: Aktuelle Aufgabe beim Wechsel zwischen Schüler/innen fixieren (Aufgabe-für-Aufgabe korrigieren)'
+                  }
                 >
+                  <Button
+                    size="small"
+                    variant={isTaskPinned ? 'contained' : 'outlined'}
+                    startIcon={<PushPinIcon sx={{ fontSize: '1rem !important' }} />}
+                    onClick={() => {
+                      const nextPinned = !isTaskPinned;
+                      setIsTaskPinned(nextPinned);
+                      if (typeof window !== 'undefined') {
+                        const currentTaskObj = data.aufgaben[activeTaskIndex];
+                        if (nextPinned && currentTaskObj) {
+                          sessionStorage.setItem(
+                            'pruefli_pinned_task_id',
+                            currentTaskObj.aufgabeId
+                          );
+                        } else {
+                          sessionStorage.removeItem('pruefli_pinned_task_id');
+                        }
+                      }
+                    }}
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 700,
+                      fontSize: '0.78rem',
+                      borderRadius: '8px',
+                      whiteSpace: 'nowrap',
+                      py: 0.5,
+                      px: 1.25,
+                      ...(isTaskPinned
+                        ? {
+                            backgroundColor: '#1b77d1',
+                            color: '#ffffff',
+                          }
+                        : {
+                            borderColor: '#cbd5e1',
+                            color: '#334155',
+                          }),
+                    }}
+                  >
+                    {isTaskPinned ? 'Aufgabe fixiert' : 'Aufgabe fixieren'}
+                  </Button>
+                </Tooltip>
+                {!isReadOnly && (
                   <Tooltip title="Fehlende Aufgabe hinzufügen">
                     <IconButton
                       color="primary"
@@ -1877,8 +2044,8 @@ export default function CorrectWorkspace() {
                       <AddIcon sx={{ fontSize: '1.25rem' }} />
                     </IconButton>
                   </Tooltip>
-                </Box>
-              )}
+                )}
+              </Box>
             </Stack>
 
             {/* Graded steps & Comments content */}

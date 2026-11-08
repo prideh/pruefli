@@ -13,10 +13,14 @@ import {
   Alert,
   Paper,
   Divider,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PrintIcon from '@mui/icons-material/Print';
 import LockIcon from '@mui/icons-material/Lock';
+import QRCode from 'qrcode';
+import { buildExamSheetQrPayload, type ExamGeneratorParams } from '@/lib/exam-meta';
 
 interface TaskItem {
   id: string;
@@ -36,6 +40,7 @@ interface ExamPrintData {
   isGenerated?: boolean;
   isApproved?: boolean;
   approvedAt?: string | null;
+  generatorParams?: ExamGeneratorParams | null;
   tasks: TaskItem[];
 }
 
@@ -46,6 +51,8 @@ export default function ExamPrintTaskSheetPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exam, setExam] = useState<ExamPrintData | null>(null);
+  const [showQrSheet, setShowQrSheet] = useState<boolean>(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
   useEffect(() => {
     if (!examId) return;
@@ -58,6 +65,7 @@ export default function ExamPrintTaskSheetPage() {
         }
         const data = await res.json();
         setExam(data.exam);
+        setShowQrSheet(Boolean(data.exam?.generatorParams?.enableQrSheet));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Fehler beim Laden.');
       } finally {
@@ -67,6 +75,38 @@ export default function ExamPrintTaskSheetPage() {
 
     loadExam();
   }, [examId]);
+
+  useEffect(() => {
+    if (!exam || !showQrSheet) {
+      return;
+    }
+    let cancelled = false;
+    const payload = buildExamSheetQrPayload({
+      examId: exam.id,
+      title: exam.title,
+      className: exam.className,
+      subject: exam.subject,
+    });
+    QRCode.toDataURL(payload, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 112,
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff',
+      },
+    })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl('');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [exam, showQrSheet]);
 
   if (loading) {
     return (
@@ -147,7 +187,23 @@ export default function ExamPrintTaskSheetPage() {
             Zurück zur Prüfung
           </Button>
         </Link>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showQrSheet}
+                onChange={(e) => setShowQrSheet(e.target.checked)}
+                color="primary"
+              />
+            }
+            label={
+              <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f172a' }}>
+                QR-Code auf Aufgabenblatt
+              </Typography>
+            }
+            sx={{ m: 0 }}
+          />
           <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 600 }}>
             Druckansicht (Aufgabenblatt)
           </Typography>
@@ -188,7 +244,7 @@ export default function ExamPrintTaskSheetPage() {
         <Box sx={{ borderBottom: '2px solid #0f172a', pb: 2.5, mb: 3 }}>
           <Stack
             direction="row"
-            sx={{ justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}
+            sx={{ justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 2 }}
           >
             <Box>
               <Typography
@@ -204,28 +260,60 @@ export default function ExamPrintTaskSheetPage() {
                 {exam.title}
               </Typography>
             </Box>
-            <Box
-              sx={{
-                textAlign: 'right',
-                border: '1px solid #0f172a',
-                p: 1.5,
-                borderRadius: '4px',
-                minWidth: '130px',
-              }}
-            >
-              <Typography
-                variant="caption"
-                sx={{ display: 'block', fontWeight: 700, color: 'text.secondary' }}
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'stretch' }}>
+              {showQrSheet && qrDataUrl && (
+                <Box
+                  data-testid="smart-exam-qr-badge"
+                  sx={{
+                    border: '1px solid #0f172a',
+                    borderRadius: '4px',
+                    p: 0.75,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#ffffff',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={qrDataUrl}
+                    alt="Prüfungs-QR-Code"
+                    width={76}
+                    height={76}
+                    style={{ display: 'block' }}
+                  />
+                  <Typography
+                    variant="caption"
+                    sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#0f172a', mt: 0.25 }}
+                  >
+                    prüefli QR
+                  </Typography>
+                </Box>
+              )}
+              <Box
+                sx={{
+                  textAlign: 'right',
+                  border: '1px solid #0f172a',
+                  p: 1.5,
+                  borderRadius: '4px',
+                  minWidth: '130px',
+                }}
               >
-                Max. Punkte: {exam.maxPoints} P.
-              </Typography>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 0.5 }}>
-                Punkte: ______
-              </Typography>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 0.5 }}>
-                Note: ________
-              </Typography>
-            </Box>
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', fontWeight: 700, color: 'text.secondary' }}
+                >
+                  Max. Punkte: {exam.maxPoints} P.
+                </Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 0.5 }}>
+                  Punkte: ______
+                </Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 0.5 }}>
+                  Note: ________
+                </Typography>
+              </Box>
+            </Stack>
           </Stack>
 
           {/* Student metadata fields */}

@@ -4,6 +4,7 @@ export interface ExamGeneratorParams {
   difficulty?: string | null;
   taskCount?: number | null;
   totalPoints?: number | null;
+  enableQrSheet?: boolean | null;
 }
 
 export interface ExamMetadata {
@@ -178,4 +179,61 @@ export function isExamGenerated(exam: {
 }): boolean {
   const { metadata } = resolveExamMetadataFromRecord(exam);
   return metadata.isGenerated === true;
+}
+
+export interface ExamSheetQrPayload {
+  type: 'PRUEFLI_EXAM_SHEET';
+  v: 1;
+  examId: string;
+  title?: string;
+  className?: string;
+  subject?: string;
+}
+
+/**
+ * Baut den maschinenlesbaren QR-Code-Payload für ein Aufgabenblatt (Smart Exam Sheet).
+ */
+export function buildExamSheetQrPayload(params: {
+  examId: string;
+  title?: string | null;
+  className?: string | null;
+  subject?: string | null;
+}): string {
+  const payload: ExamSheetQrPayload = {
+    type: 'PRUEFLI_EXAM_SHEET',
+    v: 1,
+    examId: String(params.examId || '').trim(),
+    ...(params.title ? { title: String(params.title).trim().slice(0, 80) } : {}),
+    ...(params.className ? { className: String(params.className).trim().slice(0, 40) } : {}),
+    ...(params.subject ? { subject: String(params.subject).trim().slice(0, 40) } : {}),
+  };
+  return JSON.stringify(payload);
+}
+
+/**
+ * Parst einen gescannten QR-Code-String und prüft, ob es sich um ein gültiges prüefli-Aufgabenblatt handelt.
+ */
+export function parseExamSheetQrPayload(raw: string | null | undefined): ExamSheetQrPayload | null {
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    const parsed = JSON.parse(raw.trim()) as Partial<ExamSheetQrPayload>;
+    if (
+      parsed &&
+      parsed.type === 'PRUEFLI_EXAM_SHEET' &&
+      typeof parsed.examId === 'string' &&
+      parsed.examId.trim()
+    ) {
+      return {
+        type: 'PRUEFLI_EXAM_SHEET',
+        v: 1,
+        examId: parsed.examId.trim(),
+        ...(parsed.title ? { title: String(parsed.title) } : {}),
+        ...(parsed.className ? { className: String(parsed.className) } : {}),
+        ...(parsed.subject ? { subject: String(parsed.subject) } : {}),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

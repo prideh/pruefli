@@ -50,9 +50,11 @@ import GroupIcon from '@mui/icons-material/Group';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import UnarchiveIcon from '@mui/icons-material/Unarchive';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { BarChart } from '@mui/x-charts/BarChart';
 import DashboardLayout from '@/components/DashboardLayout';
 import ErrorState from '@/components/ErrorState';
+import { parseSchoolSystemRosterInput, type DetectedRosterFormat } from '@/lib/school-systems';
 import {
   useDataCache,
   invalidateClasses,
@@ -309,6 +311,8 @@ export default function ClassDetailsPage() {
   // Bulk Add Dialog State
   const [openBulkAdd, setOpenBulkAdd] = useState(false);
   const [bulkInputText, setBulkInputText] = useState('');
+  const [bulkUploadedFileName, setBulkUploadedFileName] = useState('');
+  const [bulkDetectedFormat, setBulkDetectedFormat] = useState<DetectedRosterFormat>('PLAIN_LIST');
   const [bulkStep, setBulkStep] = useState<'input' | 'preview' | 'result'>('input');
   const [bulkParsedItems, setBulkParsedItems] = useState<BulkStudentItem[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -322,6 +326,8 @@ export default function ClassDetailsPage() {
 
   const handleOpenBulkAdd = () => {
     setBulkInputText('');
+    setBulkUploadedFileName('');
+    setBulkDetectedFormat('PLAIN_LIST');
     setBulkStep('input');
     setBulkParsedItems([]);
     setBulkResult(null);
@@ -329,11 +335,24 @@ export default function ClassDetailsPage() {
     setOpenBulkAdd(true);
   };
 
+  const handleBulkFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkUploadedFileName(file.name);
+    setBulkError('');
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = typeof event.target?.result === 'string' ? event.target.result : '';
+      if (content) {
+        setBulkInputText(content);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
+  };
+
   const handleParseBulkInput = () => {
-    const lines = bulkInputText
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
+    const { names: lines, detectedFormat } = parseSchoolSystemRosterInput(bulkInputText);
 
     if (lines.length === 0) {
       setBulkError('Bitte gib mindestens einen Schülernamen ein.');
@@ -341,6 +360,7 @@ export default function ClassDetailsPage() {
     }
 
     setBulkError('');
+    setBulkDetectedFormat(detectedFormat);
 
     const inputCounts = new Map<string, number>();
     for (const name of lines) {
@@ -1609,12 +1629,54 @@ export default function ClassDetailsPage() {
               <Stack spacing={2} sx={{ mt: 1 }}>
                 {bulkError && <Alert severity="error">{bulkError}</Alert>}
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                  Füge hier eine Liste von Namen ein (ein Name pro Zeile). Leere Zeilen und
-                  umgebende Leerzeichen werden automatisch ignoriert.
+                  Füge hier eine Liste von Namen ein (ein Name pro Zeile) oder importiere direkt
+                  eine Klassenliste aus <strong>PUPIL (pupil.ch)</strong>,{' '}
+                  <strong>LehrerOffice</strong> oder <strong>Schulnetz / Evento</strong> (CSV, TSV
+                  oder JSON). Kopfzeilen sowie getrennte Spalten (Vorname / Nachname) werden
+                  automatisch erkannt.
                 </Typography>
+                <Box
+                  sx={{
+                    p: 1.5,
+                    borderRadius: '8px',
+                    border: '1px dashed #cbd5e1',
+                    backgroundColor: '#f8fafc',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 1.5,
+                  }}
+                >
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                      Schulverwaltungs-Import (PUPIL / LehrerOffice / Schulnetz)
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                      {bulkUploadedFileName
+                        ? `Geladene Datei: ${bulkUploadedFileName}`
+                        : 'CSV-, TSV- oder JSON-Exportdatei auswählen'}
+                    </Typography>
+                  </Box>
+                  <Button
+                    component="label"
+                    variant="outlined"
+                    size="small"
+                    startIcon={<UploadFileIcon />}
+                    sx={{ textTransform: 'none', fontWeight: 700, borderRadius: '6px' }}
+                  >
+                    CSV / Datei laden
+                    <input
+                      type="file"
+                      hidden
+                      accept=".csv,.tsv,.txt,.json,text/csv,text/plain,application/json"
+                      onChange={handleBulkFileUpload}
+                    />
+                  </Button>
+                </Box>
                 <TextField
-                  label="Schülernamen (ein Name pro Zeile)"
-                  placeholder="Anna Meier&#10;Lukas Keller&#10;Sophie Müller"
+                  label="Schülernamen oder Tabellen-Inhalt (PUPIL / LehrerOffice / Freitext)"
+                  placeholder="Anna Meier&#10;Lukas Keller&#10;Sophie Müller&#10;&#10;Oder kopierte Zeilen aus PUPIL / LehrerOffice (Vorname;Nachname)"
                   multiline
                   rows={8}
                   fullWidth
@@ -1645,9 +1707,34 @@ export default function ClassDetailsPage() {
                     gap: 1,
                   }}
                 >
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#334155' }}>
-                    Vorschau: {bulkParsedItems.length} Namen erkannt
-                  </Typography>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#334155' }}>
+                      Vorschau: {bulkParsedItems.length} Namen erkannt
+                    </Typography>
+                    {bulkDetectedFormat !== 'PLAIN_LIST' && (
+                      <Chip
+                        size="small"
+                        color="info"
+                        variant="outlined"
+                        label={
+                          bulkDetectedFormat === 'PUPIL'
+                            ? 'Format: PUPIL (pupil.ch)'
+                            : bulkDetectedFormat === 'LEHREROFFICE'
+                              ? 'Format: LehrerOffice'
+                              : bulkDetectedFormat === 'SCHULNETZ'
+                                ? 'Format: Schulnetz / Evento'
+                                : bulkDetectedFormat === 'JSON'
+                                  ? 'Format: JSON-Import'
+                                  : 'Format: CSV-Tabelle'
+                        }
+                        sx={{ fontWeight: 700, fontSize: '0.72rem', height: 22 }}
+                      />
+                    )}
+                  </Stack>
                   <Stack direction="row" spacing={1}>
                     <Button
                       size="small"
