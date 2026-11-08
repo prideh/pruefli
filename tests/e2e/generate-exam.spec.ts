@@ -81,7 +81,7 @@ Kapitel 3 (Seite 9): Textaufgabe zur Altersdifferenz.`;
               className: 'Sekundarklasse 3a',
               subject: 'Mathematik',
               maxPoints: 10,
-              examTemplateText: `# Lineare Gleichungen\n\n## Aufgabe 1 (4 Pkt.)\nLöse 2x = 8.\n\n## ${task2Title} (6 Pkt.)\nLöse 2(x + 3) = 14.`,
+              examTemplateText: `# Lineare Gleichungen\n\n**Name:** _______________________\n**Datum:** _______________________\n**Punkte:** ______ / 10\n\n---\n\n### Hinweise:\n- Löse alle Aufgaben **direkt auf diesem Blatt**.\n\n---\n\n## Aufgabe 1 (4 Pkt.)\nLöse die Gleichung:\n$$8 + 5 = \\text{_____}$$\n\n## ${task2Title} (6 Pkt.)\nLöse $\\frac{x + 3}{2} = 7$.`,
               rubricText: `# Musterlösung\n\n## Aufgabe 1 (4 Pkt.)\nx = 4 (4 P.)\n\n## ${task2Title} (6 Pkt.)\n2x + 6 = 14 -> x = 4 (6 P.)`,
               gradingNotes: 'Lehrperson Hinweise',
               isGenerated: true,
@@ -215,5 +215,30 @@ Kapitel 3 (Seite 9): Textaufgabe zur Altersdifferenz.`;
     await expect(page.getByRole('button', { name: /Drucken \/ Als PDF speichern/i })).toBeVisible();
     await expect(page.getByText('Name / Vorname:')).toBeVisible();
     await expect(page.getByText('Lineare Gleichungen (Generiert)')).toBeVisible();
+
+    // Issue #120 verification: Formatted headings, math & stripped duplicate header
+    const sheetBody = page.getByTestId('formatted-task-sheet-body');
+    await expect(sheetBody).toBeVisible();
+    await expect(sheetBody).toContainText('Hinweise:');
+    await expect(sheetBody).toContainText('direkt auf diesem Blatt');
+    await expect(sheetBody).toContainText('Aufgabe 1 (4 Pkt.)');
+    await expect(sheetBody.locator('.katex')).toHaveCount(2);
+    await expect(sheetBody.locator('.mfrac')).toBeVisible();
+
+    // Verify no raw Markdown, LaTeX, or duplicate header fields leak into the task sheet body
+    const bodyText = (await sheetBody.innerText()) || '';
+    expect(bodyText).not.toContain('#');
+    expect(bodyText).not.toContain('**');
+    expect(bodyText).not.toContain('---');
+    expect(bodyText).not.toContain('$$');
+    expect(bodyText).not.toContain('\\text');
+    expect(bodyText).not.toContain('\\frac');
+    expect(bodyText).not.toContain('Name:');
+    expect(bodyText).not.toContain('Datum:');
+
+    // Verify QR code badge is OFF by default and can be toggled ON
+    await expect(page.getByTestId('smart-exam-qr-badge')).toHaveCount(0);
+    await page.getByLabel('QR-Code auf Aufgabenblatt').check();
+    await expect(page.getByTestId('smart-exam-qr-badge')).toBeVisible();
   });
 });
