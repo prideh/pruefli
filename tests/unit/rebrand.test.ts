@@ -8,6 +8,7 @@ describe('Rebrand Audit (Issue #62): GradeAI -> prüefli', () => {
     const categoryAFiles = [
       '../../app/correct/[id]/page.tsx',
       '../../app/exams/[id]/print/page.tsx',
+      '../../components/ExamPrintFeedbackContent.tsx',
       '../../app/exams/[id]/print-task-sheet/page.tsx',
       '../../app/exams/page.tsx',
       '../../app/api/exams/generate/route.ts',
@@ -29,10 +30,13 @@ describe('Rebrand Audit (Issue #62): GradeAI -> prüefli', () => {
       );
       expect(feedbackPage).toContain('prüefli - Schüler-Feedbackbericht');
 
-      const printPage = fs.readFileSync(
-        path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'),
-        'utf-8'
-      );
+      const printPage = [
+        fs.readFileSync(path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'), 'utf-8'),
+        fs.readFileSync(
+          path.resolve(__dirname, '../../components/ExamPrintFeedbackContent.tsx'),
+          'utf-8'
+        ),
+      ].join('\n');
       expect(printPage).toContain('prüefli - Schüler-Feedbackbericht');
 
       const taskSheetPage = fs.readFileSync(
@@ -92,6 +96,7 @@ describe('Rebrand Audit (Issue #62): GradeAI -> prüefli', () => {
       const files = [
         '../../app/correct/[id]/page.tsx',
         '../../app/exams/[id]/print/page.tsx',
+        '../../components/ExamPrintFeedbackContent.tsx',
         '../../app/exams/[id]/print-task-sheet/page.tsx',
         '../../app/exams/page.tsx',
         '../../app/api/exams/generate/route.ts',
