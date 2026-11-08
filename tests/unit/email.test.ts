@@ -415,7 +415,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
       expect(dataResend.status).toBe('email_delivery_inactive');
       expect(dataResend.message).toContain('E-Mail-Versand ist derzeit nicht aktiv');
 
-      const resMe = await meGET();
+      const resMe = await meGET(new Request('http://localhost/api/auth/me'));
       const dataMe = await resMe.json();
       expect(dataMe.authenticated).toBe(true);
       expect(dataMe.isEmailVerified).toBe(false);
@@ -680,7 +680,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
       mockGetSession.mockResolvedValue({ userId: newTeacherId });
 
       // 2. /api/auth/me und /api/auth/login melden eingeschraenkten Zustand (emailVerificationRequired: true)
-      const meBeforeRes = await meGET();
+      const meBeforeRes = await meGET(new Request('http://localhost/api/auth/me'));
       const meBeforeData = await meBeforeRes.json();
       expect(meBeforeRes.status).toBe(200);
       expect(meBeforeData.isEmailVerified).toBe(false);
@@ -746,7 +746,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
       expect(verifyRes.status).toBe(200);
 
       // 5. Nach erfolgreicher Bestaetigung: voller Zugriff freigeschaltet
-      const meAfterRes = await meGET();
+      const meAfterRes = await meGET(new Request('http://localhost/api/auth/me'));
       const meAfterData = await meAfterRes.json();
       expect(meAfterRes.status).toBe(200);
       expect(meAfterData.isEmailVerified).toBe(true);
@@ -878,7 +878,7 @@ describe('Email Transport, Anti-Enumeration & Verification/Reset Lifecycle (Issu
       mockGetSession.mockResolvedValue({ userId: 'teacher-1' });
 
       // /api/auth/me liefert 200 OK mit isEmailVerified: false, emailVerificationRequired: false (#98 aus)
-      const meRes = await meGET();
+      const meRes = await meGET(new Request('http://localhost/api/auth/me'));
       const meData = await meRes.json();
       expect(meRes.status).toBe(200);
       expect(meData.isEmailVerified).toBe(false);

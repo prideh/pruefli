@@ -8,7 +8,7 @@ import { checkGeminiHealth, probeGeminiGenerateContent } from '@/lib/gemini';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   try {
     const session = await getSession();
     if (!session) {

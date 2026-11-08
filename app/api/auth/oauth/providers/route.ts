@@ -3,6 +3,7 @@ import {
   getConfiguredProviders,
   getUiEnabledProviders,
   isProviderUiFlagEnabled,
+  IS_PUBLIC_CATALOG_ENDPOINT,
 } from '@/lib/oauth';
 
 export const dynamic = 'force-dynamic';
@@ -11,8 +12,6 @@ export const dynamic = 'force-dynamic';
  * Bewusst oeffentlicher Konfigurations-/Katalog-Endpunkt (keine Mandantendaten, keine Authentifizierung erforderlich).
  * Liefert die aktiven OAuth-Provider-Schalter fuer Login- und Registrierungsseiten.
  */
-export const IS_PUBLIC_CATALOG_ENDPOINT = true;
-
 export async function GET() {
   const configured = getConfiguredProviders();
   const ui = getUiEnabledProviders();
@@ -22,7 +21,7 @@ export async function GET() {
   };
 
   return NextResponse.json({
-    publicEndpoint: true,
+    publicEndpoint: IS_PUBLIC_CATALOG_ENDPOINT,
     // providers reflects UI visibility for backwards compatibility
     providers: ui,
     ui,

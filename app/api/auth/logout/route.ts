@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { deleteSession } from '@/lib/session';
 
-export async function POST(request?: Request) {
+export async function POST(request: Request) {
   try {
     let allSessions = false;
     if (request) {

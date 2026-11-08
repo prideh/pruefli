@@ -164,7 +164,7 @@ describe('Gemini Health Check & Error Categorization (/api/health/gemini)', () =
     it('rejects unauthenticated requests with HTTP 401', async () => {
       vi.mocked(sessionModule.getSession).mockResolvedValueOnce(null);
 
-      const response = await GET();
+      const response = await GET(new Request('http://localhost/api/health/gemini'));
 
       expect(response.status).toBe(401);
       const data = await response.json();
@@ -176,7 +176,7 @@ describe('Gemini Health Check & Error Categorization (/api/health/gemini)', () =
       vi.mocked(sessionModule.getSession).mockResolvedValueOnce({ userId: 'teacher-123' });
       mockCountTokens.mockResolvedValueOnce({ totalTokens: 1 });
 
-      const response = await GET();
+      const response = await GET(new Request('http://localhost/api/health/gemini'));
 
       expect(response.status).toBe(200);
       const data = await response.json();
@@ -190,7 +190,7 @@ describe('Gemini Health Check & Error Categorization (/api/health/gemini)', () =
       const timeoutError = new Error('Request headers timeout UND_ERR_HEADERS_TIMEOUT');
       mockCountTokens.mockRejectedValueOnce(timeoutError);
 
-      const response = await GET();
+      const response = await GET(new Request('http://localhost/api/health/gemini'));
 
       expect(response.status).toBe(200);
       const data = await response.json();

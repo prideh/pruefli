@@ -14,6 +14,7 @@ vi.mock('next/navigation', () => ({
 
 import ErrorState from '@/components/ErrorState';
 import ExamPrintFeedbackPage from '@/app/exams/[id]/print/page';
+import { clearDataCache, setCachedData } from '@/lib/dataCache';
 import {
   DEFAULT_ERROR_RECOVERY_HINT,
   resolveErrorStateMessage,
@@ -88,6 +89,7 @@ const SAMPLE_SHEETS = [
 
 describe('Issue #119 UX Polish Regression Suite (5 verified UX items)', () => {
   beforeEach(() => {
+    clearDataCache();
     mockUseParams.mockReturnValue({ id: 'exam-123' });
     mockUseSearchParams.mockReturnValue(new URLSearchParams());
   });
@@ -303,18 +305,15 @@ describe('Issue #119 UX Polish Regression Suite (5 verified UX items)', () => {
 
     it('renders ONLY the requested student sheet when ?submissionId=sub-2 is passed via useSearchParams', () => {
       mockUseSearchParams.mockReturnValue(new URLSearchParams('submissionId=sub-2'));
+      setCachedData('/api/exams/exam-123/feedback-sheets', {
+        examTitle: 'Bruchrechnen 1',
+        sheets: SAMPLE_SHEETS,
+        totalCount: 2,
+        completedCount: 2,
+        ungradedCount: 0,
+      });
 
-      const html = renderToStaticMarkup(
-        React.createElement(ExamPrintFeedbackPage, {
-          initialData: {
-            examTitle: 'Bruchrechnen 1',
-            sheets: SAMPLE_SHEETS,
-            totalCount: 2,
-            completedCount: 2,
-            ungradedCount: 0,
-          },
-        })
-      );
+      const html = renderToStaticMarkup(React.createElement(ExamPrintFeedbackPage));
 
       expect(html).toContain('Schüler: Ben Muster');
       expect(html).not.toContain('Anna Beispiel');
@@ -325,18 +324,15 @@ describe('Issue #119 UX Polish Regression Suite (5 verified UX items)', () => {
 
     it('renders explicit not-found state, 0 student sheets, and disables print button when ?submissionId is missing/invalid', () => {
       mockUseSearchParams.mockReturnValue(new URLSearchParams('submissionId=sub-invalid-999'));
+      setCachedData('/api/exams/exam-123/feedback-sheets', {
+        examTitle: 'Bruchrechnen 1',
+        sheets: SAMPLE_SHEETS,
+        totalCount: 2,
+        completedCount: 2,
+        ungradedCount: 0,
+      });
 
-      const html = renderToStaticMarkup(
-        React.createElement(ExamPrintFeedbackPage, {
-          initialData: {
-            examTitle: 'Bruchrechnen 1',
-            sheets: SAMPLE_SHEETS,
-            totalCount: 2,
-            completedCount: 2,
-            ungradedCount: 0,
-          },
-        })
-      );
+      const html = renderToStaticMarkup(React.createElement(ExamPrintFeedbackPage));
 
       expect(html).toContain('data-testid="print-target-not-found"');
       expect(html).toContain('Gewünschter Feedback-Bericht nicht gefunden');
@@ -350,18 +346,15 @@ describe('Issue #119 UX Polish Regression Suite (5 verified UX items)', () => {
 
     it('renders all completed sheets when no submissionId query parameter is present', () => {
       mockUseSearchParams.mockReturnValue(new URLSearchParams());
+      setCachedData('/api/exams/exam-123/feedback-sheets', {
+        examTitle: 'Bruchrechnen 1',
+        sheets: SAMPLE_SHEETS,
+        totalCount: 3,
+        completedCount: 2,
+        ungradedCount: 1,
+      });
 
-      const html = renderToStaticMarkup(
-        React.createElement(ExamPrintFeedbackPage, {
-          initialData: {
-            examTitle: 'Bruchrechnen 1',
-            sheets: SAMPLE_SHEETS,
-            totalCount: 3,
-            completedCount: 2,
-            ungradedCount: 1,
-          },
-        })
-      );
+      const html = renderToStaticMarkup(React.createElement(ExamPrintFeedbackPage));
 
       expect(html).toContain('Schüler: Anna Beispiel');
       expect(html).toContain('Schüler: Ben Muster');

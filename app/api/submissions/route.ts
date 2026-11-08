@@ -36,7 +36,7 @@ async function isSessionTeacherValid(userId: string): Promise<boolean> {
   }
 }
 
-export async function GET(request?: Request | NextRequest) {
+export async function GET(request: Request | NextRequest) {
   try {
     const session = await getSession(request ? { request } : undefined);
     if (!session || !session.userId || !(await isSessionTeacherValid(session.userId))) {

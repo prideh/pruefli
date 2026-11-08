@@ -8,6 +8,7 @@ import { Box, Typography, Button, Stack, CircularProgress, Alert } from '@mui/ma
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PrintIcon from '@mui/icons-material/Print';
 import { filterFeedbackSheetsForPrint } from '@/lib/ux-polish';
+import { getCachedData, setCachedData } from '@/lib/dataCache';
 
 interface SheetTask {
   aufgabeId: string;
@@ -39,23 +40,23 @@ interface FeedbackSheet {
   };
 }
 
-export interface ExamPrintFeedbackContentProps {
-  initialData?: {
-    examTitle?: string;
-    sheets?: FeedbackSheet[];
-    totalCount?: number;
-    completedCount?: number;
-    ungradedCount?: number;
-  };
-  [key: string]: unknown;
+interface FeedbackSheetsPayload {
+  examTitle?: string;
+  sheets?: FeedbackSheet[];
+  totalCount?: number;
+  completedCount?: number;
+  ungradedCount?: number;
 }
 
-function ExamPrintFeedbackContent({ initialData }: ExamPrintFeedbackContentProps) {
+function ExamPrintFeedbackContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const examId = params.id as string;
   const rawSubId = searchParams?.get('submissionId') ?? null;
   const targetSubmissionId = rawSubId && rawSubId.trim() ? rawSubId.trim() : null;
+
+  const cacheKey = examId ? `/api/exams/${examId}/feedback-sheets` : '';
+  const initialData = cacheKey ? getCachedData<FeedbackSheetsPayload>(cacheKey) : null;
 
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState('');
@@ -66,7 +67,7 @@ function ExamPrintFeedbackContent({ initialData }: ExamPrintFeedbackContentProps
   const [ungradedCount, setUngradedCount] = useState(initialData?.ungradedCount || 0);
 
   useEffect(() => {
-    if (!examId || initialData) return;
+    if (!examId) return;
 
     async function loadSheets() {
       try {
@@ -75,6 +76,7 @@ function ExamPrintFeedbackContent({ initialData }: ExamPrintFeedbackContentProps
           throw new Error('Feedback-Berichte konnten nicht geladen werden.');
         }
         const data = await res.json();
+        setCachedData(`/api/exams/${examId}/feedback-sheets`, data);
         setSheets(data.sheets || []);
         setExamTitle(data.examTitle || 'Prüfung');
         setTotalCount(data.totalCount || 0);
@@ -88,7 +90,7 @@ function ExamPrintFeedbackContent({ initialData }: ExamPrintFeedbackContentProps
     }
 
     loadSheets();
-  }, [examId, initialData]);
+  }, [examId]);
 
   const visibleSheets = React.useMemo(
     () => filterFeedbackSheetsForPrint(sheets, targetSubmissionId),
@@ -509,7 +511,7 @@ function ExamPrintFeedbackContent({ initialData }: ExamPrintFeedbackContentProps
   );
 }
 
-export default function ExamPrintFeedbackPage({ initialData }: ExamPrintFeedbackContentProps) {
+export default function ExamPrintFeedbackPage() {
   return (
     <React.Suspense
       fallback={
@@ -518,7 +520,7 @@ export default function ExamPrintFeedbackPage({ initialData }: ExamPrintFeedback
         </Box>
       }
     >
-      <ExamPrintFeedbackContent initialData={initialData} />
+      <ExamPrintFeedbackContent />
     </React.Suspense>
   );
 }

@@ -3,6 +3,7 @@ import { db } from './db';
 import { getAppUrl } from './app-url';
 
 export type OAuthProvider = 'google' | 'microsoft';
+export const IS_PUBLIC_CATALOG_ENDPOINT = true;
 
 export interface FederatedIdentity {
   id: string;
