@@ -21,15 +21,14 @@ model Teacher {
 }
 
 model Class {
-  id         String    @id @default(uuid())
-  name       String    // e.g. "Klasse 9b"
-  teacherId  String
-  teacher    Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  students   Student[]
-  exams      Exam[]
-  archivedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id        String    @id @default(uuid())
+  name      String    // e.g. "Klasse 9b"
+  teacherId String
+  teacher   Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  students  Student[]
+  exams     Exam[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model Student {
@@ -43,25 +42,21 @@ model Student {
 }
 
 model Exam {
-  id                 String       @id @default(uuid())
-  title              String       // e.g. "Mathematik Klassenarbeit 1"
-  subject            String       // e.g. "Mathematik"
-  rubricText         String       // Tier 2: Musterlösung / Erwartungshorizont
-  examTemplateText   String?      // Tier 1: Vorlagenprüfung (Aufgabenblatt / offizielle Punktelimits)
-  gradingNotes       String?      // Tier 3: Unterrichtsmaterial / zusätzliche Bewertungshinweise
-  isGenerated        Boolean      @default(false)
-  isApproved         Boolean      @default(true)
-  approvedAt         DateTime?
-  materialStorageKey String?
-  gradingFormula     String       @default("LINEAR_60") // "LINEAR_60", "KNICK_50", "KNICK_66"
-  gradeRounding      String       @default("0.1")       // "0.1", "0.25", "0.5"
-  maxPoints          Float
-  classId            String
-  class              Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
-  submissions        Submission[]
-  tasks              ExamTask[]
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  id               String       @id @default(uuid())
+  title            String       // e.g. "Mathematik Klassenarbeit 1"
+  subject          String       // e.g. "Mathematik"
+  rubricText       String       // Tier 2: Musterlösung / Erwartungshorizont
+  examTemplateText String?      // Tier 1: Vorlagenprüfung (Aufgabenblatt / offizielle Punktelimits)
+  gradingNotes     String?      // Tier 3: Unterrichtsmaterial / zusätzliche Bewertungshinweise
+  gradingFormula   String       @default("LINEAR_60") // "LINEAR_60", "KNICK_50", "KNICK_66"
+  gradeRounding    String       @default("0.1")       // "0.1", "0.25", "0.5"
+  maxPoints        Float
+  classId          String
+  class            Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  submissions      Submission[]
+  tasks            ExamTask[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 }
 
 enum SubmissionStatus {
@@ -156,23 +151,20 @@ model StepCorrection {
   begruendung        String
   istUnsicher        Boolean        @default(false)
   unsicherheitsGrund String?
-  box2d              Int[]          @default([]) // Optional [ymin, xmin, ymax, xmax] normalized 0..1000
-  pageNumber         Int?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 }
 
 model ExamTask {
-  id              String   @id @default(uuid())
-  examId          String
-  exam            Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  taskId          String   // e.g. "1"
-  title           String   // e.g. "Aufgabe 1"
-  maxPoints       Float
-  orderIndex      Int      @default(0)
-  sourceReference String?  // e.g. "Seite 2, Abschnitt 2.1"
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id         String   @id @default(uuid())
+  examId     String
+  exam       Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  taskId     String   // e.g. "1"
+  title      String   // e.g. "Aufgabe 1"
+  maxPoints  Float
+  orderIndex Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([examId, taskId])
 }

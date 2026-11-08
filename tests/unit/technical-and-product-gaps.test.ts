@@ -32,7 +32,7 @@ import { SECURITY_HEADERS } from '@/proxy';
 
 describe('Technical & Product Gaps Sweep 1', () => {
   describe('1. Prisma Schema Shadow-Table Consolidation & Structured Exam Metadata', () => {
-    it('definiert alle vormals losen Runtime-Tabellen explizit in prisma/schema.prisma', () => {
+    it('definiert alle vormals losen Runtime-Tabellen explizit in prisma/schema.prisma ohne unmigrierte Core-Spalten (P2022-Schutz)', () => {
       const schemaPath = path.join(process.cwd(), 'prisma/schema.prisma');
       const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
 
@@ -44,9 +44,9 @@ describe('Technical & Product Gaps Sweep 1', () => {
       expect(schemaContent).toContain('@@map("teacher_subject_preferences")');
       expect(schemaContent).toContain('@@map("class_subject_preferences")');
       expect(schemaContent).toContain('@@map("relay_documents")');
-      expect(schemaContent).toContain('isGenerated');
-      expect(schemaContent).toContain('isApproved');
-      expect(schemaContent).toContain('box2d');
+      expect(schemaContent).not.toContain('isGenerated');
+      expect(schemaContent).not.toContain('isApproved');
+      expect(schemaContent).not.toContain('box2d');
       expect(schemaContent).not.toContain('\u00df');
     });
 
