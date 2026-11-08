@@ -12,45 +12,38 @@ ALTER TABLE "StepCorrection" ADD COLUMN IF NOT EXISTS "pageNumber" INTEGER;
 ALTER TABLE "ExamTask" ADD COLUMN IF NOT EXISTS "sourceReference" TEXT;
 
 CREATE TABLE IF NOT EXISTS "teacher_sessions" (
-  "sid" TEXT PRIMARY KEY,
-  "user_id" TEXT NOT NULL,
+  "id" TEXT PRIMARY KEY,
+  "teacher_id" TEXT NOT NULL,
   "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "last_activity_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "expires_at" TIMESTAMP(3) NOT NULL,
+  "last_seen_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "last_renewed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "revoked_at" TIMESTAMP(3),
-  "revoke_reason" TEXT
+  "user_agent" TEXT,
+  "token_version" INTEGER NOT NULL DEFAULT 1,
+  "is_legacy_converted" BOOLEAN NOT NULL DEFAULT FALSE
 );
-CREATE INDEX IF NOT EXISTS "idx_teacher_sessions_user_id" ON "teacher_sessions"("user_id");
+CREATE INDEX IF NOT EXISTS "idx_teacher_sessions_teacher_id" ON "teacher_sessions"("teacher_id");
 
 CREATE TABLE IF NOT EXISTS "teacher_session_revocations" (
-  "user_id" TEXT PRIMARY KEY,
-  "revoked_before_unix" INTEGER NOT NULL DEFAULT 0,
-  "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  "teacher_id" TEXT PRIMARY KEY,
+  "revoked_before" TIMESTAMP(3) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS "teacher_email_verifications" (
   "teacher_id" TEXT PRIMARY KEY,
-  "email_verified" BOOLEAN NOT NULL DEFAULT TRUE,
-  "email_verified_at" TIMESTAMP(3),
-  "verification_token_hash" TEXT,
-  "verification_sent_at" TIMESTAMP(3),
-  "verification_expires_at" TIMESTAMP(3),
-  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  "email" TEXT NOT NULL,
+  "verified_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS "idx_teacher_email_verifications_token_hash" ON "teacher_email_verifications"("verification_token_hash");
 
 CREATE TABLE IF NOT EXISTS "teacher_federated_identities" (
   "id" TEXT PRIMARY KEY,
   "teacher_id" TEXT NOT NULL,
   "provider" TEXT NOT NULL,
-  "provider_subject" TEXT NOT NULL,
-  "provider_email" TEXT,
-  "tenant_id" TEXT,
-  "display_name" TEXT,
+  "provider_account_id" TEXT NOT NULL,
+  "email" TEXT NOT NULL,
   "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "last_login_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE ("provider", "provider_subject")
+  UNIQUE ("provider", "provider_account_id")
 );
 CREATE INDEX IF NOT EXISTS "idx_teacher_federated_identities_teacher_id" ON "teacher_federated_identities"("teacher_id");
 
@@ -61,15 +54,13 @@ CREATE TABLE IF NOT EXISTS "class_archives" (
 
 CREATE TABLE IF NOT EXISTS "teacher_subject_preferences" (
   "teacher_id" TEXT PRIMARY KEY,
-  "subjects" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "subjects_json" TEXT NOT NULL,
   "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS "class_subject_preferences" (
   "class_id" TEXT PRIMARY KEY,
-  "subjects" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "subjects_json" TEXT NOT NULL,
   "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
