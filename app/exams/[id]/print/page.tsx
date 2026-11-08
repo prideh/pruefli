@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { Box, Typography, Button, Stack, CircularProgress, Alert } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PrintIcon from '@mui/icons-material/Print';
+import { filterFeedbackSheetsForPrint } from '@/lib/ux-polish';
 
 interface SheetTask {
   aufgabeId: string;
@@ -49,6 +50,14 @@ export default function ExamPrintFeedbackPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [completedCount, setCompletedCount] = useState(0);
   const [ungradedCount, setUngradedCount] = useState(0);
+  const [targetSubmissionId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      const subId = sp.get('submissionId');
+      return subId && subId.trim() ? subId.trim() : null;
+    }
+    return null;
+  });
 
   useEffect(() => {
     if (!examId) return;
@@ -74,6 +83,11 @@ export default function ExamPrintFeedbackPage() {
 
     loadSheets();
   }, [examId]);
+
+  const visibleSheets = React.useMemo(
+    () => filterFeedbackSheetsForPrint(sheets, targetSubmissionId),
+    [sheets, targetSubmissionId]
+  );
 
   if (loading) {
     return (
@@ -115,7 +129,22 @@ export default function ExamPrintFeedbackPage() {
           spacing={2}
           sx={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}
         >
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            {targetSubmissionId && (
+              <Link
+                href={`/correct/${targetSubmissionId}`}
+                passHref
+                style={{ textDecoration: 'none' }}
+              >
+                <Button
+                  variant="outlined"
+                  startIcon={<ArrowBackIcon />}
+                  sx={{ textTransform: 'none', fontWeight: 650, borderRadius: '8px' }}
+                >
+                  Zurück zur Korrektur
+                </Button>
+              </Link>
+            )}
             <Link href={`/exams/${examId}`} passHref style={{ textDecoration: 'none' }}>
               <Button
                 variant="outlined"
@@ -149,7 +178,7 @@ export default function ExamPrintFeedbackPage() {
                 backgroundColor: '#1b77d1',
               }}
             >
-              Jetzt drucken ({completedCount} Schüler/innen)
+              Jetzt drucken ({visibleSheets.length} Schüler/innen)
             </Button>
           </Stack>
         </Stack>
@@ -174,7 +203,7 @@ export default function ExamPrintFeedbackPage() {
       ) : (
         /* Sequential Feedback Sheets (one page per student) */
         <Box sx={{ fontFamily: 'sans-serif' }}>
-          {sheets.map((sheet) => (
+          {visibleSheets.map((sheet) => (
             <div
               key={sheet.submissionId}
               className="print-page"

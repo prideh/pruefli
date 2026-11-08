@@ -73,4 +73,28 @@ describe('ErrorState Component (components/ErrorState.tsx)', () => {
 
     expect(html).not.toContain('ß');
   });
+
+  it('ersetzt redundanten Fliesstext (identisch zum Titel) durch einen hilfreichen Handlungshinweis (#119)', () => {
+    const htmlExams = renderToStaticMarkup(
+      React.createElement(ErrorState, {
+        title: 'Fehler beim Laden der Prüfungen',
+        message: 'Fehler beim Laden der Prüfungen.',
+        onRetry: () => {},
+      })
+    );
+    expect(htmlExams).toContain('Fehler beim Laden der Prüfungen');
+    expect(htmlExams).not.toContain('Fehler beim Laden der Prüfungen.');
+    expect(htmlExams).toContain('Bitte Verbindung prüfen und erneut versuchen.');
+
+    const htmlSubmissions = renderToStaticMarkup(
+      React.createElement(ErrorState, {
+        title: 'Fehler beim Laden der Korrekturen',
+        message: 'Fehler beim Laden der Korrekturen.',
+        onRetry: () => {},
+      })
+    );
+    expect(htmlSubmissions).toContain('Fehler beim Laden der Korrekturen');
+    expect(htmlSubmissions).not.toContain('Fehler beim Laden der Korrekturen.');
+    expect(htmlSubmissions).toContain('Bitte Verbindung prüfen und erneut versuchen.');
+  });
 });

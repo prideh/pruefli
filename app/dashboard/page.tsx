@@ -84,6 +84,7 @@ import {
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
+import { applyUpdatedClassStudentCount, shouldClearWizardValidationError } from '@/lib/ux-polish';
 
 interface DashboardClass {
   id: string;
@@ -478,6 +479,34 @@ export default function Dashboard() {
     return resolveDefaultExamSubjectForClass(classSubjectOptions, exams);
   }, [examSubject, classSubjectOptions, exams]);
 
+  const visibleError = React.useMemo(() => {
+    if (!error) return '';
+    if (
+      shouldClearWizardValidationError(error, {
+        hasClass: Boolean(selectedClassId),
+        hasStudent: Boolean(selectedStudentId),
+        isNewExam: selectedExamId === 'NEW',
+        hasTitle: Boolean(examTitle.trim()),
+        hasSubject: Boolean((examSubject || effectiveExamSubject).trim()),
+        hasValidMaxPoints: Number(examMaxPoints) > 0,
+        hasFiles: studentFiles.length > 0,
+      })
+    ) {
+      return '';
+    }
+    return error;
+  }, [
+    error,
+    selectedClassId,
+    selectedStudentId,
+    selectedExamId,
+    examTitle,
+    examSubject,
+    effectiveExamSubject,
+    examMaxPoints,
+    studentFiles.length,
+  ]);
+
   // 4. Handle Class Change (Fetch Students & Exams for selected class)
   const handleClassChange = React.useCallback(
     async (classId: string) => {
@@ -637,6 +666,14 @@ export default function Dashboard() {
           ...prev,
           [targetClassId]: updatedStudents,
         }));
+        setClasses((prev) =>
+          applyUpdatedClassStudentCount(prev, targetClassId, updatedStudents.length)
+        );
+      } else {
+        setClasses((prev) => {
+          const currentCount = prev.find((c) => c.id === targetClassId)?._count?.students ?? 0;
+          return applyUpdatedClassStudentCount(prev, targetClassId, currentCount + 1);
+        });
       }
       setOpenCreateStudent(false);
       setNewStudentName('');
@@ -1653,10 +1690,12 @@ export default function Dashboard() {
 
         <EmailVerificationAiBanner featureLabel="Das Starten von KI-Korrekturen und der Smartphone-QR-Scan" />
 
-        {error && (
+        {visibleError && (
           <Alert
             severity={
-              duplicateAssignConflict || isDuplicateSubmissionError(error) ? 'warning' : 'error'
+              duplicateAssignConflict || isDuplicateSubmissionError(visibleError)
+                ? 'warning'
+                : 'error'
             }
             sx={{ borderRadius: '12px', alignItems: 'center' }}
             action={
@@ -1718,7 +1757,7 @@ export default function Dashboard() {
               ) : undefined
             }
           >
-            {error}
+            {visibleError}
           </Alert>
         )}
 
@@ -2043,7 +2082,21 @@ export default function Dashboard() {
                             <TextField
                               label="Prüfungstitel"
                               value={examTitle}
-                              onChange={(e) => setExamTitle(e.target.value)}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setExamTitle(val);
+                                if (val.trim()) {
+                                  setError((prev) =>
+                                    prev === 'Prüfungstitel ist erforderlich.' ||
+                                    prev.includes('zuerst einen Prüfungstitel ein') ||
+                                    (prev ===
+                                      'Bitte gib einen Prüfungstitel und ein Fach für die neue Prüfung an.' &&
+                                      Boolean((examSubject || effectiveExamSubject).trim()))
+                                      ? ''
+                                      : prev
+                                  );
+                                }
+                              }}
                               placeholder="z.B. Klassenarbeit 1: Lineare Gleichungen"
                               fullWidth
                               size="small"
@@ -2057,7 +2110,21 @@ export default function Dashboard() {
                                 labelId="subject-select-label"
                                 value={effectiveExamSubject}
                                 label="Fach (KI-Profil)"
-                                onChange={(e) => setExamSubject(e.target.value)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setExamSubject(val);
+                                  if (val.trim()) {
+                                    setError((prev) =>
+                                      prev === 'Fach ist erforderlich.' ||
+                                      prev === 'Bitte gib ein Fach an.' ||
+                                      (prev ===
+                                        'Bitte gib einen Prüfungstitel und ein Fach für die neue Prüfung an.' &&
+                                        Boolean(examTitle.trim()))
+                                        ? ''
+                                        : prev
+                                    );
+                                  }
+                                }}
                               >
                                 {classSubjectOptions.map((sp) => (
                                   <MenuItem key={sp.value} value={sp.value}>
@@ -2079,6 +2146,15 @@ export default function Dashboard() {
                               onChange={(e) => {
                                 const val = Number(e.target.value);
                                 setExamMaxPoints(val > 0 ? val : 0);
+                                if (val > 0) {
+                                  setError((prev) =>
+                                    prev ===
+                                      'Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.' ||
+                                    prev === 'Maximale Punktzahl muss eine positive Zahl sein.'
+                                      ? ''
+                                      : prev
+                                  );
+                                }
                               }}
                               slotProps={{
                                 htmlInput: { min: 1, step: 0.5 },
@@ -2466,7 +2542,7 @@ export default function Dashboard() {
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                   title: examTitle.trim(),
-                                  subject: examSubject,
+                                  subject: (examSubject || effectiveExamSubject).trim(),
                                   maxPoints: Number(examMaxPoints) > 0 ? Number(examMaxPoints) : 20,
                                   rubricText: resolvedRubric,
                                   examTemplateText: examTemplateScannedPayload || null,
@@ -2484,6 +2560,7 @@ export default function Dashboard() {
                               }
                               setExams((prev) => [created.exam, ...prev]);
                               setSelectedExamId(created.exam.id);
+                              invalidateExams(created.exam.id, selectedClassId);
                             } catch {
                               setError('Fehler beim Anlegen der Prüfung für den QR-Scan.');
                               window.scrollTo({ top: 0, behavior: 'smooth' });
