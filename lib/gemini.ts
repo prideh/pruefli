@@ -447,6 +447,8 @@ export interface CorrectedStep {
   begruendung: string;
   istUnsicher?: boolean;
   unsicherheitsGrund?: string;
+  box2d?: number[]; // Optional [ymin, xmin, ymax, xmax] normalized 0..1000
+  pageNumber?: number;
 }
 
 export interface CorrectedTask {
@@ -1800,4 +1802,4 @@ export async function classifyDocumentWithGemini(
     console.warn('classifyDocumentWithGemini failed (falling back to deterministic checks):', err);
     return null;
   }
-                }
+}

@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session';
 import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags } from '@/lib/cache';
 import { getArchivedClassIds } from '@/lib/class-archive';
+import { recoverStaleProcessingSubmissions } from '@/lib/stale-submissions';
 
 async function isSessionTeacherValid(userId: string): Promise<boolean> {
   const findUnique = (
@@ -59,6 +60,10 @@ export async function GET(request?: Request | NextRequest) {
     const examId = searchParams.get('examId')?.trim() || null;
     const status = searchParams.get('status')?.trim() || null;
     const search = searchParams.get('search')?.trim() || null;
+
+    await recoverStaleProcessingSubmissions(session.userId, {
+      examId: examId && examId !== 'ALL' ? examId : null,
+    });
 
     const cacheKey = `teacher:${session.userId}:submissions:list:page=${page}:size=${pageSize}:cursor=${cursor || ''}:class=${classId || 'ALL'}:exam=${examId || 'ALL'}:status=${status || 'ALL'}:search=${encodeURIComponent(search || '')}`;
 

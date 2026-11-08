@@ -7,6 +7,7 @@ import { serverCache, CacheTags, invalidateExamCache, invalidateLogsCache } from
 import { parseExamMetadata, embedExamMetadata } from '@/lib/exam-meta';
 import { deleteExamScanFiles, StorageCleanupError } from '@/lib/storage-cleanup';
 import { isClassArchived } from '@/lib/class-archive';
+import { recoverStaleProcessingSubmissions } from '@/lib/stale-submissions';
 
 // GET: Fetch exam details, statistics, and submissions tracking (all class students)
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -19,6 +20,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (unverifiedResponse) return unverifiedResponse;
 
     const { id: examId } = await params;
+
+    await recoverStaleProcessingSubmissions(session.userId, { examId });
 
     const cacheKey = `teacher:${session.userId}:exam:${examId}:detail`;
     const cached = await serverCache.get<{

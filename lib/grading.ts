@@ -62,7 +62,7 @@ export const SUBJECT_PROFILES: SubjectProfile[] = [
     supportLevel: 'FOCUS_PROFILE',
     supportBadge: 'Fokus-Profil',
     supportDescription:
-      'Fokus-Anweisung für Konstruktionsschritte & Einheiten aktiv. Spezialisierte Zeichnungsanalyse in Vorbereitung.',
+      'Fokus-Anweisung für Konstruktionsschritte, geometrische Sätze (Pythagoras, Strahlensätze) & Masseinheiten aktiv.',
   },
   {
     value: 'Physik',
@@ -71,7 +71,7 @@ export const SUBJECT_PROFILES: SubjectProfile[] = [
     supportLevel: 'FOCUS_PROFILE',
     supportBadge: 'Fokus-Profil',
     supportDescription:
-      'Fokus-Anweisung für physikalische Formeln & Masseinheiten aktiv. Dedizierte Einheiten-Engine in Vorbereitung.',
+      'Fokus-Anweisung für physikalische Formeln, SI-Einheitenprüfung & maximalen 0.5-Punkte-Einheitenabzug aktiv.',
   },
   {
     value: 'Chemie',
@@ -80,7 +80,7 @@ export const SUBJECT_PROFILES: SubjectProfile[] = [
     supportLevel: 'FOCUS_PROFILE',
     supportBadge: 'Fokus-Profil',
     supportDescription:
-      'Fokus-Anweisung für Reaktionsgleichungen & Stöchiometrie aktiv. Strukturformel-Analyse in Vorbereitung.',
+      'Fokus-Anweisung für Reaktionsgleichungen, Stöchiometrie, Ladungsbilanz & Stoffmengenverhältnisse aktiv.',
   },
   {
     value: 'Biologie',
@@ -1069,4 +1069,72 @@ export function hasDuplicateStudentName(
     }
   }
   return false;
+}
+
+export interface StemModalityStepCheck {
+  isUnitOnlyDeduction: boolean;
+  isStoichiometryOrChargeStep: boolean;
+  isGeometryConstructionOrUnitStep: boolean;
+  cappedEarnedPoints: number;
+  normalizedReason: string;
+}
+
+/**
+ * Prueft naturwissenschaftliche / mathematische Teilschritte (Physik, Chemie, Geometrie) deterministisch:
+ * - Wenn in Physik/Geometrie ausschliesslich eine fehlende oder falsche Einheit im Endresultat bemängelt wird
+ *   und der Schritt > 1.0 Maximalpunkte hat, wird der Abzug auf maximal 0.5 Punkte begrenzt (sofern nicht explizit
+ *   ein reiner Einheiten-Teilschritt von <= 1.0 P. vorliegt).
+ * - Erkennt Stöchiometrie-/Reaktionsgleichungs-Schritte in Chemie sowie Konstruktions-/Massstabsschritte in Geometrie.
+ */
+export function evaluateStemStepModality(params: {
+  subject?: string | null;
+  schrittText?: string | null;
+  begruendung?: string | null;
+  erreichtePunkte: number;
+  maximalPunkte: number;
+}): StemModalityStepCheck {
+  const maxPts = Math.max(0, Math.round((Number(params.maximalPunkte) || 0) * 10) / 10);
+  const rawEarned = Math.max(
+    0,
+    Math.min(maxPts, Math.round((Number(params.erreichtePunkte) || 0) * 10) / 10)
+  );
+  const reason = (params.begruendung || '').replace(/\u00df/g, 'ss').trim();
+  const text = (params.schrittText || '').trim();
+  const subjectNorm = (params.subject || '').toLowerCase();
+
+  const mentionsOnlyMissingUnit =
+    /\b(?:einheit(?:en)?\s+fehlt|fehlende\s+einheit|ohne\s+einheit|nur\s+die\s+einheit\s+fehlt|zahlenwert\s+korrekt[,;\s]+(?:aber\s+)?einheit\s+fehlt)\b/i.test(
+      reason
+    ) &&
+    !/\b(?:rechenfehler|falscher?\s+ansatz|formel\s+falsch|zahlenwert\s+falsch)\b/i.test(reason);
+
+  const isStoichiometryOrChargeStep =
+    subjectNorm.includes('chemie') ||
+    /\b(?:stöchiometrie|stoechiometrie|reaktionsgleichung|koeffizient(?:en)?|ladungszahl|mol(?:masse|verhältnis)?|wertigkeit)\b/i.test(
+      `${text} ${reason}`
+    );
+
+  const isGeometryConstructionOrUnitStep =
+    subjectNorm.includes('geometrie') ||
+    /\b(?:pythagoras|strahlensatz|winkelsumme|konstruktion(?:sschritt)?|massstab|flaecheneinheit|längeneinheit)\b/i.test(
+      `${text} ${reason}`
+    );
+
+  let cappedEarnedPoints = rawEarned;
+  let normalizedReason = reason;
+
+  if (mentionsOnlyMissingUnit && maxPts > 1.0 && maxPts - rawEarned > 0.5) {
+    cappedEarnedPoints = Math.round((maxPts - 0.5) * 10) / 10;
+    if (!/0\.5\s*Punkte/i.test(normalizedReason)) {
+      normalizedReason = `${normalizedReason.replace(/[.!?]+$/, '')} (Einheitenabzug auf 0.5 Punkte begrenzt).`;
+    }
+  }
+
+  return {
+    isUnitOnlyDeduction: mentionsOnlyMissingUnit,
+    isStoichiometryOrChargeStep,
+    isGeometryConstructionOrUnitStep,
+    cappedEarnedPoints,
+    normalizedReason,
+  };
 }

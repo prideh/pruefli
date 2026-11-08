@@ -13,6 +13,8 @@ describe('Security Headers (Issue #15)', () => {
     expect(SECURITY_HEADERS['X-Content-Type-Options']).toBe('nosniff');
     expect(SECURITY_HEADERS['X-Frame-Options']).toBe('DENY');
     expect(SECURITY_HEADERS['Referrer-Policy']).toBe('strict-origin-when-cross-origin');
+    expect(SECURITY_HEADERS['Content-Security-Policy']).toContain("default-src 'self'");
+    expect(SECURITY_HEADERS['Content-Security-Policy']).toContain("object-src 'none'");
   });
 
   it('applySecurityHeaders setzt alle vier Header auf einer NextResponse', () => {
@@ -25,6 +27,7 @@ describe('Security Headers (Issue #15)', () => {
     expect(secured.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(secured.headers.get('X-Frame-Options')).toBe('DENY');
     expect(secured.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+    expect(secured.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
   });
 
   it('proxy setzt Sicherheits-Header bei oeffentlichen Seitenaufrufen', async () => {

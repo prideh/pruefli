@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { signMobileRelayToken, verifyMobileRelayToken } from '@/lib/jwt';
-import { getScannedRelayDocument } from '@/lib/relay-store';
+import { getScannedRelayDocumentAsync } from '@/lib/relay-store';
 import { resolveRelayOrigin } from '@/lib/relay-url';
 import QRCode from 'qrcode';
 import crypto from 'crypto';
@@ -199,7 +199,10 @@ export async function GET(request: Request) {
       lockedStudentName = targetSubmission.student.name;
     }
 
-    const scannedDocument = getScannedRelayDocument(payload.sessionId, payload.teacherId);
+    const scannedDocument = await getScannedRelayDocumentAsync(
+      payload.sessionId,
+      payload.teacherId
+    );
 
     return NextResponse.json({
       teacherName: teacher.name,

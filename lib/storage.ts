@@ -402,3 +402,86 @@ export function getStorageAdapter(): StorageAdapter {
 
   return new FilesystemStorageAdapter();
 }
+
+export const STORAGE_REF_PREFIX = '<!-- PRUEFLI_STORAGE_REF:';
+const STORAGE_REF_SUFFIX = ' -->';
+
+/**
+ * Prueft, ob ein Referenztext (z. B. rubricText oder examTemplateText) ein Storage-Pointer ist.
+ */
+export function isStorageReferencePointer(value?: string | null): boolean {
+  if (!value || typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  return trimmed.startsWith(STORAGE_REF_PREFIX) && trimmed.endsWith(STORAGE_REF_SUFFIX);
+}
+
+/**
+ * Extrahiert den Storage-Key aus einem Storage-Pointer-String.
+ */
+export function extractStorageReferenceKey(value?: string | null): string | null {
+  if (!isStorageReferencePointer(value)) return null;
+  const trimmed = (value || '').trim();
+  const key = trimmed.slice(STORAGE_REF_PREFIX.length, -STORAGE_REF_SUFFIX.length).trim();
+  return key || null;
+}
+
+/**
+ * Lagert grosse serialisierte Referenzdokumente (Base64-JSON fuer PDF/Bilder in rubricText oder examTemplateText)
+ * in den konfigurierten StorageAdapter aus und gibt einen kompakten Pointer-String zurueck.
+ * Reine Text-Musterloesungen bleiben unveraendert in der Datenbankspalte.
+ */
+export async function offloadReferenceMaterialToStorage(
+  rawText: string | null | undefined,
+  options?: { minBytesThreshold?: number; adapter?: StorageAdapter }
+): Promise<{ storedValue: string; storageKey: string | null }> {
+  if (!rawText || typeof rawText !== 'string') {
+    return { storedValue: '', storageKey: null };
+  }
+  const trimmed = rawText.trim();
+  if (isStorageReferencePointer(trimmed)) {
+    return {
+      storedValue: trimmed,
+      storageKey: extractStorageReferenceKey(trimmed),
+    };
+  }
+
+  const threshold = options?.minBytesThreshold ?? 32_768; // 32 KB default threshold
+  const isSerializedDoc =
+    (trimmed.startsWith('{') && trimmed.endsWith('}') && trimmed.includes('"mimeType"')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']') && trimmed.includes('"mimeType"'));
+
+  if (!isSerializedDoc || Buffer.byteLength(trimmed, 'utf-8') < threshold) {
+    return { storedValue: rawText, storageKey: null };
+  }
+
+  const hash = crypto.createHash('sha256').update(trimmed).digest('hex');
+  const storageKey = `references/ref-${hash}.json`;
+  const adapter = options?.adapter || getStorageAdapter();
+  await adapter.write(storageKey, Buffer.from(trimmed, 'utf-8'), 'application/json');
+  return {
+    storedValue: `${STORAGE_REF_PREFIX}${storageKey}${STORAGE_REF_SUFFIX}`,
+    storageKey,
+  };
+}
+
+/**
+ * Loest einen Storage-Pointer transparent wieder zum urspruenglichen serialisierten Referenzdokument auf.
+ * Falls kein Pointer vorliegt, wird der Eingabetext unveraendert zurueckgegeben.
+ */
+export async function resolveStoredReferenceMaterial(
+  value: string | null | undefined,
+  options?: { adapter?: StorageAdapter }
+): Promise<string> {
+  if (!value || typeof value !== 'string') return '';
+  const storageKey = extractStorageReferenceKey(value);
+  if (!storageKey) return value;
+
+  try {
+    const adapter = options?.adapter || getStorageAdapter();
+    const file = await adapter.read(storageKey);
+    if (!file) return value;
+    return file.buffer.toString('utf-8');
+  } catch {
+    return value;
+  }
+}

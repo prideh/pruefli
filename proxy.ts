@@ -13,8 +13,8 @@ export const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  // Content-Security-Policy (CSP): Deliberately deferred to prevent breaking MUI inline styles,
-  // camera video feeds, and client-side blob/data URLs until a verified nonce-based CSP is tested.
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; media-src 'self' blob: mediastream:; worker-src 'self' blob:; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
 } as const;
 
 /**

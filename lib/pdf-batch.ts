@@ -226,6 +226,47 @@ export function toggleStartPageMarker(
   return Array.from(set).sort((a, b) => a - b);
 }
 
+/**
+ * Berechnet die Startseiten für feste N-seitige Schülerarbeiten (z. B. 1-, 2-, 3- oder 4-seitig).
+ * Rein deterministisch und lokal.
+ */
+export function computeEveryNPagesStartPages(totalPages: number, pagesPerWork: number): number[] {
+  const safeTotal = Math.max(0, Math.floor(Number(totalPages) || 0));
+  if (safeTotal === 0) return [];
+  const step = Math.max(1, Math.floor(Number(pagesPerWork) || 1));
+  const starts: number[] = [];
+  for (let p = 1; p <= safeTotal; p += step) {
+    starts.push(p);
+  }
+  return starts;
+}
+
+/**
+ * Erkennt deterministisch und rein lokal (ohne KI) Seitenköpfe, die explizit auf den Beginn
+ * einer neuen Arbeit hindeuten (z. B. "Seite 1", "Blatt 1", "1 /", "Name:").
+ * Seite 1 ist immer enthalten.
+ */
+export function detectPageOneHeaderStarts(
+  pages: ReadonlyArray<{ pageNumber: number; extractedTextPreview?: string | null }>
+): number[] {
+  if (!Array.isArray(pages) || pages.length === 0) return [];
+  const starts = new Set<number>([1]);
+  const pageOneRegex =
+    /\b(?:seite\s*1(?:\s*(?:von|\/)\s*\d+)?|blatt\s*1\b|page\s*1\b|1\s*\/\s*\d+\b|name\s*:\s*\S+)/i;
+  const continuationPageRegex = /\b(?:seite|blatt|page)\s*(?:[2-9]|\d{2,})\b/i;
+
+  for (const page of pages) {
+    if (!page || page.pageNumber <= 1) continue;
+    const text = (page.extractedTextPreview || '').trim();
+    if (!text) continue;
+    if (pageOneRegex.test(text) && !continuationPageRegex.test(text)) {
+      starts.add(page.pageNumber);
+    }
+  }
+
+  return Array.from(starts).sort((a, b) => a - b);
+}
+
 function parseMediaBoxDimensions(dictStr: string): { width: number; height: number } | null {
   const match = dictStr.match(
     /\/MediaBox\s*\[\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*\]/

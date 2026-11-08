@@ -21,6 +21,8 @@ import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRig
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import {
   computeSegmentsFromStartPages,
+  computeEveryNPagesStartPages,
+  detectPageOneHeaderStarts,
   toggleStartPageMarker,
   splitPdfFileToFiles,
   rasterizePdfPageToDataUrl,
@@ -118,16 +120,29 @@ function PdfBatchSplitDialogContent({
 
   const handleEveryPageNewWork = () => {
     if (splitting) return;
-    setStartPages(Array.from({ length: totalPages }, (_, idx) => idx + 1));
+    setStartPages(computeEveryNPagesStartPages(totalPages, 1));
   };
 
   const handleEveryTwoPagesNewWork = () => {
     if (splitting) return;
-    const next: number[] = [];
-    for (let p = 1; p <= totalPages; p += 2) {
-      next.push(p);
-    }
-    setStartPages(next);
+    setStartPages(computeEveryNPagesStartPages(totalPages, 2));
+  };
+
+  const handleEveryThreePagesNewWork = () => {
+    if (splitting) return;
+    setStartPages(computeEveryNPagesStartPages(totalPages, 3));
+  };
+
+  const handleEveryFourPagesNewWork = () => {
+    if (splitting) return;
+    setStartPages(computeEveryNPagesStartPages(totalPages, 4));
+  };
+
+  const detectedHeaderStarts = useMemo(() => detectPageOneHeaderStarts(pages), [pages]);
+
+  const handleApplyDetectedHeaders = () => {
+    if (splitting || detectedHeaderStarts.length <= 1) return;
+    setStartPages(detectedHeaderStarts);
   };
 
   const handleKeepSingleWork = () => {
@@ -236,6 +251,40 @@ function PdfBatchSplitDialogContent({
                     sx={{ textTransform: 'none', fontWeight: 600, fontSize: '0.78rem' }}
                   >
                     Alle 2 Seiten = 1 Arbeit (2-seitig)
+                  </Button>
+                )}
+                {totalPages >= 3 && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleEveryThreePagesNewWork}
+                    disabled={splitting}
+                    sx={{ textTransform: 'none', fontWeight: 600, fontSize: '0.78rem' }}
+                  >
+                    Alle 3 Seiten = 1 Arbeit (3-seitig)
+                  </Button>
+                )}
+                {totalPages >= 4 && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleEveryFourPagesNewWork}
+                    disabled={splitting}
+                    sx={{ textTransform: 'none', fontWeight: 600, fontSize: '0.78rem' }}
+                  >
+                    Alle 4 Seiten = 1 Arbeit (4-seitig)
+                  </Button>
+                )}
+                {detectedHeaderStarts.length > 1 && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="secondary"
+                    onClick={handleApplyDetectedHeaders}
+                    disabled={splitting}
+                    sx={{ textTransform: 'none', fontWeight: 600, fontSize: '0.78rem' }}
+                  >
+                    Seitenköpfe («Blatt 1 / Name») übernehmen ({detectedHeaderStarts.length})
                   </Button>
                 )}
                 <Button

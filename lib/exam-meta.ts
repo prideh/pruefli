@@ -96,12 +96,73 @@ export function embedExamMetadata(
 }
 
 /**
+ * Resolves ExamMetadata from either structured Exam database columns or the embedded
+ * gradingNotes comment, ensuring 100% backward compatibility.
+ */
+export function resolveExamMetadataFromRecord(exam: {
+  gradingNotes?: string | null;
+  isGenerated?: boolean | null;
+  isApproved?: boolean | null;
+  approvedAt?: Date | string | null;
+  materialStorageKey?: string | null;
+  tasks?: Array<{ taskId: string; sourceReference?: string | null }> | null;
+}): {
+  metadata: ExamMetadata;
+  cleanNotes: string;
+} {
+  const { metadata: parsedMeta, cleanNotes } = parseExamMetadata(exam.gradingNotes);
+
+  const isGenerated =
+    typeof exam.isGenerated === 'boolean'
+      ? exam.isGenerated || parsedMeta.isGenerated
+      : parsedMeta.isGenerated;
+  const isApproved =
+    typeof exam.isApproved === 'boolean'
+      ? isGenerated
+        ? exam.isApproved && parsedMeta.isApproved
+        : exam.isApproved
+      : parsedMeta.isApproved;
+  const approvedAt =
+    exam.approvedAt instanceof Date
+      ? exam.approvedAt.toISOString()
+      : typeof exam.approvedAt === 'string' && exam.approvedAt
+        ? exam.approvedAt
+        : parsedMeta.approvedAt;
+  const materialStorageKey = exam.materialStorageKey || parsedMeta.materialStorageKey || null;
+
+  const taskSources: Record<string, string> = { ...(parsedMeta.taskSources || {}) };
+  if (Array.isArray(exam.tasks)) {
+    for (const t of exam.tasks) {
+      if (t && t.taskId && t.sourceReference && !taskSources[t.taskId]) {
+        taskSources[t.taskId] = t.sourceReference;
+      }
+    }
+  }
+
+  return {
+    metadata: {
+      isGenerated,
+      isApproved,
+      approvedAt,
+      materialStorageKey,
+      generatorParams: parsedMeta.generatorParams || null,
+      taskSources,
+    },
+    cleanNotes,
+  };
+}
+
+/**
  * Checks whether an exam is approved and frozen.
  * Standard (manually created) exams are considered approved by default.
  * Generated exams require explicit approval.
  */
-export function isExamApproved(exam: { gradingNotes?: string | null }): boolean {
-  const { metadata } = parseExamMetadata(exam.gradingNotes);
+export function isExamApproved(exam: {
+  gradingNotes?: string | null;
+  isGenerated?: boolean | null;
+  isApproved?: boolean | null;
+}): boolean {
+  const { metadata } = resolveExamMetadataFromRecord(exam);
   if (!metadata.isGenerated) {
     return true; // Non-generated standard exams do not block grading/printing
   }
@@ -111,7 +172,10 @@ export function isExamApproved(exam: { gradingNotes?: string | null }): boolean 
 /**
  * Checks whether an exam was created via the "Prüfung generieren" flow.
  */
-export function isExamGenerated(exam: { gradingNotes?: string | null }): boolean {
-  const { metadata } = parseExamMetadata(exam.gradingNotes);
+export function isExamGenerated(exam: {
+  gradingNotes?: string | null;
+  isGenerated?: boolean | null;
+}): boolean {
+  const { metadata } = resolveExamMetadataFromRecord(exam);
   return metadata.isGenerated === true;
 }

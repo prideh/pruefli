@@ -85,6 +85,7 @@ export default function CorrectWorkspace() {
   const [noSession, setNoSession] = useState<boolean>(false);
   const [leftPanelTab, setLeftPanelTab] = useState<'transcript' | 'scan'>('scan');
   const [activeScanPageIndex, setActiveScanPageIndex] = useState<number>(0);
+  const [showRedInkOverlay, setShowRedInkOverlay] = useState<boolean>(true);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [sessionExpiredDuringWork, setSessionExpiredDuringWork] = useState<boolean>(false);
   const [qrOpen, setQrOpen] = useState<boolean>(false);
@@ -1350,6 +1351,27 @@ export default function CorrectWorkspace() {
                         Seite 1 von {totalPages}
                       </Typography>
                     )}
+                    {leftPanelTab === 'scan' && data.aufgaben.length > 0 && (
+                      <Tooltip title="Digitale Rotstift-Markierungen auf dem Scan ein-/ausblenden">
+                        <Button
+                          size="small"
+                          variant={showRedInkOverlay ? 'contained' : 'outlined'}
+                          color={showRedInkOverlay ? 'error' : 'inherit'}
+                          onClick={() => setShowRedInkOverlay((prev) => !prev)}
+                          data-testid="toggle-red-ink-overlay"
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            fontSize: '0.73rem',
+                            py: 0.35,
+                            px: 1.1,
+                            borderRadius: '6px',
+                          }}
+                        >
+                          Rotstift-Overlay
+                        </Button>
+                      </Tooltip>
+                    )}
                     {!isReadOnly && (
                       <Tooltip title="Fehlende Seite anhängen oder unscharfen Scan per Smartphone/Datei ersetzen">
                         <Button
@@ -1428,6 +1450,84 @@ export default function CorrectWorkspace() {
                         sizes="(max-width: 1200px) 100vw, 50vw"
                         priority
                       />
+                    )}
+                    {showRedInkOverlay && data.aufgaben.length > 0 && (
+                      <Box
+                        data-testid="scan-red-ink-overlay"
+                        sx={{
+                          position: 'absolute',
+                          top: '14px',
+                          right: '14px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 0.75,
+                          maxWidth: { xs: '78%', sm: '260px' },
+                          maxHeight: 'calc(100% - 28px)',
+                          overflowY: 'auto',
+                          zIndex: 4,
+                          pointerEvents: 'auto',
+                        }}
+                      >
+                        {data.aufgaben.map((task, tIdx) => {
+                          const isSelected = activeTaskIndex === tIdx;
+                          const hasUncertain = task.schritte.some((st) => st.istUnsicher);
+                          const badgeColor =
+                            task.status === 'Korrekt'
+                              ? '#15803d'
+                              : task.status === 'Folgefehler'
+                                ? '#b45309'
+                                : '#b91c1c';
+                          const badgeBg =
+                            task.status === 'Korrekt'
+                              ? 'rgba(240, 253, 244, 0.94)'
+                              : task.status === 'Folgefehler'
+                                ? 'rgba(254, 252, 232, 0.94)'
+                                : 'rgba(254, 242, 242, 0.94)';
+                          return (
+                            <Box
+                              key={task.aufgabeId || tIdx}
+                              onClick={() => setActiveTaskIndex(tIdx)}
+                              data-testid={`scan-overlay-task-${tIdx}`}
+                              sx={{
+                                px: 1.25,
+                                py: 0.65,
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                backgroundColor: badgeBg,
+                                border: isSelected
+                                  ? `2px solid ${badgeColor}`
+                                  : `1.5px dashed ${badgeColor}`,
+                                color: badgeColor,
+                                boxShadow: '0 2px 6px rgba(15, 23, 42, 0.12)',
+                                fontFamily:
+                                  '"Architects Daughter", "Comic Sans MS", cursive, sans-serif',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                transition: 'transform 0.12s ease',
+                                '&:hover': {
+                                  transform: 'translateX(-2px)',
+                                },
+                              }}
+                            >
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                sx={{ justifyContent: 'space-between', alignItems: 'center' }}
+                              >
+                                <span>
+                                  {task.status === 'Korrekt'
+                                    ? '✓'
+                                    : task.status === 'Folgefehler'
+                                      ? '⚡ FF'
+                                      : '✗'}{' '}
+                                  {task.titel}: {task.erzieltePunkte}/{task.maximalPunkte} P.
+                                </span>
+                                {hasUncertain && <span title="KI unsicher">⚠</span>}
+                              </Stack>
+                            </Box>
+                          );
+                        })}
+                      </Box>
                     )}
                   </Box>
                 );

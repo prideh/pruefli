@@ -21,14 +21,15 @@ model Teacher {
 }
 
 model Class {
-  id        String    @id @default(uuid())
-  name      String    // e.g. "Klasse 9b"
-  teacherId String
-  teacher   Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  students  Student[]
-  exams     Exam[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id         String    @id @default(uuid())
+  name       String    // e.g. "Klasse 9b"
+  teacherId  String
+  teacher    Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  students   Student[]
+  exams      Exam[]
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 model Student {
@@ -42,21 +43,25 @@ model Student {
 }
 
 model Exam {
-  id               String       @id @default(uuid())
-  title            String       // e.g. "Mathematik Klassenarbeit 1"
-  subject          String       // e.g. "Mathematik"
-  rubricText       String       // Tier 2: Musterlösung / Erwartungshorizont
-  examTemplateText String?      // Tier 1: Vorlagenprüfung (Aufgabenblatt / offizielle Punktelimits)
-  gradingNotes     String?      // Tier 3: Unterrichtsmaterial / zusätzliche Bewertungshinweise
-  gradingFormula   String       @default("LINEAR_60") // "LINEAR_60", "KNICK_50", "KNICK_66"
-  gradeRounding    String       @default("0.1")       // "0.1", "0.25", "0.5"
-  maxPoints        Float
-  classId          String
-  class            Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
-  submissions      Submission[]
-  tasks            ExamTask[]
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id                 String       @id @default(uuid())
+  title              String       // e.g. "Mathematik Klassenarbeit 1"
+  subject            String       // e.g. "Mathematik"
+  rubricText         String       // Tier 2: Musterlösung / Erwartungshorizont
+  examTemplateText   String?      // Tier 1: Vorlagenprüfung (Aufgabenblatt / offizielle Punktelimits)
+  gradingNotes       String?      // Tier 3: Unterrichtsmaterial / zusätzliche Bewertungshinweise
+  isGenerated        Boolean      @default(false)
+  isApproved         Boolean      @default(true)
+  approvedAt         DateTime?
+  materialStorageKey String?
+  gradingFormula     String       @default("LINEAR_60") // "LINEAR_60", "KNICK_50", "KNICK_66"
+  gradeRounding      String       @default("0.1")       // "0.1", "0.25", "0.5"
+  maxPoints          Float
+  classId            String
+  class              Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  submissions        Submission[]
+  tasks              ExamTask[]
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 }
 
 enum SubmissionStatus {
@@ -151,20 +156,23 @@ model StepCorrection {
   begruendung        String
   istUnsicher        Boolean        @default(false)
   unsicherheitsGrund String?
+  box2d              Int[]          @default([]) // Optional [ymin, xmin, ymax, xmax] normalized 0..1000
+  pageNumber         Int?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 }
 
 model ExamTask {
-  id          String   @id @default(uuid())
-  examId      String
-  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  taskId      String   // e.g. "1"
-  title       String   // e.g. "Aufgabe 1"
-  maxPoints   Float
-  orderIndex  Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  examId          String
+  exam            Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  taskId          String   // e.g. "1"
+  title           String   // e.g. "Aufgabe 1"
+  maxPoints       Float
+  orderIndex      Int      @default(0)
+  sourceReference String?  // e.g. "Seite 2, Abschnitt 2.1"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([examId, taskId])
 }
@@ -189,3 +197,93 @@ model CorrectionLog {
   // Auditing payloads
   errorMessage  String?
 }
+
+model TeacherSession {
+  sid            String    @id
+  userId         String    @map("user_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at")
+  expiresAt      DateTime  @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  revokeReason   String?   @map("revoke_reason")
+
+  @@index([userId])
+  @@map("teacher_sessions")
+}
+
+model TeacherSessionRevocation {
+  userId            String   @id @map("user_id")
+  revokedBeforeUnix Int      @default(0) @map("revoked_before_unix")
+  updatedAt         DateTime @default(now()) @map("updated_at")
+
+  @@map("teacher_session_revocations")
+}
+
+model TeacherEmailVerification {
+  teacherId               String    @id @map("teacher_id")
+  emailVerified           Boolean   @default(true) @map("email_verified")
+  emailVerifiedAt         DateTime? @map("email_verified_at")
+  verificationTokenHash   String?   @map("verification_token_hash")
+  verificationSentAt      DateTime? @map("verification_sent_at")
+  verificationExpiresAt   DateTime? @map("verification_expires_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @default(now()) @map("updated_at")
+
+  @@index([verificationTokenHash])
+  @@map("teacher_email_verifications")
+}
+
+model TeacherFederatedIdentity {
+  id             String   @id
+  teacherId      String   @map("teacher_id")
+  provider       String
+  providerSubject String  @map("provider_subject")
+  providerEmail  String?  @map("provider_email")
+  tenantId       String?  @map("tenant_id")
+  displayName    String?  @map("display_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+  lastLoginAt    DateTime @default(now()) @map("last_login_at")
+
+  @@unique([provider, providerSubject])
+  @@index([teacherId])
+  @@map("teacher_federated_identities")
+}
+
+model ClassArchive {
+  classId    String   @id @map("class_id")
+  archivedAt DateTime @default(now()) @map("archived_at")
+
+  @@map("class_archives")
+}
+
+model TeacherSubjectPreference {
+  teacherId  String   @id @map("teacher_id")
+  subjects   String[] @default([])
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @map("updated_at")
+
+  @@map("teacher_subject_preferences")
+}
+
+model ClassSubjectPreference {
+  classId    String   @id @map("class_id")
+  subjects   String[] @default([])
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @map("updated_at")
+
+  @@map("class_subject_preferences")
+}
+
+model RelayDocument {
+  sessionId  String   @id @map("session_id")
+  id         String
+  teacherId  String   @map("teacher_id")
+  targetMode String   @map("target_mode")
+  payload    String
+  pageCount  Int      @default(1) @map("page_count")
+  createdAt  BigInt   @map("created_at")
+
+  @@index([teacherId])
+  @@map("relay_documents")
+}
+
