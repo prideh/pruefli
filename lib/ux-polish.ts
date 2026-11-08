@@ -200,7 +200,10 @@ export function buildFeedbackPrintHref(
 
 /**
  * Filters feedback sheets on /exams/[id]/print when a target submissionId is provided
- * via query parameter, falling back to all sheets if no submissionId is specified.
+ * via query parameter.
+ * IMPORTANT: If an explicit targetSubmissionId is requested and not found in `sheets`,
+ * returns an empty array `[]` (NEVER falls back to all student sheets) to prevent
+ * accidentally displaying or printing another student's feedback report.
  */
 export function filterFeedbackSheetsForPrint<T extends { submissionId: string }>(
   sheets: T[],
@@ -208,6 +211,5 @@ export function filterFeedbackSheetsForPrint<T extends { submissionId: string }>
 ): T[] {
   const trimmedId = (targetSubmissionId || '').trim();
   if (!trimmedId) return sheets;
-  const matched = sheets.filter((sheet) => sheet.submissionId === trimmedId);
-  return matched.length > 0 ? matched : sheets;
+  return sheets.filter((sheet) => sheet.submissionId === trimmedId);
 }

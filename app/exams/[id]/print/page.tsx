@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Box, Typography, Button, Stack, CircularProgress, Alert } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -39,28 +39,34 @@ interface FeedbackSheet {
   };
 }
 
-export default function ExamPrintFeedbackPage() {
-  const params = useParams();
-  const examId = params.id as string;
+export interface ExamPrintFeedbackContentProps {
+  initialData?: {
+    examTitle?: string;
+    sheets?: FeedbackSheet[];
+    totalCount?: number;
+    completedCount?: number;
+    ungradedCount?: number;
+  };
+  [key: string]: unknown;
+}
 
-  const [loading, setLoading] = useState(true);
+function ExamPrintFeedbackContent({ initialData }: ExamPrintFeedbackContentProps) {
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const examId = params.id as string;
+  const rawSubId = searchParams?.get('submissionId') ?? null;
+  const targetSubmissionId = rawSubId && rawSubId.trim() ? rawSubId.trim() : null;
+
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState('');
-  const [sheets, setSheets] = useState<FeedbackSheet[]>([]);
-  const [examTitle, setExamTitle] = useState('');
-  const [totalCount, setTotalCount] = useState(0);
-  const [completedCount, setCompletedCount] = useState(0);
-  const [ungradedCount, setUngradedCount] = useState(0);
-  const [targetSubmissionId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const sp = new URLSearchParams(window.location.search);
-      const subId = sp.get('submissionId');
-      return subId && subId.trim() ? subId.trim() : null;
-    }
-    return null;
-  });
+  const [sheets, setSheets] = useState<FeedbackSheet[]>(initialData?.sheets || []);
+  const [examTitle, setExamTitle] = useState(initialData?.examTitle || '');
+  const [totalCount, setTotalCount] = useState(initialData?.totalCount || 0);
+  const [completedCount, setCompletedCount] = useState(initialData?.completedCount || 0);
+  const [ungradedCount, setUngradedCount] = useState(initialData?.ungradedCount || 0);
 
   useEffect(() => {
-    if (!examId) return;
+    if (!examId || initialData) return;
 
     async function loadSheets() {
       try {
@@ -82,7 +88,7 @@ export default function ExamPrintFeedbackPage() {
     }
 
     loadSheets();
-  }, [examId]);
+  }, [examId, initialData]);
 
   const visibleSheets = React.useMemo(
     () => filterFeedbackSheetsForPrint(sheets, targetSubmissionId),
@@ -170,7 +176,7 @@ export default function ExamPrintFeedbackPage() {
               variant="contained"
               startIcon={<PrintIcon />}
               onClick={() => window.print()}
-              disabled={completedCount === 0}
+              disabled={completedCount === 0 || visibleSheets.length === 0}
               sx={{
                 borderRadius: '8px',
                 textTransform: 'none',
@@ -199,6 +205,40 @@ export default function ExamPrintFeedbackPage() {
               Zurück zur Prüfung
             </Button>
           </Link>
+        </Box>
+      ) : targetSubmissionId && visibleSheets.length === 0 ? (
+        <Box
+          sx={{ p: 6, textAlign: 'center', maxWidth: '640px', mx: 'auto' }}
+          data-testid="print-target-not-found"
+        >
+          <Alert severity="warning" sx={{ mb: 3, textAlign: 'left' }}>
+            Der angeforderte Feedback-Bericht (Korrektur-ID: {targetSubmissionId}) wurde unter den
+            abgeschlossenen Arbeiten dieser Prüfung nicht gefunden. Aus Datenschutzgründen werden
+            keine fremden Schülerberichte angezeigt.
+          </Alert>
+          <Typography variant="h6" sx={{ color: '#475569', fontWeight: 700, mb: 1 }}>
+            Gewünschter Feedback-Bericht nicht gefunden
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
+            Stelle sicher, dass die Korrektur für diese Schülerin bzw. diesen Schüler vollständig
+            abgeschlossen ist, oder kehre zur Korrekturansicht zurück.
+          </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link
+              href={`/correct/${targetSubmissionId}`}
+              passHref
+              style={{ textDecoration: 'none' }}
+            >
+              <Button variant="outlined" startIcon={<ArrowBackIcon />}>
+                Zurück zur Korrektur
+              </Button>
+            </Link>
+            <Link href={`/exams/${examId}`} passHref style={{ textDecoration: 'none' }}>
+              <Button variant="outlined" startIcon={<ArrowBackIcon />}>
+                Zurück zur Prüfung
+              </Button>
+            </Link>
+          </Stack>
         </Box>
       ) : (
         /* Sequential Feedback Sheets (one page per student) */
@@ -466,5 +506,19 @@ export default function ExamPrintFeedbackPage() {
         </Box>
       )}
     </Box>
+  );
+}
+
+export default function ExamPrintFeedbackPage({ initialData }: ExamPrintFeedbackContentProps) {
+  return (
+    <React.Suspense
+      fallback={
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 12 }}>
+          <CircularProgress size={40} />
+        </Box>
+      }
+    >
+      <ExamPrintFeedbackContent initialData={initialData} />
+    </React.Suspense>
   );
 }

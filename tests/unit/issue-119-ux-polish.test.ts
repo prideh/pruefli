@@ -1,9 +1,19 @@
 import React from 'react';
 import fs from 'fs';
 import path from 'path';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+
+const mockUseParams = vi.fn(() => ({ id: 'exam-123' }));
+const mockUseSearchParams = vi.fn(() => new URLSearchParams());
+
+vi.mock('next/navigation', () => ({
+  useParams: () => mockUseParams(),
+  useSearchParams: () => mockUseSearchParams(),
+}));
+
 import ErrorState from '@/components/ErrorState';
+import ExamPrintFeedbackPage from '@/app/exams/[id]/print/page';
 import {
   DEFAULT_ERROR_RECOVERY_HINT,
   resolveErrorStateMessage,
@@ -15,7 +25,73 @@ import {
   filterFeedbackSheetsForPrint,
 } from '@/lib/ux-polish';
 
+const SAMPLE_SHEETS = [
+  {
+    submissionId: 'sub-1',
+    examId: 'exam-123',
+    examTitle: 'Bruchrechnen 1',
+    fach: 'Mathematik',
+    className: 'Sek 2a',
+    schuelerName: 'Anna Beispiel',
+    datum: '08.11.2026',
+    gesamterzieltePunkte: 18,
+    gesamtmaximalPunkte: 20,
+    note: '5.5',
+    aufgaben: [
+      {
+        aufgabeId: '1',
+        titel: 'Aufgabe 1: Brüche kürzen',
+        schuelerAntwort: '3/4',
+        erzieltePunkte: 4,
+        maximalPunkte: 4,
+        status: 'Korrekt',
+        lehrerKommentar: 'Sehr sauber gelöst.',
+      },
+    ],
+    schuelerFeedback: {
+      staerken: ['Sicheres Kürzen'],
+      schwaechen: ['Vorzeichen bei Textaufgaben'],
+      hilfreicherTipp: 'Zwischenschritte immer notieren.',
+      uebungsEmpfehlung: 'Übungsblatt 3, Aufgaben 1–4.',
+    },
+  },
+  {
+    submissionId: 'sub-2',
+    examId: 'exam-123',
+    examTitle: 'Bruchrechnen 1',
+    fach: 'Mathematik',
+    className: 'Sek 2a',
+    schuelerName: 'Ben Muster',
+    datum: '08.11.2026',
+    gesamterzieltePunkte: 15,
+    gesamtmaximalPunkte: 20,
+    note: '4.8',
+    aufgaben: [
+      {
+        aufgabeId: '1',
+        titel: 'Aufgabe 1: Brüche kürzen',
+        schuelerAntwort: '6/8',
+        erzieltePunkte: 3,
+        maximalPunkte: 4,
+        status: 'Folgefehler',
+        lehrerKommentar: 'Nicht vollständig gekürzt.',
+      },
+    ],
+    schuelerFeedback: {
+      staerken: ['Guter Ansatz'],
+      schwaechen: ['Endresultat vollständig kürzen'],
+      hilfreicherTipp: 'Prüfe den grössten gemeinsamen Teiler.',
+      uebungsEmpfehlung: 'Übungsblatt 2, Aufgaben 5–8.',
+    },
+  },
+];
+
 describe('Issue #119 UX Polish Regression Suite (5 verified UX items)', () => {
+  beforeEach(() => {
+    mockUseParams.mockReturnValue({ id: 'exam-123' });
+    mockUseSearchParams.mockReturnValue(new URLSearchParams());
+  });
+
   describe('1. Duplicate Error Heading / Body on /exams and /submissions', () => {
     it('replaces identical heading and message with actionable recovery hint while preserving distinct messages', () => {
       expect(
@@ -212,38 +288,85 @@ describe('Issue #119 UX Polish Regression Suite (5 verified UX items)', () => {
     });
   });
 
-  describe('5. "Feedback drucken" on /correct/[id] Navigates to /exams/[id]/print Instead of Blank Tab', () => {
-    it('builds dedicated print view href with submissionId filter and filters sheets accurately', () => {
+  describe('5. "Feedback drucken" on /correct/[id] Navigates to /exams/[id]/print Safely Without Leaking Other Students', () => {
+    it('builds dedicated print view href and NEVER falls back to all sheets when targetSubmissionId is missing', () => {
       expect(buildFeedbackPrintHref('exam-123', 'sub-456')).toBe(
         '/exams/exam-123/print?submissionId=sub-456'
       );
       expect(buildFeedbackPrintHref('exam-123')).toBe('/exams/exam-123/print');
       expect(buildFeedbackPrintHref('')).toBeNull();
 
-      const sheets = [
-        { submissionId: 'sub-1', schuelerName: 'Anna' },
-        { submissionId: 'sub-2', schuelerName: 'Ben' },
-      ];
-      expect(filterFeedbackSheetsForPrint(sheets, 'sub-2')).toEqual([
-        { submissionId: 'sub-2', schuelerName: 'Ben' },
-      ]);
-      expect(filterFeedbackSheetsForPrint(sheets, null)).toHaveLength(2);
+      expect(filterFeedbackSheetsForPrint(SAMPLE_SHEETS, 'sub-2')).toEqual([SAMPLE_SHEETS[1]]);
+      expect(filterFeedbackSheetsForPrint(SAMPLE_SHEETS, 'sub-missing-id')).toEqual([]);
+      expect(filterFeedbackSheetsForPrint(SAMPLE_SHEETS, null)).toHaveLength(2);
     });
 
-    it('wires buildFeedbackPrintHref in /correct/[id] and filterFeedbackSheetsForPrint in /exams/[id]/print', () => {
-      const correctPage = fs.readFileSync(
-        path.resolve(__dirname, '../../app/correct/[id]/page.tsx'),
-        'utf-8'
-      );
-      expect(correctPage).toContain('buildFeedbackPrintHref(data.examId, String(id))');
-      expect(correctPage).toContain('router.push(printHref)');
+    it('renders ONLY the requested student sheet when ?submissionId=sub-2 is passed via useSearchParams', () => {
+      mockUseSearchParams.mockReturnValue(new URLSearchParams('submissionId=sub-2'));
 
-      const printPage = fs.readFileSync(
-        path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'),
-        'utf-8'
+      const html = renderToStaticMarkup(
+        React.createElement(ExamPrintFeedbackPage, {
+          initialData: {
+            examTitle: 'Bruchrechnen 1',
+            sheets: SAMPLE_SHEETS,
+            totalCount: 2,
+            completedCount: 2,
+            ungradedCount: 0,
+          },
+        })
       );
-      expect(printPage).toContain('filterFeedbackSheetsForPrint(sheets, targetSubmissionId)');
-      expect(printPage).toContain('Zurück zur Korrektur');
+
+      expect(html).toContain('Schüler: Ben Muster');
+      expect(html).not.toContain('Anna Beispiel');
+      expect(html).toContain('Zurück zur Korrektur');
+      expect(html).toContain('href="/correct/sub-2"');
+      expect(html).toContain('Jetzt drucken (1 Schüler/innen)');
+    });
+
+    it('renders explicit not-found state, 0 student sheets, and disables print button when ?submissionId is missing/invalid', () => {
+      mockUseSearchParams.mockReturnValue(new URLSearchParams('submissionId=sub-invalid-999'));
+
+      const html = renderToStaticMarkup(
+        React.createElement(ExamPrintFeedbackPage, {
+          initialData: {
+            examTitle: 'Bruchrechnen 1',
+            sheets: SAMPLE_SHEETS,
+            totalCount: 2,
+            completedCount: 2,
+            ungradedCount: 0,
+          },
+        })
+      );
+
+      expect(html).toContain('data-testid="print-target-not-found"');
+      expect(html).toContain('Gewünschter Feedback-Bericht nicht gefunden');
+      expect(html).toContain('sub-invalid-999');
+      expect(html).not.toContain('Anna Beispiel');
+      expect(html).not.toContain('Ben Muster');
+      expect(html).not.toContain('class="print-page"');
+      expect(html).toContain('Jetzt drucken (0 Schüler/innen)');
+      expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*Jetzt drucken \(0 Schüler\/innen\)/);
+    });
+
+    it('renders all completed sheets when no submissionId query parameter is present', () => {
+      mockUseSearchParams.mockReturnValue(new URLSearchParams());
+
+      const html = renderToStaticMarkup(
+        React.createElement(ExamPrintFeedbackPage, {
+          initialData: {
+            examTitle: 'Bruchrechnen 1',
+            sheets: SAMPLE_SHEETS,
+            totalCount: 3,
+            completedCount: 2,
+            ungradedCount: 1,
+          },
+        })
+      );
+
+      expect(html).toContain('Schüler: Anna Beispiel');
+      expect(html).toContain('Schüler: Ben Muster');
+      expect(html).toContain('Jetzt drucken (2 Schüler/innen)');
+      expect(html).toContain('1 of 3 not yet graded - not included');
     });
   });
 });
