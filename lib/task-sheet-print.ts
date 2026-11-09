@@ -460,12 +460,18 @@ const HEADER_FIELD_LABELS = [
 
 const HEADER_LABEL_REGEX = new RegExp(`^(?:${HEADER_FIELD_LABELS.join('|')})$`, 'i');
 
+const HEADER_VALUE_TOKEN_REGEX =
+  /^(?:[_\s.,/\-–—0-9()[\]]|(?:p\.?|pt\.?|pkt\.?|punkte?n?|min\.?|minuten?|std\.?|stunden?|von|aus|max\.?)(?=$|[\s.,/\-–—0-9()[\]]))+$/i;
+
+const ORPHAN_SCORE_LINE_REGEX =
+  /^(?:[_.]{3,}\s*)?\/\s*\d+(?:[.,]\d+)?(?:\s*(?:p\.?|pt\.?|pkt\.?|punkte?n?))?$/i;
+
 function cleanMarkdownFormattingForCheck(line: string): string {
   return line
     .replace(/^[-*+•]\s+/, '')
     .replace(/^[#>]+/, '')
     .replace(/\*\*/g, '')
-    .replace(/__/g, '')
+    .replace(/__([^_]+)__/g, '$1')
     .replace(/`/g, '')
     .trim();
 }
@@ -474,6 +480,10 @@ function isDuplicateMetadataSegment(segment: string): boolean {
   const cleaned = cleanMarkdownFormattingForCheck(segment);
   if (!cleaned) return true;
 
+  if (ORPHAN_SCORE_LINE_REGEX.test(cleaned)) {
+    return true;
+  }
+
   const colonIdx = cleaned.indexOf(':');
   if (colonIdx !== -1) {
     const label = cleaned.slice(0, colonIdx).trim();
@@ -481,7 +491,7 @@ function isDuplicateMetadataSegment(segment: string): boolean {
     if (HEADER_LABEL_REGEX.test(label)) {
       if (
         value === '' ||
-        /^[_\s./\-–—0-9pPtT()[\]]+$/.test(value) ||
+        HEADER_VALUE_TOKEN_REGEX.test(value) ||
         label.toLowerCase() === 'datum' ||
         label.toLowerCase() === 'klasse' ||
         label.toLowerCase() === 'fach'
@@ -492,7 +502,9 @@ function isDuplicateMetadataSegment(segment: string): boolean {
   }
 
   const blankMatch =
-    /^([A-Za-zÄÖÜäöü\s/.]+?)\s+[_.]{3,}(?:\s*\/\s*\d+(?:\s*(?:P\.?|Punkte))?)?$/i.exec(cleaned);
+    /^([A-Za-zÄÖÜäöü\s/.]+?)\s*:?\s+[_.]{3,}(?:\s*(?:\/|von|aus)\s*\d+(?:[.,]\d+)?(?:\s*(?:P\.?|Pt\.?|Pkt\.?|Punkte?n?))?)?$/i.exec(
+      cleaned
+    );
   if (blankMatch && HEADER_LABEL_REGEX.test(blankMatch[1].trim())) {
     return true;
   }
@@ -528,12 +540,15 @@ function isDuplicateMetadataLine(line: string): boolean {
     return true;
   }
 
-  const multiColonMatches = [
-    ...cleanMarkdownFormattingForCheck(trimmed).matchAll(
-      new RegExp(`\\b(${HEADER_FIELD_LABELS.join('|')})\\s*:`, 'gi')
-    ),
-  ];
-  if (multiColonMatches.length >= 2) {
+  const cleanedLine = cleanMarkdownFormattingForCheck(trimmed);
+  const inlineFieldSplit = cleanedLine
+    .split(new RegExp(`(?=\\b(?:${HEADER_FIELD_LABELS.join('|')})\\s*:)`, 'i'))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (
+    inlineFieldSplit.length >= 2 &&
+    inlineFieldSplit.every((seg) => isDuplicateMetadataSegment(seg))
+  ) {
     return true;
   }
 

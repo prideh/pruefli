@@ -81,7 +81,7 @@ Kapitel 3 (Seite 9): Textaufgabe zur Altersdifferenz.`;
               className: 'Sekundarklasse 3a',
               subject: 'Mathematik',
               maxPoints: 10,
-              examTemplateText: `# Lineare Gleichungen\n\n**Name:** _______________________\n**Datum:** _______________________\n**Punkte:** ______ / 10\n\n---\n\n### Hinweise:\n- Löse alle Aufgaben **direkt auf diesem Blatt**.\n\n---\n\n## Aufgabe 1 (4 Pkt.)\nLöse die Gleichung:\n$$8 + 5 = \\text{_____}$$\n\n## ${task2Title} (6 Pkt.)\nLöse $\\frac{x + 3}{2} = 7$.`,
+              examTemplateText: `# Lineare Gleichungen\n\n**Name:** _______________________\n**Datum:** _______________________\n**Punkte:** _____ / 10 Punkte\n\n---\n\n### Hinweise:\n- Löse alle Aufgaben **direkt auf diesem Blatt**.\n\n---\n\n## Aufgabe 1 (4 Pkt.)\nLöse die Gleichung:\n$$8 + 5 = \\text{_____}$$\n\n## ${task2Title} (6 Pkt.)\nLöse $\\frac{x + 3}{2} = 7$.`,
               rubricText: `# Musterlösung\n\n## Aufgabe 1 (4 Pkt.)\nx = 4 (4 P.)\n\n## ${task2Title} (6 Pkt.)\n2x + 6 = 14 -> x = 4 (6 P.)`,
               gradingNotes: 'Lehrperson Hinweise',
               isGenerated: true,
@@ -235,6 +235,8 @@ Kapitel 3 (Seite 9): Textaufgabe zur Altersdifferenz.`;
     expect(bodyText).not.toContain('\\frac');
     expect(bodyText).not.toContain('Name:');
     expect(bodyText).not.toContain('Datum:');
+    expect(bodyText).not.toContain('Punkte:');
+    expect(bodyText).not.toContain('/ 10 Punkte');
 
     // Verify QR code badge is OFF by default and can be toggled ON
     await expect(page.getByTestId('smart-exam-qr-badge')).toHaveCount(0);
