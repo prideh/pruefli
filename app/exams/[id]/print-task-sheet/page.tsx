@@ -20,12 +20,20 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PrintIcon from '@mui/icons-material/Print';
 import LockIcon from '@mui/icons-material/Lock';
 import QRCode from 'qrcode';
+import 'katex/dist/katex.min.css';
 import { buildExamSheetQrPayload, type ExamGeneratorParams } from '@/lib/exam-meta';
+import {
+  parseInlineTaskSheetTokens,
+  parseTaskSheetBlocks,
+  stripInlineMarkdown,
+  type InlineTaskSheetToken,
+} from '@/lib/task-sheet-print';
 
 interface TaskItem {
   id: string;
-  taskId: string;
-  title: string;
+  taskId?: string;
+  title?: string;
+  question?: string;
   maxPoints: number;
   sourceReference?: string | null;
 }
@@ -42,6 +50,80 @@ interface ExamPrintData {
   approvedAt?: string | null;
   generatorParams?: ExamGeneratorParams | null;
   tasks: TaskItem[];
+}
+
+function renderInlineTokens(tokens: InlineTaskSheetToken[]): React.ReactNode {
+  return tokens.map((token, idx) => {
+    if (token.type === 'bold') {
+      return (
+        <Box key={idx} component="strong" sx={{ fontWeight: 700, color: '#0f172a' }}>
+          {token.tokens ? renderInlineTokens(token.tokens) : token.content}
+        </Box>
+      );
+    }
+    if (token.type === 'italic') {
+      return (
+        <Box key={idx} component="em" sx={{ fontStyle: 'italic' }}>
+          {token.tokens ? renderInlineTokens(token.tokens) : token.content}
+        </Box>
+      );
+    }
+    if (token.type === 'code') {
+      return (
+        <Box
+          key={idx}
+          component="code"
+          sx={{
+            fontFamily: 'monospace',
+            backgroundColor: '#f1f5f9',
+            px: 0.5,
+            py: 0.15,
+            borderRadius: '3px',
+            fontSize: '0.92em',
+          }}
+        >
+          {token.content}
+        </Box>
+      );
+    }
+    if (token.type === 'math') {
+      if (token.isFallback) {
+        return (
+          <Box
+            key={idx}
+            component="code"
+            data-testid="task-sheet-math-fallback"
+            sx={{
+              fontFamily: 'monospace',
+              backgroundColor: '#f1f5f9',
+              border: '1px dashed #64748b',
+              px: 0.6,
+              py: 0.15,
+              mx: 0.25,
+              borderRadius: '3px',
+              fontSize: '0.9em',
+            }}
+          >
+            {token.latex}
+          </Box>
+        );
+      }
+      return (
+        <Box
+          key={idx}
+          component="span"
+          data-testid="task-sheet-inline-math"
+          sx={{
+            display: 'inline-block',
+            verticalAlign: 'middle',
+            mx: 0.15,
+          }}
+          dangerouslySetInnerHTML={{ __html: token.html }}
+        />
+      );
+    }
+    return <React.Fragment key={idx}>{token.content}</React.Fragment>;
+  });
 }
 
 export default function ExamPrintTaskSheetPage() {
@@ -64,7 +146,7 @@ export default function ExamPrintTaskSheetPage() {
           throw new Error('Prüfungsdetails konnten nicht geladen werden.');
         }
         const data = await res.json();
-        setExam(data.exam);
+        setExam(data.exam ?? data);
         setShowQrSheet(Boolean(data.exam?.generatorParams?.enableQrSheet));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Fehler beim Laden.');
@@ -149,15 +231,21 @@ export default function ExamPrintTaskSheetPage() {
         </Alert>
         <Link href={`/exams/${examId}`} passHref style={{ textDecoration: 'none' }}>
           <Button variant="contained" startIcon={<ArrowBackIcon />} sx={{ borderRadius: '8px' }}>
-            Zurück zum Editor & Freigabe erteilen
+            Zurück zum Editor &amp; Freigabe erteilen
           </Button>
         </Link>
       </Box>
     );
   }
 
-  // Split tasks from template text if formatted
+  // Parse structured blocks from template text (strips duplicate header & formats Markdown/LaTeX)
   const templateText = exam.examTemplateText || '';
+  const templateBlocks = parseTaskSheetBlocks(templateText, { examTitle: exam.title });
+  const totalMaxPoints =
+    Number(exam.maxPoints) ||
+    (Array.isArray(exam.tasks)
+      ? exam.tasks.reduce((sum, t) => sum + (Number(t.maxPoints) || 0), 0)
+      : 0);
 
   return (
     <Box sx={{ backgroundColor: '#ffffff', minHeight: '100vh', p: { xs: 2, sm: 4 } }}>
@@ -285,80 +373,267 @@ export default function ExamPrintTaskSheetPage() {
                   />
                   <Typography
                     variant="caption"
-                    sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#0f172a', mt: 0.25 }}
+                    sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#334155', mt: 0.25 }}
                   >
-                    prüefli QR
+                    Auto-Zuordnung
                   </Typography>
                 </Box>
               )}
               <Box
                 sx={{
                   textAlign: 'right',
-                  border: '1px solid #0f172a',
+                  border: '1px solid #cbd5e1',
                   p: 1.5,
                   borderRadius: '4px',
-                  minWidth: '130px',
+                  minWidth: '145px',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
               >
                 <Typography
                   variant="caption"
-                  sx={{ display: 'block', fontWeight: 700, color: 'text.secondary' }}
+                  sx={{
+                    color: 'text.secondary',
+                    display: 'block',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                  }}
                 >
-                  Max. Punkte: {exam.maxPoints} P.
+                  Max. Punkte: {totalMaxPoints} P.
                 </Typography>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 0.5 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, mt: 0.5, whiteSpace: 'nowrap' }}>
                   Punkte: ______
                 </Typography>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 0.5 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, mt: 0.5, whiteSpace: 'nowrap' }}>
                   Note: ________
                 </Typography>
               </Box>
             </Stack>
           </Stack>
 
-          {/* Student metadata fields */}
           <Box
             sx={{
               display: 'grid',
               gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr' },
-              gap: 2,
-              mt: 2,
+              gap: 3,
+              mt: 2.5,
             }}
           >
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              Name / Vorname: __________________________________________________
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden' }}
+            >
+              Name / Vorname: ______________________________________
             </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              Datum: ________________________
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden' }}
+            >
+              Datum: ______________________
             </Typography>
           </Box>
         </Box>
 
         {/* Exam Template Body / Tasks */}
-        {templateText ? (
+        {templateBlocks.length > 0 ? (
           <Box
+            data-testid="formatted-task-sheet-body"
             sx={{
               fontFamily: 'inherit',
-              whiteSpace: 'pre-wrap',
               lineHeight: 1.7,
               fontSize: '0.98rem',
               color: '#0f172a',
-              '& h1, & h2, & h3, & h4': {
-                fontWeight: 800,
-                color: '#0f172a',
-                mt: 3,
-                mb: 1.5,
-                pageBreakAfter: 'avoid',
-              },
             }}
           >
-            {templateText}
+            {templateBlocks.map((block, index) => {
+              if (block.type === 'heading') {
+                if (block.variant === 'task') {
+                  return (
+                    <Box
+                      key={index}
+                      sx={{
+                        mt: index === 0 ? 0.5 : 2.25,
+                        mb: 1,
+                        pb: 0.5,
+                        borderBottom: '1px solid #cbd5e1',
+                        pageBreakAfter: 'avoid',
+                      }}
+                    >
+                      <Typography
+                        component="h3"
+                        variant="h6"
+                        sx={{
+                          fontWeight: 800,
+                          fontSize: '1.05rem',
+                          color: '#0f172a',
+                          letterSpacing: '-0.01em',
+                        }}
+                      >
+                        {renderInlineTokens(block.tokens)}
+                      </Typography>
+                    </Box>
+                  );
+                }
+
+                return (
+                  <Typography
+                    key={index}
+                    component="h3"
+                    variant="subtitle1"
+                    sx={{
+                      fontWeight: 800,
+                      fontSize: '1rem',
+                      color: '#0f172a',
+                      mt: index === 0 ? 0.5 : 1.75,
+                      mb: 0.75,
+                      pageBreakAfter: 'avoid',
+                    }}
+                  >
+                    {renderInlineTokens(block.tokens)}
+                  </Typography>
+                );
+              }
+
+              if (block.type === 'divider') {
+                return <Divider key={index} sx={{ my: 1.5, borderColor: '#cbd5e1' }} />;
+              }
+
+              if (block.type === 'math') {
+                if (block.isFallback) {
+                  return (
+                    <Box
+                      key={index}
+                      component="code"
+                      data-testid="task-sheet-math-fallback"
+                      sx={{
+                        display: 'block',
+                        my: 1.5,
+                        py: 1,
+                        px: 1.5,
+                        backgroundColor: '#f8fafc',
+                        border: '1px dashed #64748b',
+                        borderRadius: '6px',
+                        fontFamily: 'monospace',
+                        fontSize: '0.95rem',
+                        color: '#0f172a',
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {block.latex}
+                    </Box>
+                  );
+                }
+                return (
+                  <Box
+                    key={index}
+                    data-testid="task-sheet-math-block"
+                    sx={{
+                      my: 1.5,
+                      py: 1.25,
+                      px: 2,
+                      backgroundColor: '#f8fafc',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '6px',
+                      fontSize: '1.08rem',
+                      color: '#0f172a',
+                      pageBreakInside: 'avoid',
+                      overflowX: 'auto',
+                      '& .katex-display': {
+                        margin: 0,
+                        textAlign: 'left',
+                      },
+                    }}
+                    dangerouslySetInnerHTML={{ __html: block.html }}
+                  />
+                );
+              }
+
+              if (block.type === 'list') {
+                return (
+                  <Stack
+                    key={index}
+                    component={block.ordered ? 'ol' : 'ul'}
+                    spacing={0.75}
+                    sx={{ my: 1, pl: 0, listStyle: 'none' }}
+                  >
+                    {block.items.map((item, itemIdx) => (
+                      <Box
+                        key={itemIdx}
+                        component="li"
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          gap: 1.25,
+                          lineHeight: 1.65,
+                        }}
+                      >
+                        <Typography
+                          component="span"
+                          sx={{
+                            fontWeight: 700,
+                            minWidth: block.ordered ? '1.6rem' : '0.9rem',
+                            color: '#0f172a',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {item.marker || '•'}
+                        </Typography>
+                        <Typography
+                          component="span"
+                          sx={{
+                            fontSize: '0.98rem',
+                            color: '#0f172a',
+                            overflowWrap: 'anywhere',
+                          }}
+                        >
+                          {renderInlineTokens(item.tokens)}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                );
+              }
+
+              if (block.type === 'answer-lines') {
+                return (
+                  <Box key={index} sx={{ my: 1.5 }}>
+                    {Array.from({ length: block.count }).map((_, lineIdx) => (
+                      <Box
+                        key={lineIdx}
+                        sx={{
+                          pt: 1.5,
+                          borderBottom: '1px dashed #64748b',
+                          minHeight: '28px',
+                        }}
+                        aria-label="Antwortlinie"
+                      />
+                    ))}
+                  </Box>
+                );
+              }
+
+              return (
+                <Typography
+                  key={index}
+                  variant="body1"
+                  sx={{
+                    my: 1,
+                    lineHeight: 1.7,
+                    fontSize: '0.98rem',
+                    color: '#0f172a',
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {renderInlineTokens(block.tokens)}
+                </Typography>
+              );
+            })}
           </Box>
         ) : (
           <Stack spacing={3.5}>
             {exam.tasks.map((task, index) => (
               <Box
-                key={task.id || task.taskId}
+                key={task.id || task.taskId || index}
                 sx={{
                   pageBreakInside: 'avoid',
                   border: '1px solid #e2e8f0',
@@ -371,7 +646,9 @@ export default function ExamPrintTaskSheetPage() {
                   sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}
                 >
                   <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#0f172a' }}>
-                    {task.title || `Aufgabe ${index + 1}`}
+                    {task.question
+                      ? renderInlineTokens(parseInlineTaskSheetTokens(task.question))
+                      : stripInlineMarkdown(task.title || '') || `Aufgabe ${index + 1}`}
                   </Typography>
                   <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
                     [{task.maxPoints} {task.maxPoints === 1 ? 'Punkt' : 'Punkte'}]
@@ -392,7 +669,7 @@ export default function ExamPrintTaskSheetPage() {
           </Stack>
         )}
 
-        <Divider sx={{ my: 4 }} />
+        <Divider sx={{ my: 2 }} />
 
         {/* Footer */}
         <Stack
