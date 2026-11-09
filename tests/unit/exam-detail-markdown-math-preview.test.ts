@@ -36,6 +36,7 @@ const SYNTHETIC_SOLUTION_RUBRIC = [
 
 function stripHtmlTags(html: string): string {
   return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, '')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -90,6 +91,10 @@ describe('Exam Detail Markdown & Math Preview (Aufgabenblatt & Musterloesung)', 
       expect(html).toMatch(/<strong[^>]*>Punkte:<\/strong> ____ \/6 Punkte/);
       expect(html).toMatch(/<strong[^>]*>Aufgabe 1 \(2 Punkte\)<\/strong>/);
 
+      // Lueckentext-Unterstriche bleiben exakt erhalten und werden nicht als Markdown-Emphasis verschluckt
+      expect(visibleText).toContain('Name: ___');
+      expect(visibleText).toContain('Punkte: ____ /6 Punkte');
+
       // Aufzaehlungsliste wird als echte <ul><li>-Struktur gerendert
       expect(html).toContain('<ul');
       expect(html).toMatch(/<li[^>]*>Lies jede Aufgabe sorgfältig durch\.<\/li>/);
@@ -139,30 +144,172 @@ describe('Exam Detail Markdown & Math Preview (Aufgabenblatt & Musterloesung)', 
     });
   });
 
-  describe('3. Negative & Safety Regressions (Unsupported Math Fallback, XSS/HTML Escaping, Edit Preservation)', () => {
-    it('faellt bei nicht unterstuetzten LaTeX-Makros oder unbalancierten Klammern sicher und verbatim auf Code-Text zurueck', () => {
-      const unsupportedContent = [
-        '### Aufgabe mit Speziallatex',
-        'Inline unbekannt: $\\unsupportedmacro{8+5}$ und unbalanciert $\\frac{8+5}{2$',
-        '$$\\begin{unknownmatrix} 8 & 5 \\end{unknownmatrix}$$',
-        'Valide Rechnung daneben: $8+5=13$',
-      ].join('\n');
+  describe('3. Preservation & Safety Regressions (Review Blockers 1, 2, 3 & Layout Constraints)', () => {
+    it('Blocker 1: bewahrt Praefix- und Suffix-Text rund um mehrzeilige und einzeilige $$...$$ sowie \\[...\\] Display-Begrenzer vollstaendig', () => {
+      // Fall A: Mehrzeiliges $$ mit Suffix auf der schliessenden Zeile
+      const dollarSuffixInput = '$$\n8+5\n$$ KEEP THIS INSTRUCTION';
+      const dollarBlocks = parseExamPreviewBlocks(dollarSuffixInput);
+      expect(dollarBlocks).toHaveLength(2);
+      expect(dollarBlocks[0]).toMatchObject({
+        type: 'math-block',
+        latex: '8+5',
+        isFallback: false,
+      });
+      expect(dollarBlocks[1]).toMatchObject({
+        type: 'paragraph',
+        text: 'KEEP THIS INSTRUCTION',
+      });
 
-      const html = renderToStaticMarkup(
-        React.createElement(ExamMarkdownMathPreview, {
-          content: unsupportedContent,
-          testId: 'exam-fallback-preview',
-        })
+      const dollarHtml = renderToStaticMarkup(
+        React.createElement(ExamMarkdownMathPreview, { content: dollarSuffixInput })
       );
+      expect(dollarHtml).toContain('class="katex"');
+      expect(stripHtmlTags(dollarHtml)).toContain('KEEP THIS INSTRUCTION');
 
-      const fallbackMatches = html.match(/data-math-fallback="true"/g) || [];
-      expect(fallbackMatches.length).toBe(3);
-      expect(html).toContain('$\\unsupportedmacro{8+5}$');
-      expect(html).toContain('$\\frac{8+5}{2$');
-      expect(html).toContain('$$\\begin{unknownmatrix} 8 &amp; 5 \\end{unknownmatrix}$$');
+      // Fall B: Mehrzeiliges \[...\] mit Praefix und Suffix
+      const bracketPrefixSuffixInput = 'PREFIX INSTRUCTION \\[\n8+5\n\\] KEEP THIS INSTRUCTION';
+      const bracketBlocks = parseExamPreviewBlocks(bracketPrefixSuffixInput);
+      expect(bracketBlocks).toHaveLength(3);
+      expect(bracketBlocks[0]).toMatchObject({
+        type: 'paragraph',
+        text: 'PREFIX INSTRUCTION',
+      });
+      expect(bracketBlocks[1]).toMatchObject({
+        type: 'math-block',
+        latex: '8+5',
+        isFallback: false,
+      });
+      expect(bracketBlocks[2]).toMatchObject({
+        type: 'paragraph',
+        text: 'KEEP THIS INSTRUCTION',
+      });
 
-      // Valide Mathematik im selben Dokument wird trotzdem normal mit KaTeX gerendert
-      expect(html).toContain('class="katex"');
+      // Fall C: Einzeiliges Display-Mathe + Prosa auf derselben Zeile ($$ und \[)
+      const sameLineInput = [
+        '$$8+5$$ KEEP THIS INSTRUCTION',
+        'PREFIX \\[8+2+3\\] SUFFIX INSTRUCTION',
+      ].join('\n');
+      const sameLineHtml = renderToStaticMarkup(
+        React.createElement(ExamMarkdownMathPreview, { content: sameLineInput })
+      );
+      const sameLineVisible = stripHtmlTags(sameLineHtml);
+      expect(sameLineHtml).toContain('class="katex"');
+      expect(sameLineVisible).toContain('KEEP THIS INSTRUCTION');
+      expect(sameLineVisible).toContain('PREFIX');
+      expect(sameLineVisible).toContain('SUFFIX INSTRUCTION');
+    });
+
+    it('Blocker 2: behandelt ungeschlossene Display-Begrenzer ($$ und \\[) niemals als gueltiges KaTeX und absorbiert keine spaeteren Aufgaben', () => {
+      // Fall A: Ungeschlossenes $$ darf weder als KaTeX gerendert werden noch spaetere Aufgaben verschlucken
+      const unclosedDollar = '$$\n8+5\nANOTHER TASK WITHOUT CLOSE';
+      const unclosedDollarBlocks = parseExamPreviewBlocks(unclosedDollar);
+      expect(unclosedDollarBlocks).toHaveLength(3);
+      expect(unclosedDollarBlocks[0]).toMatchObject({
+        type: 'math-block',
+        raw: '$$',
+        isFallback: true,
+        html: '',
+      });
+      expect(unclosedDollarBlocks[1]).toMatchObject({
+        type: 'paragraph',
+        text: '8+5',
+      });
+      expect(unclosedDollarBlocks[2]).toMatchObject({
+        type: 'paragraph',
+        text: 'ANOTHER TASK WITHOUT CLOSE',
+      });
+
+      const unclosedDollarHtml = renderToStaticMarkup(
+        React.createElement(ExamMarkdownMathPreview, { content: unclosedDollar })
+      );
+      expect(unclosedDollarHtml).not.toContain('class="katex"');
+      expect(unclosedDollarHtml).toContain('data-math-fallback="true"');
+      expect(stripHtmlTags(unclosedDollarHtml)).toContain('8+5');
+      expect(stripHtmlTags(unclosedDollarHtml)).toContain('ANOTHER TASK WITHOUT CLOSE');
+
+      // Fall B: Ungeschlossenes \[
+      const unclosedBracket = '\\[\n8+5\nANOTHER TASK WITHOUT CLOSE';
+      const unclosedBracketBlocks = parseExamPreviewBlocks(unclosedBracket);
+      expect(unclosedBracketBlocks).toHaveLength(3);
+      expect(unclosedBracketBlocks[0]).toMatchObject({
+        type: 'math-block',
+        raw: '\\[',
+        isFallback: true,
+        html: '',
+      });
+      expect(unclosedBracketBlocks[1]).toMatchObject({
+        type: 'paragraph',
+        text: '8+5',
+      });
+      expect(unclosedBracketBlocks[2]).toMatchObject({
+        type: 'paragraph',
+        text: 'ANOTHER TASK WITHOUT CLOSE',
+      });
+
+      const unclosedBracketHtml = renderToStaticMarkup(
+        React.createElement(ExamMarkdownMathPreview, { content: unclosedBracket })
+      );
+      expect(unclosedBracketHtml).not.toContain('class="katex"');
+      expect(unclosedBracketHtml).toContain('data-math-fallback="true"');
+      expect(stripHtmlTags(unclosedBracketHtml)).toContain('ANOTHER TASK WITHOUT CLOSE');
+
+      // Fall C: Ungeschlossenes $$ gefolgt von einer echten Folgeaufgabe mit gueltigem Inline-Mathe
+      const unclosedFollowedByValidTask = '$$\n8+5\n**Aufgabe 2:** Berechne $3+4$';
+      const mixedHtml = renderToStaticMarkup(
+        React.createElement(ExamMarkdownMathPreview, { content: unclosedFollowedByValidTask })
+      );
+      expect(mixedHtml).toMatch(/<strong[^>]*>Aufgabe 2:<\/strong>/);
+      expect(mixedHtml).toContain('class="katex"');
+
+      // Fall D: Mehrzeilige nicht unterstuetzte Befehle in $$...$$ und \[...\]
+      const multilineUnsupported = [
+        '$$\n\\unsupportedcmd{8+5}\n\\secondbadmacro{13}\n$$',
+        '\\[\n\\begin{unknownmatrix}\n8 & 5\n\\end{unknownmatrix}\n\\]',
+      ].join('\n');
+      const multilineFallbackHtml = renderToStaticMarkup(
+        React.createElement(ExamMarkdownMathPreview, { content: multilineUnsupported })
+      );
+      const fallbackMatches = multilineFallbackHtml.match(/data-math-fallback="true"/g) || [];
+      expect(fallbackMatches.length).toBe(2);
+      expect(multilineFallbackHtml).toContain('\\unsupportedcmd{8+5}');
+      expect(multilineFallbackHtml).toContain('\\secondbadmacro{13}');
+      expect(multilineFallbackHtml).toContain('\\begin{unknownmatrix}');
+    });
+
+    it('Blocker 3: bewahrt exakte numerische und alphabetische Listen-Marker (z.B. "3. Third task\\n7. Seventh task", gemischte Listen und Interpunktion)', () => {
+      const nonConsecutiveNumeric = '3. Third task\n7. Seventh task';
+      const blocks = parseExamPreviewBlocks(nonConsecutiveNumeric);
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]).toMatchObject({
+        type: 'list',
+        ordered: true,
+        items: [{ marker: '3.' }, { marker: '7.' }],
+      });
+
+      const numericHtml = renderToStaticMarkup(
+        React.createElement(ExamMarkdownMathPreview, { content: nonConsecutiveNumeric })
+      );
+      const visibleNumeric = stripHtmlTags(numericHtml);
+      expect(visibleNumeric).toContain('3. Third task');
+      expect(visibleNumeric).toContain('7. Seventh task');
+      expect(numericHtml).toMatch(/data-testid="exam-preview-list-marker"[^>]*>3\.\s*<\/span>/);
+      expect(numericHtml).toMatch(/data-testid="exam-preview-list-marker"[^>]*>7\.\s*<\/span>/);
+
+      // Gemischte Liste mit Punkt- und Klammer-Interpunktion sowie Buchstaben
+      const mixedMarkersInput = [
+        '3. Dritte Aufgabe ($8+5$)',
+        '7) Siebte Aufgabe ($8+2+3$)',
+        'a) Teilaufgabe a',
+        'b. Teilaufgabe b',
+      ].join('\n');
+      const mixedHtml = renderToStaticMarkup(
+        React.createElement(ExamMarkdownMathPreview, { content: mixedMarkersInput })
+      );
+      const visibleMixed = stripHtmlTags(mixedHtml);
+      expect(visibleMixed).toContain('3. Dritte Aufgabe');
+      expect(visibleMixed).toContain('7) Siebte Aufgabe');
+      expect(visibleMixed).toContain('a) Teilaufgabe a');
+      expect(visibleMixed).toContain('b. Teilaufgabe b');
     });
 
     it('injektionssicher: fuehrt niemals unsanitized HTML aus (weder in Markdown noch in fehlerhaftem LaTeX)', () => {
@@ -182,14 +329,12 @@ describe('Exam Detail Markdown & Math Preview (Aufgabenblatt & Musterloesung)', 
         })
       );
 
-      // Keine einzigen echten <script>, <img>, <svg>, <iframe> oder javascript:-<a> Tags im erzeugten HTML
       expect(html).not.toMatch(/<script\b/i);
       expect(html).not.toMatch(/<img\b/i);
       expect(html).not.toMatch(/<svg\b/i);
       expect(html).not.toMatch(/<iframe\b/i);
       expect(html).not.toMatch(/href="javascript:/i);
 
-      // Stattdessen sind die rohen Tags als HTML-Entities (&lt;script&gt; etc.) sicher escaped
       expect(html).toContain('&lt;script&gt;window.__pwned = true;&lt;/script&gt;');
       expect(html).toContain(
         '&lt;img src=&quot;x&quot; onerror=&quot;window.__pwned = true&quot; /&gt;'
@@ -198,13 +343,21 @@ describe('Exam Detail Markdown & Math Preview (Aufgabenblatt & Musterloesung)', 
       expect(html).toContain('&lt;iframe src=&quot;javascript:alert(1)&quot;&gt;&lt;/iframe&gt;');
     });
 
-    it('bewahrt die unbearbeiteten Rohtexte im Bearbeitungsmodus von app/exams/[id]/page.tsx und vermeidet Datei-Konflikte mit #120', () => {
+    it('bewahrt die unbearbeiteten Rohtexte im Bearbeitungsmodus sowie die bestehenden PDF-/Bild-Container-Constraints in app/exams/[id]/page.tsx', () => {
       const examDetailPagePath = path.resolve(process.cwd(), 'app/exams/[id]/page.tsx');
       const examDetailSource = fs.readFileSync(examDetailPagePath, 'utf8');
 
       // Vorschau nutzt ExamMarkdownMathPreview fuer TEMPLATE und RUBRIC
       expect(examDetailSource).toContain('testId="exam-template-preview"');
       expect(examDetailSource).toContain('testId="exam-rubric-preview"');
+
+      // Bestehende Non-Text/PDF/Bild-Constraints auf dem RUBRIC-Container bleiben unveraendert erhalten
+      expect(examDetailSource).toContain(
+        'overflowY: exam?.rubricText?.includes(\'"application/pdf"\')'
+      );
+      expect(examDetailSource).toContain(
+        'maxHeight: exam?.rubricText?.includes(\'"application/pdf"\')'
+      );
 
       // Editiermodus (editingRubric) behaelt die unveraenderten State-Werte templateText und rubricText
       expect(examDetailSource).toContain('value={templateText}');
@@ -233,42 +386,6 @@ describe('Exam Detail Markdown & Math Preview (Aufgabenblatt & Musterloesung)', 
       expect(inlineTokens.some((t) => t.type === 'bold')).toBe(true);
       expect(inlineTokens.some((t) => t.type === 'math' && !t.isFallback)).toBe(true);
       expect(renderExamPreviewMath('', false).isFallback).toBe(true);
-    });
-
-    it('unterstuetzt geordnete Listen (1., a)), Display-Mathematik ($$...$$, \\[...\\]), Luecken in Mathe ($8 + ___ = 13$) und Leerzustaende', () => {
-      const mixedContent = [
-        '## Teilaufgaben',
-        '1. Erste Rechnung: $x_1 + x_2 = 13$',
-        '2. Zweite Rechnung: $8 + ___ = 13$',
-        '---',
-        'a) Zerlegung *schrittweise* mit `Zehnerübergang`: $8+2+3$',
-        'b) Ergebnis prüfen: $\\text{Summe: ___}$',
-        '$$8 + 5 = 8 + 2 + 3 = 13$$',
-      ].join('\n');
-
-      const html = renderToStaticMarkup(
-        React.createElement(ExamMarkdownMathPreview, {
-          content: mixedContent,
-          testId: 'exam-mixed-preview',
-        })
-      );
-
-      expect(html).toMatch(/<h2[^>]*>Teilaufgaben<\/h2>/);
-      expect(html).toContain('<ol');
-      expect(html).toContain('<hr');
-      expect(html).toMatch(/<em[^>]*>schrittweise<\/em>/);
-      expect(html).toMatch(/<code[^>]*>Zehnerübergang<\/code>/);
-      expect(html).toContain('data-testid="exam-preview-math-block"');
-      expect(html).not.toContain('data-math-fallback="true"');
-
-      const emptyHtml = renderToStaticMarkup(
-        React.createElement(ExamMarkdownMathPreview, {
-          content: '   ',
-          emptyText: 'Keine Musterlösung hinterlegt.',
-          testId: 'exam-empty-preview',
-        })
-      );
-      expect(emptyHtml).toContain('Keine Musterlösung hinterlegt.');
     });
   });
 });

@@ -153,9 +153,7 @@ function renderBlock(block: ExamPreviewBlock, index: number): React.ReactNode {
       );
 
     case 'list': {
-      const hasLetterMarker =
-        block.ordered && block.items.some((item) => /^[a-zA-Z]\)$/.test(item.marker));
-      if (block.ordered && hasLetterMarker) {
+      if (block.ordered) {
         return (
           <Box
             key={key}
@@ -185,9 +183,10 @@ function renderBlock(block: ExamPreviewBlock, index: number): React.ReactNode {
               >
                 <Box
                   component="span"
-                  sx={{ fontWeight: 700, color: '#0f172a', minWidth: '1.25rem' }}
+                  data-testid="exam-preview-list-marker"
+                  sx={{ fontWeight: 700, color: '#0f172a', minWidth: '1.35rem', flexShrink: 0 }}
                 >
-                  {item.marker}
+                  {item.marker}{' '}
                 </Box>
                 <Box component="span" sx={{ flex: 1, minWidth: 0 }}>
                   {renderInlineTokens(item.tokens, `${key}-item-${itemIdx}`)}
@@ -201,7 +200,7 @@ function renderBlock(block: ExamPreviewBlock, index: number): React.ReactNode {
       return (
         <Box
           key={key}
-          component={block.ordered ? 'ol' : 'ul'}
+          component="ul"
           sx={{
             m: 0,
             mb: 1,

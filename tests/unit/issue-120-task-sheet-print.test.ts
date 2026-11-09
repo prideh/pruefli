@@ -15,7 +15,7 @@ import {
 const ISSUE_120_RAW_FIXTURE = `# Prüfung: Grundrechenarten
 
 **Name:** ______________________ **Datum:** ____________
-**Punkte:** ______ / 6
+**Punkte:** _____ / 6 Punkte
 
 ---
 
@@ -42,7 +42,7 @@ b) $6 \\cdot 4 = \\underline{\\hspace{2cm}}$
 Berechne $\\frac{3}{4} + \\frac{1}{4} = \\text{_____}$ sowie $\\sqrt{16} + 3^2 = \\text{_____}$.`;
 
 describe('Issue #120: Task Sheet Print Rendering, KaTeX Math Semantics & Duplicate Header Stripping', () => {
-  it('strips duplicate title and Name/Datum/Punkte header lines from examTemplateText preamble', () => {
+  it('strips duplicate title and Name/Datum/Punkte header lines (including trailing "/ 6 Punkte" suffix) from examTemplateText preamble', () => {
     const stripped = stripDuplicateWorksheetHeader(ISSUE_120_RAW_FIXTURE, {
       examTitle: 'Prüfung: Grundrechenarten',
     });
@@ -51,6 +51,7 @@ describe('Issue #120: Task Sheet Print Rendering, KaTeX Math Semantics & Duplica
     expect(stripped).not.toMatch(/\*\*Name:\*\*/);
     expect(stripped).not.toMatch(/\*\*Datum:\*\*/);
     expect(stripped).not.toMatch(/\*\*Punkte:\*\*/);
+    expect(stripped).not.toContain('/ 6 Punkte');
     expect(stripped).not.toMatch(/^---/);
 
     expect(stripped).toContain('### Hinweise:');
@@ -82,6 +83,106 @@ Zeichne einen Winkel von $45^\\circ$.`;
     expect(stripped).toContain('Hilfsmittel:');
     expect(stripped).toContain('Geodreieck und Zirkel');
     expect(stripped).toContain('### Aufgabe 1 (4 Punkte)');
+  });
+
+  it('strips preamble points lines across "/ 6 Punkte", decimal comma/dot, and unit variants while preserving legitimate task points and instructions', () => {
+    // 1. Exact live-QA reproduction preamble
+    const liveQaCase = `# Prüfung: Grundrechenarten
+**Name:** ___ **Datum:** ___
+**Punkte:** _____ / 6 Punkte
+
+### Aufgabe 1: Addition (2 Punkte)
+Berechne $4 + 2 = \\text{_____}$.`;
+
+    const strippedLiveQa = stripDuplicateWorksheetHeader(liveQaCase, {
+      examTitle: 'Prüfung: Grundrechenarten',
+    });
+    expect(strippedLiveQa).toBe(
+      `### Aufgabe 1: Addition (2 Punkte)\nBerechne $4 + 2 = \\text{_____}$.`
+    );
+
+    // 2. Positive variants: integer, comma decimal, dot decimal, Punkt/Punkte/Punkten/Pkt./Pt./P., "von"/"aus", and standalone score line
+    const positivePointsPreambles = [
+      '**Punkte:** _____ / 6 Punkte',
+      '**Punkte:** ___ / 6,5 Punkte',
+      '**Punkte:** ___ / 6.5 Punkte',
+      '**Punkte:** _____ / 12,5 Pkt.',
+      '**Punkte:** _____ / 10 P.',
+      '**Punkte:** _____ / 10 Pt.',
+      '**Punkte:** ___ / 1 Punkt',
+      '**Punkte:** _____ von 6 Punkten',
+      '**Punkte:** _____ aus 15,5 Punkten',
+      '**Erreichte Punkte:** _____ / 20 Punkte',
+      '**Max. Punkte:** 6,5 Punkte',
+      '**Gesamtpunkte:** 12 Punkte',
+      '**Name:** ___ **Datum:** ___ **Punkte:** _____ / 6 Punkte',
+      'Punkte: ______ / 8,5 Punkte | Note: ______',
+      '_____ / 6 Punkte',
+      '/ 6,5 Punkte',
+    ];
+
+    for (const pointsLine of positivePointsPreambles) {
+      const sample = `# Prüfung: Grundrechenarten\n${pointsLine}\n\n### Aufgabe 1 (2 Punkte)\nRechne.`;
+      const result = stripDuplicateWorksheetHeader(sample, {
+        examTitle: 'Prüfung: Grundrechenarten',
+      });
+      expect(result).toBe('### Aufgabe 1 (2 Punkte)\nRechne.');
+    }
+
+    // 3. Negative controls: legitimate preamble instructions mentioning points and task headings/subtasks with points MUST be preserved
+    const negativeControlDoc = `# Prüfung: Grundrechenarten
+**Name:** ___ **Datum:** ___
+**Punkte:** _____ / 6 Punkte
+---
+### Hinweise:
+- Für jede korrekte Lösung gibt es 2 Punkte (insgesamt 6 Punkte).
+- Bei Aufgabe 2 werden 1,5 Punkte für den Lösungsweg vergeben.
+- **Bewertung:** Maximal 6 Punkte erreichbar; Teilpunkte (0,5 Punkte) sind möglich.
+- **Punkteverteilung:** Aufgabe 1 zählt 2 Punkte, Aufgabe 2 zählt 2,5 Punkte, Aufgabe 3 zählt 1,5 Punkte.
+
+### Aufgabe 1: Addition (2 Punkte)
+Löse die Rechnung (je 1 Punkt):
+a) $3 + 3 = \\text{_____}$ (1 Punkt)
+b) $5 + 4 = \\text{_____}$ (1 Punkt)
+
+### Aufgabe 2: Dezimalzahlen (2,5 Punkte)
+Berechne (2.5 Pkt.):
+$$1,5 + 2,5 = \\text{_____}$$
+
+### Aufgabe 3: Textaufgabe (1.5 Punkte)
+Erkläre deinen Rechenweg für volle 1,5 Punkte.`;
+
+    const strippedNegative = stripDuplicateWorksheetHeader(negativeControlDoc, {
+      examTitle: 'Prüfung: Grundrechenarten',
+    });
+
+    // Preamble duplicate header stripped
+    expect(strippedNegative).not.toContain('# Prüfung: Grundrechenarten');
+    expect(strippedNegative).not.toContain('**Name:**');
+    expect(strippedNegative).not.toContain('**Punkte:** _____ / 6 Punkte');
+
+    // Legitimate preamble instructions mentioning points preserved intact
+    expect(strippedNegative).toContain(
+      '- Für jede korrekte Lösung gibt es 2 Punkte (insgesamt 6 Punkte).'
+    );
+    expect(strippedNegative).toContain(
+      '- Bei Aufgabe 2 werden 1,5 Punkte für den Lösungsweg vergeben.'
+    );
+    expect(strippedNegative).toContain(
+      '- **Bewertung:** Maximal 6 Punkte erreichbar; Teilpunkte (0,5 Punkte) sind möglich.'
+    );
+    expect(strippedNegative).toContain(
+      '- **Punkteverteilung:** Aufgabe 1 zählt 2 Punkte, Aufgabe 2 zählt 2,5 Punkte, Aufgabe 3 zählt 1,5 Punkte.'
+    );
+
+    // Task headings and inline point annotations preserved intact
+    expect(strippedNegative).toContain('### Aufgabe 1: Addition (2 Punkte)');
+    expect(strippedNegative).toContain('Löse die Rechnung (je 1 Punkt):');
+    expect(strippedNegative).toContain('a) $3 + 3 = \\text{_____}$ (1 Punkt)');
+    expect(strippedNegative).toContain('### Aufgabe 2: Dezimalzahlen (2,5 Punkte)');
+    expect(strippedNegative).toContain('Berechne (2.5 Pkt.):');
+    expect(strippedNegative).toContain('### Aufgabe 3: Textaufgabe (1.5 Punkte)');
+    expect(strippedNegative).toContain('Erkläre deinen Rechenweg für volle 1,5 Punkte.');
   });
 
   it('renders real KaTeX HTML for standard worksheet math and preserves answer blanks', () => {

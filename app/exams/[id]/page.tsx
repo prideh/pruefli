@@ -1783,10 +1783,16 @@ export default function ExamDetailsPage() {
                       backgroundColor: '#f8fafc',
                       border: '1px solid #e2e8f0',
                       fontFamily: 'inherit',
-                      fontSize: '0.88rem',
+                      fontSize: '0.85rem',
                       whiteSpace: 'normal',
                       color: '#334155',
                       flexGrow: 1,
+                      overflowY: exam?.rubricText?.includes('"application/pdf"')
+                        ? 'hidden'
+                        : 'auto',
+                      maxHeight: exam?.rubricText?.includes('"application/pdf"')
+                        ? '500px'
+                        : '220px',
                       display: 'flex',
                       flexDirection: 'column',
                     }}
@@ -1910,23 +1916,11 @@ export default function ExamDetailsPage() {
                         );
                       }
                       return (
-                        <Box
-                          sx={{
-                            p: 2,
-                            borderRadius: '6px',
-                            backgroundColor: '#ffffff',
-                            border: '1px solid #e2e8f0',
-                            color: '#1e293b',
-                            maxHeight: '360px',
-                            overflowY: 'auto',
-                          }}
-                        >
-                          <ExamMarkdownMathPreview
-                            content={exam?.rubricText || ''}
-                            emptyText="Keine Musterlösung hinterlegt."
-                            testId="exam-rubric-preview"
-                          />
-                        </Box>
+                        <ExamMarkdownMathPreview
+                          content={exam?.rubricText || ''}
+                          emptyText="Keine Musterlösung hinterlegt."
+                          testId="exam-rubric-preview"
+                        />
                       );
                     })()}
                     {exam?.gradingNotes && (

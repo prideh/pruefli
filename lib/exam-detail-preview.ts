@@ -94,18 +94,15 @@ export function renderExamPreviewMath(
   }
 }
 
-const BARE_LATEX_COMMANDS =
-  '(?:frac|dfrac|tfrac|sqrt|times|div|cdot|pm|mp|leq|le|geq|ge|neq|ne|approx|equiv|sim|propto|infty|partial|nabla|forall|exists|in|notin|subset|subseteq|cup|cap|setminus|emptyset|to|rightarrow|leftarrow|Rightarrow|Leftarrow|leftrightarrow|Leftrightarrow|mapsto|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|ln|log|exp|lim|sum|prod|int|binom|vec|hat|bar|tilde|overline|underline|underbrace|overbrace|text|textbf|textit|mathrm|mathbf|mathit|mathbb|mathcal)';
-
 const INLINE_MATH_AND_MARKDOWN_REGEX = new RegExp(
   [
-    // 1. Display-Mathematik $$...$$
-    '(\\$\\$[\\s\\S]+?\\$\\$)',
-    // 2. Display-Mathematik \\[...\\]
+    // 1. Display-Mathematik $$...$$ (einzeilig geschlossen)
+    '(\\$\\$(?:\\\\\\$|[^$\\n])+?\\$\\$)',
+    // 2. Display-Mathematik \\[...\\] (einzeilig geschlossen)
     '(\\\\\\[[\\s\\S]+?\\\\\\])',
-    // 3. Inline-Mathematik \\(...\\)
+    // 3. Inline-Mathematik \\(...\\) (einzeilig geschlossen)
     '(\\\\\\([\\s\\S]+?\\\\\\))',
-    // 4. Inline-Mathematik $...$ (einzeilig, erlaubt auch einzelne Zahlen/Variablen wie $13$ oder $8+5$)
+    // 4. Inline-Mathematik $...$ (einzeilig geschlossen, erlaubt einzelne Zahlen/Variablen wie $13$ oder $8+5$)
     '(\\$(?!\\$)(?:\\\\\\$|[^$\\n])+?\\$(?!\\$))',
     // 5. Inline-Code `...`
     '(`[^`\\n]+?`)',
@@ -113,11 +110,45 @@ const INLINE_MATH_AND_MARKDOWN_REGEX = new RegExp(
     '(\\*\\*[^\\n]+?\\*\\*)',
     // 7. Kursivdruck *...* (bewusst KEIN _..._, damit Lueckentext-Unterstriche ___ unveraendert bleiben)
     '(\\*(?!\\*)[^*\\n]+?\\*(?!\\*))',
-    // 8. Freistehende bekannte LaTeX-Befehle ohne $-Begrenzer (z.B. \frac{1}{2})
-    `(\\\\${BARE_LATEX_COMMANDS}\\b(?:\\s*\\[[^\\]\\n]*\\])*(?:\\s*\\{(?:[^{}\\n]|\\{[^{}\\n]*\\})*\\})*(?:\\s*[_^]\\s*(?:\\{[^{}\\n]*\\}|[a-zA-Z0-9]))*)`,
   ].join('|'),
   'g'
 );
+
+/**
+ * Prueft ein verbleibendes Textsegment auf ungeschlossene Mathematik-Begrenzer
+ * ($$, \[, \(, $) und stellt diese sicher als Verbatim-Fallback (isFallback: true) dar,
+ * anstatt sie stillschweigend zu verwerfen oder als gueltiges KaTeX zu interpretieren.
+ */
+function splitPlainSegmentWithUnclosedMathFallback(segment: string): ExamPreviewInlineToken[] {
+  if (!segment) return [];
+
+  const unclosedMatch = /(\$\$|\\\[|\\\(|(?<!\\)\$)/.exec(segment);
+  if (!unclosedMatch || unclosedMatch.index === undefined) {
+    return [{ type: 'text', text: segment }];
+  }
+
+  const result: ExamPreviewInlineToken[] = [];
+  const idx = unclosedMatch.index;
+  if (idx > 0) {
+    result.push({
+      type: 'text',
+      text: segment.slice(0, idx),
+    });
+  }
+
+  const unclosedRaw = segment.slice(idx);
+  const isDisplay = unclosedRaw.startsWith('$$') || unclosedRaw.startsWith('\\[');
+  result.push({
+    type: 'math',
+    latex: unclosedRaw.trim(),
+    raw: unclosedRaw,
+    displayMode: isDisplay,
+    html: '',
+    isFallback: true,
+  });
+
+  return result;
+}
 
 /**
  * Parst Inline-Elemente (Mathematik, **Fett**, *Kursiv*, `Code`) ohne jegliches
@@ -138,10 +169,7 @@ export function parseExamPreviewInlineTokens(
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      tokens.push({
-        type: 'text',
-        text: text.slice(lastIndex, match.index),
-      });
+      tokens.push(...splitPlainSegmentWithUnclosedMathFallback(text.slice(lastIndex, match.index)));
     }
 
     const fullMatch = match[0];
@@ -216,36 +244,100 @@ export function parseExamPreviewInlineTokens(
         text: inner,
         children: parseExamPreviewInlineTokens(inner, false),
       });
-    } else if (match[8]) {
-      // Freistehender bekannter LaTeX-Befehl
-      const rendered = renderExamPreviewMath(fullMatch, false);
-      tokens.push({
-        type: 'math',
-        latex: fullMatch.trim(),
-        raw: fullMatch,
-        displayMode: false,
-        html: rendered.html,
-        isFallback: rendered.isFallback,
-      });
     } else {
-      tokens.push({
-        type: 'text',
-        text: fullMatch,
-      });
+      tokens.push(...splitPlainSegmentWithUnclosedMathFallback(fullMatch));
     }
 
     lastIndex = regex.lastIndex;
   }
 
   if (lastIndex < text.length) {
-    tokens.push({
-      type: 'text',
-      text: text.slice(lastIndex),
-    });
+    tokens.push(...splitPlainSegmentWithUnclosedMathFallback(text.slice(lastIndex)));
   }
 
   return tokens;
 }
+
+/**
+ * Sucht auf einer Zeile nach einem geoeffneten, aber auf derselben Zeile NICHT
+ * geschlossenen Display-Mathematik-Begrenzer ($$ oder \[).
+ */
+function findUnclosedDisplayDelimiterOnLine(
+  line: string
+): { openDelim: '$$' | '\\['; closeDelim: '$$' | '\\]'; index: number } | null {
+  let pos = 0;
+  while (pos < line.length) {
+    if (line.startsWith('$$', pos)) {
+      const closeIdx = line.indexOf('$$', pos + 2);
+      if (closeIdx === -1) {
+        return { openDelim: '$$', closeDelim: '$$', index: pos };
+      }
+      pos = closeIdx + 2;
+      continue;
+    }
+    if (line.startsWith('\\[', pos)) {
+      const closeIdx = line.indexOf('\\]', pos + 2);
+      if (closeIdx === -1) {
+        return { openDelim: '\\[', closeDelim: '\\]', index: pos };
+      }
+      pos = closeIdx + 2;
+      continue;
+    }
+    pos++;
+  }
+  return null;
+}
+
+/**
+ * Prueft, ob eine Zeile eine strukturelle Markdown-Blockgrenze darstellt, die
+ * von einem mehrzeiligen Mathematik-Block ohne explizites Schliessen niemals
+ * verschluckt werden darf.
+ */
+function isStructuralMarkdownBoundary(trimmedLine: string): boolean {
+  if (!trimmedLine) return true;
+  if (/^(?:-{3,}|\*{3,})$/.test(trimmedLine)) return true;
+  if (/^#{1,6}\s+/.test(trimmedLine)) return true;
+  if (/^(?:\*\*)?(?:Aufgabe|Teilaufgabe|Task|Frage|Musterlösung|Hinweise)\b/i.test(trimmedLine)) {
+    return true;
+  }
+  if (/^(?:[-*+•]|(?:\d+|[a-zA-Z])[.)])\s+/.test(trimmedLine)) return true;
+  // Reine Prosa-Zeile aus mehreren Gross-/Kleinbuchstaben-Woertern ohne LaTeX-/Rechensymbole
+  if (
+    /^[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöü0-9,.;:!?()'" -]+$/.test(trimmedLine) &&
+    /\s/.test(trimmedLine) &&
+    !/[\\^_=+*/<>|{}]/.test(trimmedLine)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Sucht in den nachfolgenden Zeilen nach dem passenden schliessenden Begrenzer
+ * ($$ oder \]). Bricht ab, sobald eine strukturelle Blockgrenze oder eine
+ * nachfolgende Aufgaben-/Prosazeile ohne Schliessen erreicht wird, damit
+ * ungeschlossene Begrenzer niemals spaetere Aufgaben verschlucken.
+ */
+function findClosingDisplayLine(
+  queue: string[],
+  closeDelim: '$$' | '\\]'
+): { lineIndex: number; charIndex: number } | null {
+  for (let k = 0; k < queue.length; k++) {
+    const candidateRaw = queue[k];
+    const candidateTrimmed = candidateRaw.trim();
+    const charIndex = candidateRaw.indexOf(closeDelim);
+    if (charIndex !== -1) {
+      return { lineIndex: k, charIndex };
+    }
+    if (isStructuralMarkdownBoundary(candidateTrimmed)) {
+      return null;
+    }
+  }
+  return null;
+}
+
+const ORDERED_LIST_ITEM_REGEX = /^((?:\d+|[a-zA-Z])[.)])\s+(.+)$/;
+const UNORDERED_LIST_ITEM_REGEX = /^([-*+•])\s+(.+)$/;
 
 /**
  * Zerlegt den Vorlagen- oder Musterloesungstext fuer die Vorschau auf der
@@ -261,26 +353,99 @@ export function parseExamPreviewBlocks(rawText: string): ExamPreviewBlock[] {
   if (!rawText || typeof rawText !== 'string') return [];
 
   const normalized = rawText.replace(/\r\n/g, '\n');
-  const lines = normalized.split('\n');
+  const queue = normalized.split('\n');
   const blocks: ExamPreviewBlock[] = [];
 
-  let i = 0;
-  while (i < lines.length) {
-    const rawLine = lines[i];
+  while (queue.length > 0) {
+    const rawLine = queue.shift()!;
     const trimmed = rawLine.trim();
 
     if (!trimmed) {
-      i++;
       continue;
     }
 
-    // 1. Mehrzeiliger oder einzeiliger Display-Mathematik-Block $$...$$ oder \[...\]
-    if (trimmed.startsWith('$$') || trimmed.startsWith('\\[')) {
-      const isDollar = trimmed.startsWith('$$');
-      const closeDelim = isDollar ? '$$' : '\\]';
+    // 1. Pruefe auf mehrzeilige oder ungeschlossene Display-Mathematik ($$ oder \[)
+    const unclosed = findUnclosedDisplayDelimiterOnLine(trimmed);
+    if (unclosed) {
+      const closingMatch = findClosingDisplayLine(queue, unclosed.closeDelim);
 
-      if (trimmed.length > 4 && trimmed.endsWith(closeDelim)) {
-        const latex = trimmed.slice(2, -2);
+      if (closingMatch) {
+        // Es existiert ein gueltiger schliessender Begrenzer in Zeile closingMatch.lineIndex.
+        // Falls vor dem oeffnenden Begrenzer auf derselben Zeile noch Praefix-Text steht,
+        // verarbeiten wir zuerst den Praefix-Text und danach den Display-Block.
+        if (unclosed.index > 0) {
+          const prefixText = trimmed.slice(0, unclosed.index).trim();
+          const restFromDelimiter = trimmed.slice(unclosed.index);
+          queue.unshift(restFromDelimiter);
+          if (prefixText) {
+            queue.unshift(prefixText);
+          }
+          continue;
+        }
+
+        // unclosed.index === 0: Zeile beginnt mit $$ oder \[
+        const consumedLines = queue.splice(0, closingMatch.lineIndex + 1);
+        const closingRawLine = consumedLines[consumedLines.length - 1];
+        const beforeCloseOnClosingLine = closingRawLine.slice(0, closingMatch.charIndex);
+        const afterCloseSuffix = closingRawLine
+          .slice(closingMatch.charIndex + unclosed.closeDelim.length)
+          .trim();
+
+        // Suffix nach dem schliessenden $$ oder \] auf derselben Zeile bewahren!
+        if (afterCloseSuffix) {
+          queue.unshift(afterCloseSuffix);
+        }
+
+        const firstLineLatex = trimmed.slice(unclosed.openDelim.length);
+        const middleLines = consumedLines.slice(0, -1);
+        const mathParts: string[] = [];
+        if (firstLineLatex.trim()) mathParts.push(firstLineLatex);
+        mathParts.push(...middleLines);
+        if (beforeCloseOnClosingLine.trim()) mathParts.push(beforeCloseOnClosingLine);
+
+        const latex = mathParts.join('\n');
+        const rawBlockLines = [
+          rawLine,
+          ...middleLines,
+          closingRawLine.slice(0, closingMatch.charIndex + unclosed.closeDelim.length),
+        ];
+        const rawBlock = rawBlockLines.join('\n').trim();
+        const rendered = renderExamPreviewMath(latex, true);
+
+        blocks.push({
+          type: 'math-block',
+          latex: latex.trim(),
+          raw: rawBlock,
+          html: rendered.html,
+          isFallback: rendered.isFallback,
+        });
+        continue;
+      }
+
+      // Kein schliessender Begrenzer gefunden (ungeschlossenes $$ oder \[):
+      // Niemals nachfolgende Zeilen/Aufgaben als Mathematik absorbieren!
+      if (unclosed.index === 0) {
+        blocks.push({
+          type: 'math-block',
+          latex: trimmed,
+          raw: trimmed,
+          html: '',
+          isFallback: true,
+        });
+        continue;
+      }
+    }
+
+    // 2. Einzeiliger, vollstaendig geschlossener Display-Mathematik-Block ohne Praefix/Suffix
+    if (trimmed.startsWith('$$') || trimmed.startsWith('\\[')) {
+      const openDelim = trimmed.startsWith('$$') ? '$$' : '\\[';
+      const closeDelim = openDelim === '$$' ? '$$' : '\\]';
+      const firstCloseIdx = trimmed.indexOf(closeDelim, openDelim.length);
+
+      // Nur als eigenstaendigen math-block behandeln, wenn der schliessende Begrenzer
+      // exakt am Zeilenende steht (kein nachfolgender Suffix-Text auf derselben Zeile).
+      if (firstCloseIdx !== -1 && firstCloseIdx === trimmed.length - closeDelim.length) {
+        const latex = trimmed.slice(openDelim.length, -closeDelim.length);
         const rendered = renderExamPreviewMath(latex, true);
         blocks.push({
           type: 'math-block',
@@ -289,47 +454,17 @@ export function parseExamPreviewBlocks(rawText: string): ExamPreviewBlock[] {
           html: rendered.html,
           isFallback: rendered.isFallback,
         });
-        i++;
         continue;
       }
-
-      const mathLines: string[] = [trimmed.slice(2)];
-      const rawLines: string[] = [rawLine];
-      i++;
-      while (i < lines.length) {
-        const currentRaw = lines[i];
-        const currentTrimmed = currentRaw.trim();
-        rawLines.push(currentRaw);
-        const closeIndex = currentTrimmed.indexOf(closeDelim);
-        if (closeIndex !== -1) {
-          mathLines.push(currentTrimmed.slice(0, closeIndex));
-          i++;
-          break;
-        }
-        mathLines.push(currentRaw);
-        i++;
-      }
-      const latex = mathLines.join('\n');
-      const rawBlock = rawLines.join('\n').trim();
-      const rendered = renderExamPreviewMath(latex, true);
-      blocks.push({
-        type: 'math-block',
-        latex: latex.trim(),
-        raw: rawBlock,
-        html: rendered.html,
-        isFallback: rendered.isFallback,
-      });
-      continue;
     }
 
-    // 2. Horizontale Trennlinie (--- oder ***; ___ bleibt als Antwortlinie im Absatz erhalten)
+    // 3. Horizontale Trennlinie (--- oder ***; ___ bleibt als Antwortlinie im Absatz erhalten)
     if (/^(?:-{3,}|\*{3,})$/.test(trimmed)) {
       blocks.push({ type: 'divider' });
-      i++;
       continue;
     }
 
-    // 3. Markdown-Ueberschriften (#, ##, ###, ####)
+    // 4. Markdown-Ueberschriften (#, ##, ###, ####)
     const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       const rawLevel = headingMatch[1].length;
@@ -341,23 +476,27 @@ export function parseExamPreviewBlocks(rawText: string): ExamPreviewBlock[] {
         text: headingText,
         tokens: parseExamPreviewInlineTokens(headingText),
       });
-      i++;
       continue;
     }
 
-    // 4. Ungeordnete Aufzaehlungsliste (- ..., * ..., + ..., • ...)
-    const unorderedMatch = trimmed.match(/^([-*+•])\s+(.+)$/);
+    // 5. Ungeordnete Aufzaehlungsliste (- ..., * ..., + ..., • ...)
+    const unorderedMatch = trimmed.match(UNORDERED_LIST_ITEM_REGEX);
     if (unorderedMatch) {
-      const items: ExamPreviewListItem[] = [];
-      while (i < lines.length) {
-        const currentTrimmed = lines[i].trim();
-        const itemMatch = currentTrimmed.match(/^([-*+•])\s+(.+)$/);
+      const items: ExamPreviewListItem[] = [
+        {
+          marker: unorderedMatch[1],
+          tokens: parseExamPreviewInlineTokens(unorderedMatch[2].trim()),
+        },
+      ];
+      while (queue.length > 0) {
+        const nextTrimmed = queue[0].trim();
+        const itemMatch = nextTrimmed.match(UNORDERED_LIST_ITEM_REGEX);
         if (!itemMatch) break;
+        queue.shift();
         items.push({
           marker: itemMatch[1],
           tokens: parseExamPreviewInlineTokens(itemMatch[2].trim()),
         });
-        i++;
       }
       blocks.push({
         type: 'list',
@@ -367,19 +506,24 @@ export function parseExamPreviewBlocks(rawText: string): ExamPreviewBlock[] {
       continue;
     }
 
-    // 5. Geordnete oder alphabetische Liste (1. ..., 1) ..., a) ...)
-    const orderedMatch = trimmed.match(/^((?:\d+[.)]|[a-zA-Z]\)))\s+(.+)$/);
+    // 6. Geordnete oder alphabetische Liste (1. ..., 3. ..., 7. ..., 1) ..., a) ..., b. ...)
+    const orderedMatch = trimmed.match(ORDERED_LIST_ITEM_REGEX);
     if (orderedMatch) {
-      const items: ExamPreviewListItem[] = [];
-      while (i < lines.length) {
-        const currentTrimmed = lines[i].trim();
-        const itemMatch = currentTrimmed.match(/^((?:\d+[.)]|[a-zA-Z]\)))\s+(.+)$/);
+      const items: ExamPreviewListItem[] = [
+        {
+          marker: orderedMatch[1],
+          tokens: parseExamPreviewInlineTokens(orderedMatch[2].trim()),
+        },
+      ];
+      while (queue.length > 0) {
+        const nextTrimmed = queue[0].trim();
+        const itemMatch = nextTrimmed.match(ORDERED_LIST_ITEM_REGEX);
         if (!itemMatch) break;
+        queue.shift();
         items.push({
           marker: itemMatch[1],
           tokens: parseExamPreviewInlineTokens(itemMatch[2].trim()),
         });
-        i++;
       }
       blocks.push({
         type: 'list',
@@ -389,13 +533,12 @@ export function parseExamPreviewBlocks(rawText: string): ExamPreviewBlock[] {
       continue;
     }
 
-    // 6. Standard-Absatz (inkl. **Name:** ___, **Punkte:** ____ /6 Punkte, **Aufgabe 1**, Rechnungen)
+    // 7. Standard-Absatz (inkl. **Name:** ___, **Punkte:** ____ /6 Punkte, **Aufgabe 1**, Inline-/Same-Line-Mathe)
     blocks.push({
       type: 'paragraph',
       text: trimmed,
       tokens: parseExamPreviewInlineTokens(trimmed),
     });
-    i++;
   }
 
   return blocks;
