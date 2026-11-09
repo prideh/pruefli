@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { getEmailVerificationStatus } from '@/lib/email-verification';
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   try {
     const session = await getSession();
 

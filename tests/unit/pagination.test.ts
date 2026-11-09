@@ -68,7 +68,7 @@ describe('Pagination & Filter Kombination (/api/submissions & /api/logs)', () =>
 
     it('liefert 401 bei nicht vorhandener Session', async () => {
       vi.mocked(sessionModule.getSession).mockResolvedValueOnce(null);
-      const res = await getSubmissions();
+      const res = await getSubmissions(new Request('http://localhost/api/submissions'));
       expect(res.status).toBe(401);
       const body = await res.json();
       expect(body.error).toBe('Nicht autorisiert.');
@@ -97,7 +97,7 @@ describe('Pagination & Filter Kombination (/api/submissions & /api/logs)', () =>
       vi.mocked(db.submission.count).mockResolvedValueOnce(5);
       vi.mocked(db.submission.findMany).mockResolvedValueOnce(dummy5 as unknown as SubmissionList);
 
-      const res = await getSubmissions();
+      const res = await getSubmissions(new Request('http://localhost/api/submissions'));
       expect(res.status).toBe(200);
       const body = await res.json();
 
@@ -289,7 +289,7 @@ describe('Pagination & Filter Kombination (/api/submissions & /api/logs)', () =>
   describe('GET /api/logs Pagination & Filter', () => {
     it('liefert 401 bei nicht vorhandener Session', async () => {
       vi.mocked(sessionModule.getSession).mockResolvedValueOnce(null);
-      const res = await getLogs();
+      const res = await getLogs(new Request('http://localhost/api/logs'));
       expect(res.status).toBe(401);
       const body = await res.json();
       expect(body.error).toBe('Nicht autorisiert.');

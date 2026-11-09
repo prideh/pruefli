@@ -320,7 +320,9 @@ describe('Professioneller Session-Lebenszyklus (Issue #86)', () => {
       const { sessionId, token } = await createSession('teacher-logout');
       expect(await verifySessionToken(token)).not.toBeNull();
 
-      const res = await logoutPost();
+      const res = await logoutPost(
+        new Request('http://localhost/api/auth/logout', { method: 'POST' })
+      );
       expect(res.status).toBe(200);
 
       // Selbst wenn das alte Token erneut gesendet wird, ist es serverseitig widerrufen

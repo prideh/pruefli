@@ -53,7 +53,7 @@ describe('Fächer-Seite (#87): Liste aktualisiert sich nach "Meine Fächer speic
 
   it('aktualisiert nach PUT /api/subjects und mutateCache("/api/subjects", data, false) sofort Zähler, Karten und Status-Badges ohne Cache-Löschung', async () => {
     // 1. Ausgangszustand beim Öffnen von /subjects: Noch keine Auswahl gespeichert -> 11 Katalog-Profile ("Meine Fächer (11)")
-    const initialGetRes = await getSubjects();
+    const initialGetRes = await getSubjects(new Request('http://localhost/api/subjects'));
     expect(initialGetRes.status).toBe(200);
     const initialData = (await initialGetRes.json()) as CachedTeacherSubjects;
     expect(initialData.savedSubjects).toBeNull();

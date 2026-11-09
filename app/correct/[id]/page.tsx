@@ -54,6 +54,7 @@ import {
   findNextUncertaintyTarget,
   buildSiblingNavigationHref,
 } from '@/lib/speed-grading';
+import { buildFeedbackPrintHref } from '@/lib/ux-polish';
 
 import { ExamCorrectionResult, CorrectedTask, CorrectedStep } from '../../../lib/gemini';
 import { calculateSwissGrade, parseStudentExamUrls } from '../../../lib/grading';
@@ -1310,7 +1311,14 @@ export default function CorrectWorkspace() {
             </Stack>
 
             <Button
-              onClick={() => window.print()}
+              onClick={() => {
+                const printHref = buildFeedbackPrintHref(data.examId, String(id));
+                if (printHref) {
+                  router.push(printHref);
+                  return;
+                }
+                window.print();
+              }}
               className="glow-button"
               variant="contained"
               size="small"

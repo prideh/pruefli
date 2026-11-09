@@ -28,10 +28,13 @@ describe('Feature: Print feedback sheets for whole class in one action', () => {
     );
     expect(detailFile).toContain('not yet graded - not included');
 
-    const printPageFile = fs.readFileSync(
-      path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'),
-      'utf-8'
-    );
+    const printPageFile = [
+      fs.readFileSync(path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'), 'utf-8'),
+      fs.readFileSync(
+        path.resolve(__dirname, '../../components/ExamPrintFeedbackContent.tsx'),
+        'utf-8'
+      ),
+    ].join('\n');
     expect(printPageFile).toContain('not yet graded - not included');
   });
 
@@ -48,10 +51,13 @@ describe('Feature: Print feedback sheets for whole class in one action', () => {
   });
 
   it('Kombinierte Druckansicht nutzt .print-page mit Seitenumbruch und enthaelt Pruefungstitel & Schuelernamen', () => {
-    const printPageFile = fs.readFileSync(
-      path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'),
-      'utf-8'
-    );
+    const printPageFile = [
+      fs.readFileSync(path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'), 'utf-8'),
+      fs.readFileSync(
+        path.resolve(__dirname, '../../components/ExamPrintFeedbackContent.tsx'),
+        'utf-8'
+      ),
+    ].join('\n');
     expect(printPageFile).toContain('className="print-page"');
     expect(printPageFile).toContain('pageBreakAfter');
     expect(printPageFile).toContain('window.print()');
@@ -74,10 +80,13 @@ describe('Feature: Print feedback sheets for whole class in one action', () => {
       path.resolve(__dirname, '../../app/exams/[id]/page.tsx'),
       'utf-8'
     );
-    const printPageFile = fs.readFileSync(
-      path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'),
-      'utf-8'
-    );
+    const printPageFile = [
+      fs.readFileSync(path.resolve(__dirname, '../../app/exams/[id]/print/page.tsx'), 'utf-8'),
+      fs.readFileSync(
+        path.resolve(__dirname, '../../components/ExamPrintFeedbackContent.tsx'),
+        'utf-8'
+      ),
+    ].join('\n');
     const apiFile = fs.readFileSync(
       path.resolve(__dirname, '../../app/api/exams/[id]/feedback-sheets/route.ts'),
       'utf-8'

@@ -4,7 +4,7 @@ import { getSession } from '@/lib/session';
 import { requireVerifiedEmailForApi } from '@/lib/email-verification';
 import { serverCache, CacheTags } from '@/lib/cache';
 
-export async function GET(request?: Request | NextRequest) {
+export async function GET(request: Request | NextRequest) {
   try {
     const session = await getSession();
     if (!session) {

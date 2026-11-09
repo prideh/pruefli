@@ -4,10 +4,8 @@ import { GET as examsGet } from '@/app/api/exams/route';
 import { GET as classesGet } from '@/app/api/classes/route';
 import { GET as subjectsGet } from '@/app/api/subjects/route';
 import { GET as submissionsGet } from '@/app/api/submissions/route';
-import {
-  GET as providersGet,
-  IS_PUBLIC_CATALOG_ENDPOINT,
-} from '@/app/api/auth/oauth/providers/route';
+import { GET as providersGet } from '@/app/api/auth/oauth/providers/route';
+import { IS_PUBLIC_CATALOG_ENDPOINT } from '@/lib/oauth';
 import * as sessionModule from '@/lib/session';
 import * as classArchiveModule from '@/lib/class-archive';
 import * as teacherSubjectsModule from '@/lib/teacher-subjects';
@@ -109,7 +107,7 @@ describe('Auth Session & /api/auth/me Reliability', () => {
     it('returns 401 when no session is present without deleting cookies', async () => {
       vi.mocked(sessionModule.getSession).mockResolvedValue(null);
 
-      const res = await meGet();
+      const res = await meGet(new Request('http://localhost/api/auth/me'));
       expect(res.status).toBe(401);
 
       const json = await res.json();
@@ -125,7 +123,7 @@ describe('Auth Session & /api/auth/me Reliability', () => {
       vi.mocked(sessionModule.getSession).mockResolvedValue({ userId: 'teacher-deleted' });
       vi.mocked(db.teacher.findUnique).mockResolvedValue(null);
 
-      const res = await meGet();
+      const res = await meGet(new Request('http://localhost/api/auth/me'));
       expect(res.status).toBe(401);
 
       const json = await res.json();
@@ -144,7 +142,7 @@ describe('Auth Session & /api/auth/me Reliability', () => {
         email: 'meier@schule.ch',
       } as unknown as Awaited<ReturnType<typeof db.teacher.findUnique>>);
 
-      const res = await meGet();
+      const res = await meGet(new Request('http://localhost/api/auth/me'));
       expect(res.status).toBe(200);
 
       const json = await res.json();
@@ -161,7 +159,7 @@ describe('Auth Session & /api/auth/me Reliability', () => {
       vi.mocked(db.teacher.findUnique).mockRejectedValue(new Error('DB disconnect'));
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const res = await meGet();
+      const res = await meGet(new Request('http://localhost/api/auth/me'));
       expect(res.status).toBe(500);
 
       const json = await res.json();

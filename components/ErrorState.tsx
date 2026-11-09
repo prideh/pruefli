@@ -4,6 +4,7 @@ import React from 'react';
 import { Card, Typography, Button, Box } from '@mui/material';
 import ErrorOutlinedIcon from '@mui/icons-material/ErrorOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import { resolveErrorStateMessage } from '@/lib/ux-polish';
 
 export interface ErrorStateProps {
   title?: string;
@@ -18,6 +19,8 @@ export default function ErrorState({
   onRetry,
   retryLabel = 'Erneut versuchen',
 }: ErrorStateProps) {
+  const displayMessage = resolveErrorStateMessage(title, message);
+
   return (
     <Card
       sx={{
@@ -39,7 +42,7 @@ export default function ErrorState({
         variant="body2"
         sx={{ color: '#b91c1c', maxWidth: '480px', mx: 'auto', mb: onRetry ? 3 : 0 }}
       >
-        {message}
+        {displayMessage}
       </Typography>
       {onRetry && (
         <Button

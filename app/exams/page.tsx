@@ -50,6 +50,7 @@ import EmailVerificationAiBanner, {
 import ErrorState from '@/components/ErrorState';
 import QrScannerDialog from '@/components/QrScannerDialog';
 import { useDataCache, invalidateExams } from '@/lib/dataCache';
+import { canCreateExamWithClasses, resolveCreateExamDisabledHint } from '@/lib/ux-polish';
 import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
@@ -282,8 +283,14 @@ export default function ExamsPage() {
       })
     );
   }, [cachedClasses]);
-  const loading = (examsLoading && !cachedExams) || (classesLoading && !cachedClasses);
+  const classesInitialLoading = classesLoading && !cachedClasses;
+  const loading = (examsLoading && !cachedExams) || classesInitialLoading;
   const error = examsError || classesError || '';
+  const canCreateExam = canCreateExamWithClasses({
+    classesLoading: classesInitialLoading,
+    classesError,
+    classesCount: classes.length,
+  });
 
   const savedSubjects = cachedSubjectsData?.savedSubjects ?? null;
   const mySubjects = React.useMemo(
@@ -492,6 +499,18 @@ export default function ExamsPage() {
   >([]);
 
   const { isUnverified } = useTeacherSession();
+  const generateExamDisabledHint = resolveCreateExamDisabledHint({
+    isUnverified,
+    forAiGeneration: true,
+    classesLoading: classesInitialLoading,
+    classesError,
+    classesCount: classes.length,
+  });
+  const manualCreateExamDisabledHint = resolveCreateExamDisabledHint({
+    classesLoading: classesInitialLoading,
+    classesError,
+    classesCount: classes.length,
+  });
 
   const autoParseRubric = async (rubricValue: string, allowOverride = false) => {
     if (isUnverified || !rubricValue || rubricValue.trim() === '') return;
@@ -842,49 +861,62 @@ export default function ExamsPage() {
             </Typography>
           </Box>
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
-            <Button
-              variant="contained"
-              startIcon={<AutoAwesomeIcon />}
-              disabled={isUnverified || loading || !!error || classes.length === 0}
-              onClick={() => {
-                setGenError('');
-                const targetId = activeClassId || (classes[0]?.id ?? '');
-                setGenClassId(targetId);
-                const targetClass = classes.find((c) => c.id === targetId) || null;
-                const targetClassExams = exams.filter((ex) => ex.classId === targetId);
-                const classOptions = resolveClassSubjectOptions(mySubjects, targetClass?.subjects);
-                setGenSubject(resolveDefaultExamSubjectForClass(classOptions, targetClassExams));
-                setOpenGenerate(true);
-              }}
-              sx={{
-                padding: '10px 20px',
-                borderRadius: '8px',
-                fontWeight: 700,
-                textTransform: 'none',
-                backgroundColor: '#0f172a',
-                boxShadow: '0 4px 10px rgba(15, 23, 42, 0.2)',
-                '&:hover': { backgroundColor: '#1e293b' },
-              }}
-            >
-              Prüfung generieren
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<AddIcon />}
-              disabled={loading || !!error || classes.length === 0}
-              onClick={handleOpenCreateExam}
-              sx={{
-                padding: '10px 20px',
-                borderRadius: '8px',
-                fontWeight: 700,
-                textTransform: 'none',
-                borderColor: '#cbd5e1',
-                color: '#0f172a',
-                '&:hover': { backgroundColor: '#f8fafc', borderColor: '#94a3b8' },
-              }}
-            >
-              Manuell anlegen
-            </Button>
+            <Tooltip title={generateExamDisabledHint}>
+              <span>
+                <Button
+                  variant="contained"
+                  startIcon={<AutoAwesomeIcon />}
+                  disabled={isUnverified || !canCreateExam}
+                  onClick={() => {
+                    setGenError('');
+                    const targetId = activeClassId || (classes[0]?.id ?? '');
+                    setGenClassId(targetId);
+                    const targetClass = classes.find((c) => c.id === targetId) || null;
+                    const targetClassExams = exams.filter((ex) => ex.classId === targetId);
+                    const classOptions = resolveClassSubjectOptions(
+                      mySubjects,
+                      targetClass?.subjects
+                    );
+                    setGenSubject(
+                      resolveDefaultExamSubjectForClass(classOptions, targetClassExams)
+                    );
+                    setOpenGenerate(true);
+                  }}
+                  sx={{
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    fontWeight: 700,
+                    textTransform: 'none',
+                    backgroundColor: '#0f172a',
+                    boxShadow: '0 4px 10px rgba(15, 23, 42, 0.2)',
+                    '&:hover': { backgroundColor: '#1e293b' },
+                  }}
+                >
+                  Prüfung generieren
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={manualCreateExamDisabledHint}>
+              <span>
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  disabled={!canCreateExam}
+                  onClick={handleOpenCreateExam}
+                  sx={{
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    fontWeight: 700,
+                    textTransform: 'none',
+                    borderColor: '#cbd5e1',
+                    color: '#0f172a',
+                    '&:hover': { backgroundColor: '#f8fafc', borderColor: '#94a3b8' },
+                  }}
+                >
+                  Manuell anlegen
+                </Button>
+              </span>
+            </Tooltip>
           </Stack>
         </Box>
 
@@ -1512,7 +1544,19 @@ export default function ExamsPage() {
                       fullWidth
                       variant="outlined"
                       value={examTitle}
-                      onChange={(e) => setExamTitle(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setExamTitle(val);
+                        if (val.trim()) {
+                          setCreateError((prev) =>
+                            prev === 'Prüfungstitel ist erforderlich.' ||
+                            (prev === 'Bitte gib einen Prüfungstitel und ein Fach an.' &&
+                              Boolean(examSubject.trim()))
+                              ? ''
+                              : prev
+                          );
+                        }
+                      }}
                       required
                       sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
                     />
@@ -1522,7 +1566,19 @@ export default function ExamsPage() {
                       id="subject-combobox"
                       value={examSubject}
                       options={createDialogSubjectOptions}
-                      onChange={setExamSubject}
+                      onChange={(val) => {
+                        setExamSubject(val);
+                        if (val.trim()) {
+                          setCreateError((prev) =>
+                            prev === 'Fach ist erforderlich.' ||
+                            prev === 'Bitte gib ein Fach an.' ||
+                            (prev === 'Bitte gib einen Prüfungstitel und ein Fach an.' &&
+                              Boolean(examTitle.trim()))
+                              ? ''
+                              : prev
+                          );
+                        }
+                      }}
                       label="Fach (KI-Profil)"
                     />
                   </Grid>
@@ -2364,7 +2420,16 @@ export default function ExamsPage() {
                       id="gen-subject-combobox"
                       value={genSubject}
                       options={genDialogSubjectOptions}
-                      onChange={setGenSubject}
+                      onChange={(val) => {
+                        setGenSubject(val);
+                        if (val.trim()) {
+                          setGenError((prev) =>
+                            prev === 'Fach ist erforderlich.' || prev === 'Bitte gib ein Fach an.'
+                              ? ''
+                              : prev
+                          );
+                        }
+                      }}
                       label="Fach (KI-Profil)"
                     />
                   </Grid>
