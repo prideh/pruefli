@@ -65,6 +65,8 @@ import EmailVerificationAiBanner, {
   useTeacherSession,
 } from '@/components/EmailVerificationAiBanner';
 import ErrorState from '@/components/ErrorState';
+import ExamMarkdownMathPreview from '@/components/ExamMarkdownMathPreview';
+import 'katex/dist/katex.min.css';
 import QrScannerDialog from '@/components/QrScannerDialog';
 import PdfBatchSplitDialog from '@/components/PdfBatchSplitDialog';
 import { isPdfFile, inspectPdfBytes, type PdfPageInfo } from '@/lib/pdf-batch';
@@ -1761,13 +1763,16 @@ export default function ExamDetailsPage() {
                         border: '1px solid #e2e8f0',
                         fontFamily: 'inherit',
                         fontSize: '0.88rem',
-                        whiteSpace: 'pre-wrap',
                         color: '#1e293b',
                         maxHeight: '360px',
                         overflowY: 'auto',
                       }}
                     >
-                      {exam?.examTemplateText || 'Kein Aufgabenblatt hinterlegt.'}
+                      <ExamMarkdownMathPreview
+                        content={exam?.examTemplateText || ''}
+                        emptyText="Kein Aufgabenblatt hinterlegt."
+                        testId="exam-template-preview"
+                      />
                     </Box>
                   </Box>
                 ) : (
@@ -1777,13 +1782,9 @@ export default function ExamDetailsPage() {
                       borderRadius: '8px',
                       backgroundColor: '#f8fafc',
                       border: '1px solid #e2e8f0',
-                      fontFamily: isSerializedDocumentPayload(exam?.rubricText)
-                        ? 'inherit'
-                        : 'monospace',
+                      fontFamily: 'inherit',
                       fontSize: '0.85rem',
-                      whiteSpace: isSerializedDocumentPayload(exam?.rubricText)
-                        ? 'normal'
-                        : 'pre-wrap',
+                      whiteSpace: 'normal',
                       color: '#334155',
                       flexGrow: 1,
                       overflowY: exam?.rubricText?.includes('"application/pdf"')
@@ -1914,7 +1915,13 @@ export default function ExamDetailsPage() {
                           </Stack>
                         );
                       }
-                      return exam?.rubricText || 'Keine Musterlösung hinterlegt.';
+                      return (
+                        <ExamMarkdownMathPreview
+                          content={exam?.rubricText || ''}
+                          emptyText="Keine Musterlösung hinterlegt."
+                          testId="exam-rubric-preview"
+                        />
+                      );
                     })()}
                     {exam?.gradingNotes && (
                       <Box
