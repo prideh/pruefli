@@ -66,6 +66,7 @@ import {
   type GradeRounding,
   type TeacherSubjectItem,
 } from '@/lib/grading';
+import { serializeReferenceFiles } from '@/lib/reference-upload';
 
 interface SimpleClass {
   id: string;
@@ -366,44 +367,31 @@ export default function ExamsPage() {
   const [genTotalPoints, setGenTotalPoints] = useState<number>(20);
   const [genTaskCount, setGenTaskCount] = useState<number>(4);
   const [genEnableQrSheet, setGenEnableQrSheet] = useState<boolean>(false);
-  const [genMaterialPayload, setGenMaterialPayload] = useState<{
-    mimeType: string;
-    data: string;
-  } | null>(null);
+  const [genMaterialPayload, setGenMaterialPayload] = useState<
+    { mimeType: string; data: string } | { mimeType: string; data: string }[] | null
+  >(null);
   const [genMaterialText, setGenMaterialText] = useState('');
   const [genMaterialFileName, setGenMaterialFileName] = useState('');
   const [genLoading, setGenLoading] = useState(false);
   const [genError, setGenError] = useState('');
 
-  const handleGenMaterialFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setGenMaterialFileName(file.name);
+  const handleGenMaterialFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      e.target.value = '';
       setGenError('');
-
-      const reader = new FileReader();
-      if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-        reader.onload = (event) => {
-          const dataUrl = event.target?.result as string;
-          if (dataUrl) {
-            const base64Data = dataUrl.split(',')[1];
-            setGenMaterialPayload({
-              mimeType: file.type || 'application/pdf',
-              data: base64Data,
-            });
-            setGenMaterialText('');
-          }
-        };
-        reader.readAsDataURL(file);
-      } else {
-        reader.onload = (event) => {
-          const text = event.target?.result as string;
-          if (text) {
-            setGenMaterialText(text);
-            setGenMaterialPayload(null);
-          }
-        };
-        reader.readAsText(file);
+      try {
+        const serialized = await serializeReferenceFiles(files);
+        setGenMaterialFileName(serialized.fileNameSummary);
+        if (typeof serialized.param === 'string') {
+          setGenMaterialText(serialized.param);
+          setGenMaterialPayload(null);
+        } else {
+          setGenMaterialPayload(serialized.param);
+          setGenMaterialText('');
+        }
+      } catch {
+        setGenError('Datei konnte nicht gelesen werden.');
       }
     }
   };
@@ -569,39 +557,22 @@ export default function ExamsPage() {
     }
   };
 
-  const handleRubricFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setUploadedFileName(file.name);
+  const handleRubricFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      e.target.value = '';
       setRubricOverrideConfirmed(false);
       setRubricOverridePrompt(null);
       setCreateError('');
-
-      const reader = new FileReader();
-      if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-        reader.onload = (event) => {
-          const dataUrl = event.target?.result as string;
-          if (dataUrl) {
-            const base64Data = dataUrl.split(',')[1];
-            const rubricPayload = JSON.stringify({
-              mimeType: file.type,
-              data: base64Data,
-              name: file.name,
-            });
-            setExamRubric(rubricPayload);
-            autoParseRubric(rubricPayload);
-          }
-        };
-        reader.readAsDataURL(file);
-      } else {
-        reader.onload = (event) => {
-          const text = event.target?.result as string;
-          if (text) {
-            setExamRubric(text);
-            autoParseRubric(text);
-          }
-        };
-        reader.readAsText(file);
+      try {
+        const serialized = await serializeReferenceFiles(files);
+        setUploadedFileName(serialized.fileNameSummary);
+        if (serialized.storedText) {
+          setExamRubric(serialized.storedText);
+          autoParseRubric(serialized.storedText);
+        }
+      } catch {
+        setCreateError('Musterlösung konnte nicht gelesen werden.');
       }
     }
   };
@@ -1729,6 +1700,7 @@ export default function ExamsPage() {
                       </Typography>
                       <input
                         type="file"
+                        multiple
                         accept="application/pdf,text/plain,image/*"
                         id="dialogRubricFile"
                         onChange={handleRubricFileChange}
@@ -2311,6 +2283,7 @@ export default function ExamsPage() {
                       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
                         <input
                           type="file"
+                          multiple
                           accept="application/pdf,image/*,text/plain"
                           id="genMaterialFileInput"
                           onChange={handleGenMaterialFileChange}

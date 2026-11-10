@@ -713,6 +713,27 @@ export async function validateReferenceUpload(
     }
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const lowerMime = (file.type || '').toLowerCase().trim();
+    const lowerName = (file.name || '').toLowerCase().trim();
+    const isPlainTextFile =
+      lowerMime === 'text/plain' ||
+      (lowerName.endsWith('.txt') &&
+        !lowerMime.startsWith('image/') &&
+        lowerMime !== 'application/pdf');
+
+    if (isPlainTextFile) {
+      return validateDocument(
+        {
+          text: buffer.toString('utf-8'),
+          name: file.name,
+          mimeType: 'text/plain',
+          label,
+          expectedType: 'reference',
+        },
+        options
+      );
+    }
+
     return validateDocument(
       {
         buffer,
