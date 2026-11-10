@@ -39,6 +39,7 @@ import {
 } from '@/lib/payload-limits';
 import { validateStudentExamUpload, validateReferenceUpload } from '@/lib/document-validation';
 import { isClassArchived } from '@/lib/class-archive';
+import { extractFormDataReferenceInput, serializeReferenceFiles } from '@/lib/reference-upload';
 import crypto from 'crypto';
 
 // Allowed student exam MIME types and safe file extensions
@@ -100,8 +101,8 @@ export async function POST(request: Request) {
     const examTitle = formData.get('examTitle') as string | null;
     const examSubject = formData.get('examSubject') as string | null;
     const maxPointsRaw = formData.get('maxPoints') as string | null;
-    const rubric = formData.get('rubric') as File | string | null;
-    const examTemplate = formData.get('examTemplate') as File | string | null;
+    const rubric = extractFormDataReferenceInput(formData, 'rubric');
+    const examTemplate = extractFormDataReferenceInput(formData, 'examTemplate');
     const gradingNotes = formData.get('gradingNotes') as string | null;
     const gradingFormula = (formData.get('gradingFormula') as string | null) || 'LINEAR_60';
     const gradeRounding = (formData.get('gradeRounding') as string | null) || '0.1';
@@ -316,6 +317,7 @@ export async function POST(request: Request) {
     // 2. Fetch/resolve the rubric data from DB or parameters
     let rubricParam: ReferenceMaterialInput = '';
     let rubricTextString = '';
+    let examTemplateString: string | null = null;
 
     let finalExamId = examId;
 
@@ -366,17 +368,11 @@ export async function POST(request: Request) {
         rubricParam = parseSerializedReferenceMaterial(rubric) || rubric;
         rubricTextString = rubric;
       } else {
-        const mimeType = rubric.type || '';
-        const rubricBytes = await rubric.arrayBuffer();
-
-        if (mimeType.startsWith('image/') || mimeType === 'application/pdf') {
-          const base64Data = Buffer.from(rubricBytes).toString('base64');
-          rubricParam = { mimeType, data: base64Data };
-          rubricTextString = JSON.stringify(rubricParam);
-        } else {
-          rubricTextString = Buffer.from(rubricBytes).toString('utf-8');
-          rubricParam = rubricTextString;
-        }
+        const serializedRubric = await serializeReferenceFiles(
+          Array.isArray(rubric) ? rubric : [rubric]
+        );
+        rubricParam = serializedRubric.param;
+        rubricTextString = serializedRubric.storedText;
       }
 
       // Check if an exam with this title already exists in this class (for bulk uploader concurrency)
@@ -384,21 +380,14 @@ export async function POST(request: Request) {
         where: { title: examTitle, classId },
       });
 
-      let examTemplateString: string | null = null;
       if (examTemplate) {
         if (typeof examTemplate === 'string') {
           examTemplateString = examTemplate.trim() || null;
         } else {
-          const tplMime = examTemplate.type || '';
-          const tplBytes = await examTemplate.arrayBuffer();
-          if (tplMime.startsWith('image/') || tplMime === 'application/pdf') {
-            examTemplateString = JSON.stringify({
-              mimeType: tplMime,
-              data: Buffer.from(tplBytes).toString('base64'),
-            });
-          } else {
-            examTemplateString = Buffer.from(tplBytes).toString('utf-8');
-          }
+          const serializedTemplate = await serializeReferenceFiles(
+            Array.isArray(examTemplate) ? examTemplate : [examTemplate]
+          );
+          examTemplateString = serializedTemplate.storedText || null;
         }
       }
 
@@ -541,7 +530,9 @@ export async function POST(request: Request) {
             : undefined;
 
         // 3. Run live Gemini OCR or reuse result from Content-Hash LLM Cache
-        const examTemplateParam = parseStoredMaterial(examRecord?.examTemplateText);
+        const examTemplateParam = parseStoredMaterial(
+          examRecord?.examTemplateText ?? examTemplateString
+        );
         const promptVersion = LLM_PROMPT_VERSIONS.grading;
         const studentPages = [{ mimeType: safeFormat.mimeType, data: studentBase64 }];
         const { cacheKey, hash: gradingHash } = computeGradingCacheKey({

@@ -92,6 +92,7 @@ import {
   type GradingFormula,
   type GradeRounding,
 } from '@/lib/grading';
+import { serializeReferenceFiles } from '@/lib/reference-upload';
 
 interface ExamData {
   id: string;
@@ -557,35 +558,18 @@ export default function ExamDetailsPage() {
     }
   };
 
-  const handleRubricFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setUploadedFileName(file.name);
-
-      const reader = new FileReader();
-      if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-        reader.onload = (event) => {
-          const dataUrl = event.target?.result as string;
-          if (dataUrl) {
-            const base64Data = dataUrl.split(',')[1];
-            setRubricText(
-              JSON.stringify({
-                mimeType: file.type,
-                data: base64Data,
-                name: file.name,
-              })
-            );
-          }
-        };
-        reader.readAsDataURL(file);
-      } else {
-        reader.onload = (event) => {
-          const text = event.target?.result as string;
-          if (text) {
-            setRubricText(text);
-          }
-        };
-        reader.readAsText(file);
+  const handleRubricFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      e.target.value = '';
+      try {
+        const serialized = await serializeReferenceFiles(files);
+        setUploadedFileName(serialized.fileNameSummary);
+        if (serialized.storedText) {
+          setRubricText(serialized.storedText);
+        }
+      } catch {
+        setSaveError('Musterlösung konnte nicht gelesen werden.');
       }
     }
   };
@@ -1655,6 +1639,7 @@ export default function ExamDetailsPage() {
                               </Typography>
                               <input
                                 type="file"
+                                multiple
                                 accept="application/pdf,text/plain,image/*"
                                 id="editRubricFile"
                                 onChange={handleRubricFileChange}
@@ -1768,11 +1753,78 @@ export default function ExamDetailsPage() {
                         overflowY: 'auto',
                       }}
                     >
-                      <ExamMarkdownMathPreview
-                        content={exam?.examTemplateText || ''}
-                        emptyText="Kein Aufgabenblatt hinterlegt."
-                        testId="exam-template-preview"
-                      />
+                      {(() => {
+                        const parsedTpl = parseSerializedDocumentPayload(exam?.examTemplateText);
+                        if (parsedTpl?.kind === 'single') {
+                          const parsed = parsedTpl.page;
+                          if (parsed.mimeType === 'application/pdf') {
+                            return (
+                              <iframe
+                                src={`data:${parsed.mimeType};base64,${parsed.data}`}
+                                title="PDF Aufgabenblatt Vorschau"
+                                width="100%"
+                                height="320px"
+                                style={{ border: 'none' }}
+                              />
+                            );
+                          }
+                          return (
+                            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={`data:${parsed.mimeType};base64,${parsed.data}`}
+                                alt="Aufgabenblatt"
+                                style={{
+                                  maxWidth: '100%',
+                                  maxHeight: '220px',
+                                  objectFit: 'contain',
+                                  borderRadius: '4px',
+                                }}
+                              />
+                            </Box>
+                          );
+                        }
+                        if (parsedTpl?.kind === 'multi') {
+                          const pages = parsedTpl.pages;
+                          return (
+                            <Stack spacing={1.5} data-testid="exam-template-multi-preview">
+                              <Typography
+                                variant="caption"
+                                sx={{ fontWeight: 700, color: '#0f172a' }}
+                              >
+                                Mehrseitige Bild-Vorlage ({pages.length} Seiten)
+                              </Typography>
+                              <Stack
+                                direction="row"
+                                spacing={1.5}
+                                sx={{ overflowX: 'auto', pb: 1 }}
+                              >
+                                {pages.map((p, idx) => (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    key={idx}
+                                    src={`data:${p.mimeType};base64,${p.data}`}
+                                    alt={`Vorlage Seite ${idx + 1}`}
+                                    style={{
+                                      height: '160px',
+                                      objectFit: 'contain',
+                                      borderRadius: '6px',
+                                      border: '1px solid #cbd5e1',
+                                    }}
+                                  />
+                                ))}
+                              </Stack>
+                            </Stack>
+                          );
+                        }
+                        return (
+                          <ExamMarkdownMathPreview
+                            content={exam?.examTemplateText || ''}
+                            emptyText="Kein Aufgabenblatt hinterlegt."
+                            testId="exam-template-preview"
+                          />
+                        );
+                      })()}
                     </Box>
                   </Box>
                 ) : (

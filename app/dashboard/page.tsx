@@ -90,6 +90,13 @@ import {
   type GradeRounding,
 } from '@/lib/grading';
 import { applyUpdatedClassStudentCount, shouldClearWizardValidationError } from '@/lib/ux-polish';
+import {
+  appendReferenceFiles,
+  moveReferenceFile,
+  removeReferenceFileAt,
+  formatReferenceFilesSummary,
+  serializeReferenceFiles,
+} from '@/lib/reference-upload';
 
 interface DashboardClass {
   id: string;
@@ -415,9 +422,9 @@ export default function Dashboard() {
   const [examSubject, setExamSubject] = useState<string>('');
   const [examMaxPoints, setExamMaxPoints] = useState<string>('20');
   const [rubricText, setRubricText] = useState<string>('');
-  const [rubricFile, setRubricFile] = useState<File | null>(null);
+  const [rubricFiles, setRubricFiles] = useState<File[]>([]);
   const [rubricScannedPages, setRubricScannedPages] = useState<number>(0);
-  const [examTemplateFile, setExamTemplateFile] = useState<File | null>(null);
+  const [examTemplateFiles, setExamTemplateFiles] = useState<File[]>([]);
   const [examTemplateScannedPayload, setExamTemplateScannedPayload] = useState<string>('');
   const [examTemplateScannedPages, setExamTemplateScannedPages] = useState<number>(0);
   const [gradingNotes, setGradingNotes] = useState<string>('');
@@ -1053,16 +1060,20 @@ export default function Dashboard() {
           formData.append('maxPoints', String(parsedMaxPoints ?? 20));
           formData.append('gradingFormula', gradingFormula);
           formData.append('gradeRounding', gradeRounding);
-          if (examTemplateFile) {
-            formData.append('examTemplate', examTemplateFile);
+          if (examTemplateFiles.length > 0) {
+            for (const tplFile of examTemplateFiles) {
+              formData.append('examTemplate', tplFile);
+            }
           } else if (examTemplateScannedPayload) {
             formData.append('examTemplate', examTemplateScannedPayload);
           }
           if (gradingNotes.trim()) {
             formData.append('gradingNotes', gradingNotes.trim());
           }
-          if (rubricFile) {
-            formData.append('rubric', rubricFile);
+          if (rubricFiles.length > 0) {
+            for (const rubFile of rubricFiles) {
+              formData.append('rubric', rubFile);
+            }
           } else {
             formData.append('rubric', rubricText || 'Standard Musterlösung');
           }
@@ -2196,41 +2207,190 @@ export default function Dashboard() {
                             oder Datei). Die Schülerarbeiten werden anschliessend in Schritt ③
                             hochgeladen.
                           </Typography>
-                          {rubricFile || isSerializedDocumentPayload(rubricText) ? (
-                            <Box
+                          <input
+                            type="file"
+                            multiple
+                            accept="application/pdf,text/plain,image/*"
+                            id="rubricFile"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                const selected = Array.from(e.target.files);
+                                setRubricFiles((prev) => appendReferenceFiles(prev, selected));
+                              }
+                              e.target.value = '';
+                            }}
+                            style={{ display: 'none' }}
+                          />
+                          {rubricFiles.length > 0 || isSerializedDocumentPayload(rubricText) ? (
+                            <Stack
+                              spacing={1}
+                              data-testid="rubric-upload-summary"
                               sx={{
                                 border: '1px solid #e2e8f0',
                                 padding: '12px 16px',
                                 borderRadius: '8px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
                                 background: '#f8fafc',
                               }}
                             >
-                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                                <DescriptionIcon sx={{ color: 'primary.main' }} />
-                                <Typography
-                                  variant="body2"
-                                  sx={{ color: 'text.primary', fontWeight: 600 }}
-                                >
-                                  {rubricFile
-                                    ? `Musterlösung: ${rubricFile.name}`
-                                    : `Smartphone-Musterlösung geladen (${rubricScannedPages || 1} ${(rubricScannedPages || 1) === 1 ? 'Seite' : 'Seiten'})`}
-                                </Typography>
-                              </Stack>
-                              <Button
-                                size="small"
-                                color="error"
-                                onClick={() => {
-                                  setRubricFile(null);
-                                  setRubricText('');
-                                  setRubricScannedPages(0);
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                sx={{
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  flexWrap: 'wrap',
+                                  rowGap: 0.75,
                                 }}
                               >
-                                Löschen
-                              </Button>
-                            </Box>
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{ alignItems: 'center', minWidth: 0 }}
+                                >
+                                  <DescriptionIcon sx={{ color: 'primary.main', flexShrink: 0 }} />
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      color: 'text.primary',
+                                      fontWeight: 600,
+                                      minWidth: 0,
+                                      overflowWrap: 'anywhere',
+                                    }}
+                                  >
+                                    {rubricFiles.length > 0
+                                      ? formatReferenceFilesSummary(rubricFiles, 'rubric')
+                                      : `Smartphone-Musterlösung geladen (${rubricScannedPages || 1} ${(rubricScannedPages || 1) === 1 ? 'Seite' : 'Seiten'})`}
+                                  </Typography>
+                                </Stack>
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{ alignItems: 'center', flexShrink: 0 }}
+                                >
+                                  {rubricFiles.length > 0 && (
+                                    <Button
+                                      component="label"
+                                      htmlFor="rubricFile"
+                                      size="small"
+                                      variant="outlined"
+                                      data-testid="rubric-add-page-btn"
+                                      sx={{
+                                        textTransform: 'none',
+                                        fontWeight: 600,
+                                        borderColor: '#cbd5e1',
+                                        color: 'text.primary',
+                                        py: 0.25,
+                                        whiteSpace: 'nowrap',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      + Seite
+                                    </Button>
+                                  )}
+                                  <Button
+                                    size="small"
+                                    color="error"
+                                    sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                                    onClick={() => {
+                                      setRubricFiles([]);
+                                      setRubricText('');
+                                      setRubricScannedPages(0);
+                                    }}
+                                  >
+                                    Löschen
+                                  </Button>
+                                </Stack>
+                              </Stack>
+                              {rubricFiles.length > 1 && (
+                                <Stack
+                                  spacing={0.5}
+                                  data-testid="rubric-pages-list"
+                                  sx={{ pt: 0.5 }}
+                                >
+                                  {rubricFiles.map((file, idx) => (
+                                    <Stack
+                                      key={`${file.name}-${file.size}-${idx}`}
+                                      direction="row"
+                                      spacing={1}
+                                      data-testid={`rubric-page-item-${idx}`}
+                                      sx={{
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        px: 1,
+                                        py: 0.5,
+                                        borderRadius: '6px',
+                                        backgroundColor: '#ffffff',
+                                        border: '1px solid #e2e8f0',
+                                      }}
+                                    >
+                                      <Typography
+                                        variant="caption"
+                                        sx={{
+                                          fontWeight: 600,
+                                          color: '#334155',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        {idx + 1}. {file.name}
+                                      </Typography>
+                                      <Stack
+                                        direction="row"
+                                        spacing={0.5}
+                                        sx={{ alignItems: 'center', flexShrink: 0 }}
+                                      >
+                                        <Button
+                                          size="small"
+                                          variant="text"
+                                          disabled={idx === 0}
+                                          aria-label={`Musterlösung Seite ${idx + 1} nach oben`}
+                                          data-testid={`rubric-page-up-${idx}`}
+                                          onClick={() =>
+                                            setRubricFiles((prev) =>
+                                              moveReferenceFile(prev, idx, idx - 1)
+                                            )
+                                          }
+                                          sx={{ minWidth: '28px', p: '2px 4px', fontWeight: 700 }}
+                                        >
+                                          ↑
+                                        </Button>
+                                        <Button
+                                          size="small"
+                                          variant="text"
+                                          disabled={idx === rubricFiles.length - 1}
+                                          aria-label={`Musterlösung Seite ${idx + 1} nach unten`}
+                                          data-testid={`rubric-page-down-${idx}`}
+                                          onClick={() =>
+                                            setRubricFiles((prev) =>
+                                              moveReferenceFile(prev, idx, idx + 1)
+                                            )
+                                          }
+                                          sx={{ minWidth: '28px', p: '2px 4px', fontWeight: 700 }}
+                                        >
+                                          ↓
+                                        </Button>
+                                        <Button
+                                          size="small"
+                                          color="error"
+                                          variant="text"
+                                          aria-label={`Musterlösung Seite ${idx + 1} entfernen`}
+                                          data-testid={`rubric-page-remove-${idx}`}
+                                          onClick={() =>
+                                            setRubricFiles((prev) =>
+                                              removeReferenceFileAt(prev, idx)
+                                            )
+                                          }
+                                          sx={{ minWidth: '28px', p: '2px 4px', fontWeight: 700 }}
+                                        >
+                                          ×
+                                        </Button>
+                                      </Stack>
+                                    </Stack>
+                                  ))}
+                                </Stack>
+                              )}
+                            </Stack>
                           ) : (
                             <>
                               <TextField
@@ -2246,17 +2406,6 @@ export default function Dashboard() {
                                 spacing={1.5}
                                 sx={{ alignItems: 'center', flexWrap: 'wrap' }}
                               >
-                                <input
-                                  type="file"
-                                  accept="application/pdf,text/plain,image/*"
-                                  id="rubricFile"
-                                  onChange={(e) => {
-                                    if (e.target.files && e.target.files[0]) {
-                                      setRubricFile(e.target.files[0]);
-                                    }
-                                  }}
-                                  style={{ display: 'none' }}
-                                />
                                 <Button
                                   component="label"
                                   htmlFor="rubricFile"
@@ -2269,7 +2418,7 @@ export default function Dashboard() {
                                     textTransform: 'none',
                                   }}
                                 >
-                                  Datei auswählen (PDF/Bild)
+                                  Datei auswählen (PDF/Fotos)
                                 </Button>
                                 <Button
                                   variant="outlined"
@@ -2370,35 +2519,198 @@ export default function Dashboard() {
                                 >
                                   Leeres Aufgabenblatt / Vorlagenprüfung (optional):
                                 </Typography>
-                                {examTemplateFile || examTemplateScannedPayload ? (
+                                <input
+                                  type="file"
+                                  multiple
+                                  accept="application/pdf,text/plain,image/*"
+                                  id="examTemplateFile"
+                                  onChange={(e) => {
+                                    if (e.target.files && e.target.files.length > 0) {
+                                      const selected = Array.from(e.target.files);
+                                      setExamTemplateFiles((prev) =>
+                                        appendReferenceFiles(prev, selected)
+                                      );
+                                    }
+                                    e.target.value = '';
+                                  }}
+                                  style={{ display: 'none' }}
+                                />
+                                {examTemplateFiles.length > 0 || examTemplateScannedPayload ? (
                                   <Stack
-                                    direction="row"
                                     spacing={1}
+                                    data-testid="template-upload-summary"
                                     sx={{
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
                                       border: '1px solid #e2e8f0',
                                       p: '8px 12px',
                                       borderRadius: '8px',
                                       backgroundColor: '#ffffff',
                                     }}
                                   >
-                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                      {examTemplateFile
-                                        ? examTemplateFile.name
-                                        : `Smartphone-Vorlage geladen (${examTemplateScannedPages} ${examTemplateScannedPages === 1 ? 'Seite' : 'Seiten'})`}
-                                    </Typography>
-                                    <Button
-                                      size="small"
-                                      color="error"
-                                      onClick={() => {
-                                        setExamTemplateFile(null);
-                                        setExamTemplateScannedPayload('');
-                                        setExamTemplateScannedPages(0);
+                                    <Stack
+                                      direction="row"
+                                      spacing={1}
+                                      sx={{
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        flexWrap: 'wrap',
+                                        rowGap: 0.75,
                                       }}
                                     >
-                                      Entfernen
-                                    </Button>
+                                      <Typography
+                                        variant="body2"
+                                        sx={{
+                                          fontWeight: 600,
+                                          minWidth: 0,
+                                          overflowWrap: 'anywhere',
+                                        }}
+                                      >
+                                        {examTemplateFiles.length > 0
+                                          ? formatReferenceFilesSummary(
+                                              examTemplateFiles,
+                                              'template'
+                                            )
+                                          : `Smartphone-Vorlage geladen (${examTemplateScannedPages} ${examTemplateScannedPages === 1 ? 'Seite' : 'Seiten'})`}
+                                      </Typography>
+                                      <Stack
+                                        direction="row"
+                                        spacing={1}
+                                        sx={{ alignItems: 'center', flexShrink: 0 }}
+                                      >
+                                        {examTemplateFiles.length > 0 && (
+                                          <Button
+                                            component="label"
+                                            htmlFor="examTemplateFile"
+                                            size="small"
+                                            variant="outlined"
+                                            data-testid="template-add-page-btn"
+                                            sx={{
+                                              textTransform: 'none',
+                                              fontWeight: 600,
+                                              borderColor: '#cbd5e1',
+                                              color: 'text.primary',
+                                              py: 0.25,
+                                              whiteSpace: 'nowrap',
+                                              flexShrink: 0,
+                                            }}
+                                          >
+                                            + Seite
+                                          </Button>
+                                        )}
+                                        <Button
+                                          size="small"
+                                          color="error"
+                                          sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                                          onClick={() => {
+                                            setExamTemplateFiles([]);
+                                            setExamTemplateScannedPayload('');
+                                            setExamTemplateScannedPages(0);
+                                          }}
+                                        >
+                                          Entfernen
+                                        </Button>
+                                      </Stack>
+                                    </Stack>
+                                    {examTemplateFiles.length > 1 && (
+                                      <Stack
+                                        spacing={0.5}
+                                        data-testid="template-pages-list"
+                                        sx={{ pt: 0.5 }}
+                                      >
+                                        {examTemplateFiles.map((file, idx) => (
+                                          <Stack
+                                            key={`${file.name}-${file.size}-${idx}`}
+                                            direction="row"
+                                            spacing={1}
+                                            data-testid={`template-page-item-${idx}`}
+                                            sx={{
+                                              alignItems: 'center',
+                                              justifyContent: 'space-between',
+                                              px: 1,
+                                              py: 0.5,
+                                              borderRadius: '6px',
+                                              backgroundColor: '#f8fafc',
+                                              border: '1px solid #e2e8f0',
+                                            }}
+                                          >
+                                            <Typography
+                                              variant="caption"
+                                              sx={{
+                                                fontWeight: 600,
+                                                color: '#334155',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                              }}
+                                            >
+                                              {idx + 1}. {file.name}
+                                            </Typography>
+                                            <Stack
+                                              direction="row"
+                                              spacing={0.5}
+                                              sx={{ alignItems: 'center', flexShrink: 0 }}
+                                            >
+                                              <Button
+                                                size="small"
+                                                variant="text"
+                                                disabled={idx === 0}
+                                                aria-label={`Vorlage Seite ${idx + 1} nach oben`}
+                                                data-testid={`template-page-up-${idx}`}
+                                                onClick={() =>
+                                                  setExamTemplateFiles((prev) =>
+                                                    moveReferenceFile(prev, idx, idx - 1)
+                                                  )
+                                                }
+                                                sx={{
+                                                  minWidth: '28px',
+                                                  p: '2px 4px',
+                                                  fontWeight: 700,
+                                                }}
+                                              >
+                                                ↑
+                                              </Button>
+                                              <Button
+                                                size="small"
+                                                variant="text"
+                                                disabled={idx === examTemplateFiles.length - 1}
+                                                aria-label={`Vorlage Seite ${idx + 1} nach unten`}
+                                                data-testid={`template-page-down-${idx}`}
+                                                onClick={() =>
+                                                  setExamTemplateFiles((prev) =>
+                                                    moveReferenceFile(prev, idx, idx + 1)
+                                                  )
+                                                }
+                                                sx={{
+                                                  minWidth: '28px',
+                                                  p: '2px 4px',
+                                                  fontWeight: 700,
+                                                }}
+                                              >
+                                                ↓
+                                              </Button>
+                                              <Button
+                                                size="small"
+                                                color="error"
+                                                variant="text"
+                                                aria-label={`Vorlage Seite ${idx + 1} entfernen`}
+                                                data-testid={`template-page-remove-${idx}`}
+                                                onClick={() =>
+                                                  setExamTemplateFiles((prev) =>
+                                                    removeReferenceFileAt(prev, idx)
+                                                  )
+                                                }
+                                                sx={{
+                                                  minWidth: '28px',
+                                                  p: '2px 4px',
+                                                  fontWeight: 700,
+                                                }}
+                                              >
+                                                ×
+                                              </Button>
+                                            </Stack>
+                                          </Stack>
+                                        ))}
+                                      </Stack>
+                                    )}
                                   </Stack>
                                 ) : (
                                   <Stack
@@ -2406,17 +2718,6 @@ export default function Dashboard() {
                                     spacing={1.5}
                                     sx={{ alignItems: 'center', flexWrap: 'wrap' }}
                                   >
-                                    <input
-                                      type="file"
-                                      accept="application/pdf,text/plain,image/*"
-                                      id="examTemplateFile"
-                                      onChange={(e) => {
-                                        if (e.target.files && e.target.files[0]) {
-                                          setExamTemplateFile(e.target.files[0]);
-                                        }
-                                      }}
-                                      style={{ display: 'none' }}
-                                    />
                                     <Button
                                       component="label"
                                       htmlFor="examTemplateFile"
@@ -2430,7 +2731,7 @@ export default function Dashboard() {
                                         textTransform: 'none',
                                       }}
                                     >
-                                      Aufgabenblatt hochladen (PDF/Bild)
+                                      Aufgabenblatt hochladen (PDF/Fotos)
                                     </Button>
                                     <Button
                                       variant="outlined"
@@ -2538,17 +2839,19 @@ export default function Dashboard() {
                             }
                             try {
                               let resolvedRubric = rubricText || 'Standard Musterlösung';
-                              if (rubricFile) {
-                                const dataUrl = await new Promise<string>((resolve) => {
-                                  const r = new FileReader();
-                                  r.onload = (ev) => resolve((ev.target?.result as string) || '');
-                                  r.readAsDataURL(rubricFile);
-                                });
-                                if (dataUrl.includes(',')) {
-                                  resolvedRubric = JSON.stringify({
-                                    mimeType: rubricFile.type || 'image/jpeg',
-                                    data: dataUrl.split(',')[1],
-                                  });
+                              if (rubricFiles.length > 0) {
+                                const serializedRubric = await serializeReferenceFiles(rubricFiles);
+                                if (serializedRubric.storedText) {
+                                  resolvedRubric = serializedRubric.storedText;
+                                }
+                              }
+                              let resolvedTemplate: string | null =
+                                examTemplateScannedPayload || null;
+                              if (examTemplateFiles.length > 0) {
+                                const serializedTemplate =
+                                  await serializeReferenceFiles(examTemplateFiles);
+                                if (serializedTemplate.storedText) {
+                                  resolvedTemplate = serializedTemplate.storedText;
                                 }
                               }
                               const res = await fetch('/api/exams', {
@@ -2559,7 +2862,7 @@ export default function Dashboard() {
                                   subject: (examSubject || effectiveExamSubject).trim(),
                                   maxPoints: parsedMaxPoints,
                                   rubricText: resolvedRubric,
-                                  examTemplateText: examTemplateScannedPayload || null,
+                                  examTemplateText: resolvedTemplate,
                                   gradingNotes: gradingNotes.trim() || null,
                                   gradingFormula,
                                   gradeRounding,
@@ -2796,7 +3099,7 @@ export default function Dashboard() {
                         if (!isValidMaxPointsInput(examMaxPoints)) {
                           missingRequirements.push('Gültige Maximalpunktzahl angeben (Schritt ②)');
                         }
-                        if (!rubricText.trim() && !rubricFile) {
+                        if (!rubricText.trim() && rubricFiles.length === 0) {
                           missingRequirements.push('Musterlösung hinterlegen (Schritt ②)');
                         }
                       }
@@ -3351,11 +3654,11 @@ export default function Dashboard() {
         onRefreshSubmissions={fetchRecentSubmissions}
         onDocumentScanned={(payload, pageCount, mode) => {
           if (mode === 'RUBRIC') {
-            setRubricFile(null);
+            setRubricFiles([]);
             setRubricText(payload);
             setRubricScannedPages(pageCount);
           } else if (mode === 'EXAM_TEMPLATE') {
-            setExamTemplateFile(null);
+            setExamTemplateFiles([]);
             setExamTemplateScannedPayload(payload);
             setExamTemplateScannedPages(pageCount);
           }

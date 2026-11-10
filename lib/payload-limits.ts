@@ -251,13 +251,38 @@ export function validateRubricOrTemplatePayload(
     return { valid: true };
   }
 
-  // 2. Array of document pages or items
+  // 2. Array of document pages or File items
   if (Array.isArray(payload)) {
+    if (payload.length > limits.maxRelayPages) {
+      return {
+        valid: false,
+        error: `${label} umfasst zu viele Seiten. Es können maximal ${limits.maxRelayPages} Seiten verarbeitet werden.`,
+        status: 413,
+      };
+    }
+
     let totalBytes = 0;
     let hasDocObjects = false;
 
-    for (const item of payload) {
+    for (let idx = 0; idx < payload.length; idx++) {
+      const item = payload[idx];
       if (
+        item &&
+        typeof item === 'object' &&
+        'size' in item &&
+        typeof (item as { size: unknown }).size === 'number'
+      ) {
+        hasDocObjects = true;
+        const fileSize = (item as { size: number }).size;
+        if (fileSize > limits.maxScanFileSizeBytes) {
+          return {
+            valid: false,
+            error: `${label} (Seite ${idx + 1}) überschreitet die maximale Dateigrösse von ${formatMb(limits.maxScanFileSizeBytes)}.`,
+            status: 413,
+          };
+        }
+        totalBytes += fileSize;
+      } else if (
         item &&
         typeof item === 'object' &&
         'data' in item &&
