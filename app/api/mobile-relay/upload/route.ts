@@ -195,9 +195,10 @@ export async function POST(request: Request) {
           ? JSON.stringify(cleanPayloads[0])
           : JSON.stringify(cleanPayloads);
 
+      const docId = crypto.randomUUID();
       if (payload.sessionId) {
         saveScannedRelayDocument({
-          id: crypto.randomUUID(),
+          id: docId,
           sessionId: payload.sessionId,
           teacherId: payload.teacherId,
           targetMode: effectiveTargetMode,
@@ -233,6 +234,12 @@ export async function POST(request: Request) {
         targetMode: effectiveTargetMode,
         pagesCount: cleanPayloads.length,
         status: 'DOCUMENT_TRANSFERRED',
+        scannedDocument: {
+          id: docId,
+          targetMode: effectiveTargetMode,
+          payload: serializedDocument,
+          pageCount: cleanPayloads.length,
+        },
       });
     }
 

@@ -17,6 +17,7 @@ import {
   IconButton,
   Tooltip,
   Divider,
+  useMediaQuery,
 } from '@mui/material';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -24,6 +25,8 @@ import CheckIcon from '@mui/icons-material/Check';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EmailVerificationAiBanner, {
   useTeacherSession,
@@ -36,6 +39,51 @@ export type QrTargetMode =
   | 'EXAM_TEMPLATE'
   | 'REPLACE_SUBMISSION'
   | 'APPEND_SUBMISSION';
+
+export function isMobileScannerClient(
+  userAgent?: string,
+  isCoarseOrNarrowViewport?: boolean
+): boolean {
+  if (isCoarseOrNarrowViewport) return true;
+  if (!userAgent) return false;
+  return /Android|iPhone|iPad|iPod|Windows Phone|Mobile/i.test(userAgent);
+}
+
+export function getSameDeviceUploadCopy(
+  targetMode: QrTargetMode,
+  studentName?: string | null
+): { title: string; subtitle: string } {
+  if (targetMode === 'RUBRIC') {
+    return {
+      title: 'Musterlösung direkt erfassen',
+      subtitle: 'Kamera, Bilder oder PDF direkt auf diesem Gerät wählen.',
+    };
+  }
+  if (targetMode === 'EXAM_TEMPLATE') {
+    return {
+      title: 'Vorlage direkt erfassen',
+      subtitle: 'Kamera, Bilder oder PDF direkt auf diesem Gerät wählen.',
+    };
+  }
+  if (targetMode === 'APPEND_SUBMISSION') {
+    return {
+      title: studentName ? `Seite(n) für ${studentName} anhängen` : 'Fehlende Seite(n) anhängen',
+      subtitle: 'Aufnahme oder Datei wird an die Korrektur angehängt.',
+    };
+  }
+  if (targetMode === 'REPLACE_SUBMISSION') {
+    return {
+      title: studentName ? `Scan für ${studentName} ersetzen` : 'Scan direkt ersetzen',
+      subtitle: 'Bestehender Scan wird durch neue Aufnahme oder Datei ersetzt.',
+    };
+  }
+  return {
+    title: studentName
+      ? `Datei(en) für ${studentName} auswählen`
+      : 'PDF oder Bilder direkt hochladen',
+    subtitle: 'Mehrere Bilder werden als mehrseitige Prüfung zusammengefasst.',
+  };
+}
 
 interface QrScannerDialogProps {
   open: boolean;
@@ -73,6 +121,11 @@ export default function QrScannerDialog({
   onDocumentScanned,
 }: QrScannerDialogProps) {
   const { isUnverified } = useTeacherSession();
+  const isCoarseOrNarrow = useMediaQuery('(max-width: 600px), (pointer: coarse)');
+  const isMobileDevice = isMobileScannerClient(
+    typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+    isCoarseOrNarrow
+  );
   const isPaidSubmissionScan = targetMode !== 'RUBRIC' && targetMode !== 'EXAM_TEMPLATE';
   const isDevMode =
     typeof showDevOptions === 'boolean'
@@ -97,6 +150,7 @@ export default function QrScannerDialog({
 
   const lastHandledDocIdRef = useRef<string | null>(null);
   const pcFileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const generateQrSession = useCallback(
     async (originOverride?: string) => {
@@ -144,42 +198,60 @@ export default function QrScannerDialog({
     });
   }, [open, generateQrSession]);
 
-  // Poll desktop submissions & scanned reference documents while modal is open
+  const pollRelayStatus = useCallback(async () => {
+    if (!open || !token) return;
+    if (onRefreshSubmissions) {
+      onRefreshSubmissions();
+    }
+    if (targetMode === 'RUBRIC' || targetMode === 'EXAM_TEMPLATE') {
+      try {
+        const res = await fetch(`/api/mobile-relay?token=${encodeURIComponent(token)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.scannedDocument && data.scannedDocument.id !== lastHandledDocIdRef.current) {
+            lastHandledDocIdRef.current = data.scannedDocument.id;
+            setReceivedDocInfo({
+              pageCount: data.scannedDocument.pageCount,
+              mode: data.scannedDocument.targetMode,
+            });
+            if (onDocumentScanned) {
+              onDocumentScanned(
+                data.scannedDocument.payload,
+                data.scannedDocument.pageCount,
+                data.scannedDocument.targetMode
+              );
+            }
+          }
+        }
+      } catch {
+        // Ignore polling error
+      }
+    }
+  }, [open, token, targetMode, onRefreshSubmissions, onDocumentScanned]);
+
+  // Poll desktop submissions & scanned reference documents while modal is open (and on tab return)
   useEffect(() => {
     if (!open || !token) return;
 
-    const interval = setInterval(async () => {
-      if (onRefreshSubmissions) {
-        onRefreshSubmissions();
-      }
-      if (targetMode === 'RUBRIC' || targetMode === 'EXAM_TEMPLATE') {
-        try {
-          const res = await fetch(`/api/mobile-relay?token=${encodeURIComponent(token)}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.scannedDocument && data.scannedDocument.id !== lastHandledDocIdRef.current) {
-              lastHandledDocIdRef.current = data.scannedDocument.id;
-              setReceivedDocInfo({
-                pageCount: data.scannedDocument.pageCount,
-                mode: data.scannedDocument.targetMode,
-              });
-              if (onDocumentScanned) {
-                onDocumentScanned(
-                  data.scannedDocument.payload,
-                  data.scannedDocument.pageCount,
-                  data.scannedDocument.targetMode
-                );
-              }
-            }
-          }
-        } catch {
-          // Ignore polling error
-        }
-      }
+    const interval = setInterval(() => {
+      void pollRelayStatus();
     }, 2500);
 
-    return () => clearInterval(interval);
-  }, [open, token, targetMode, onRefreshSubmissions, onDocumentScanned]);
+    const handleVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void pollRelayStatus();
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [open, token, pollRelayStatus]);
 
   const handleCopyUrl = async () => {
     if (!scanUrl) return;
@@ -234,11 +306,39 @@ export default function QrScannerDialog({
       setCanOverrideError(false);
       setPendingOverrideFiles([]);
       const effectiveCount = typeof data?.pagesCount === 'number' ? data.pagesCount : files.length;
-      setPcUploadSuccess(
-        studentName
-          ? `Arbeit für ${studentName} (${effectiveCount} ${effectiveCount === 1 ? 'Datei' : 'Dateien'}) hochgeladen — KI-Korrektur gestartet!`
-          : `${effectiveCount} ${effectiveCount === 1 ? 'Datei' : 'Dateien'} erfolgreich hochgeladen — KI-Korrektur läuft!`
-      );
+
+      if (targetMode === 'RUBRIC' || targetMode === 'EXAM_TEMPLATE') {
+        const scannedDoc = data?.scannedDocument;
+        if (scannedDoc?.id) {
+          lastHandledDocIdRef.current = scannedDoc.id;
+        }
+        setReceivedDocInfo({
+          pageCount: effectiveCount,
+          mode: targetMode,
+        });
+        if (scannedDoc?.payload && onDocumentScanned) {
+          onDocumentScanned(scannedDoc.payload, effectiveCount, targetMode);
+        } else {
+          await pollRelayStatus();
+        }
+        return;
+      }
+
+      if (targetMode === 'APPEND_SUBMISSION') {
+        setPcUploadSuccess(
+          `${effectiveCount} ${effectiveCount === 1 ? 'Seite' : 'Seiten'} angehängt — KI-Korrektur läuft!`
+        );
+      } else if (targetMode === 'REPLACE_SUBMISSION') {
+        setPcUploadSuccess(
+          `Scan ersetzt (${effectiveCount} ${effectiveCount === 1 ? 'Datei' : 'Dateien'}) — KI-Korrektur läuft!`
+        );
+      } else {
+        setPcUploadSuccess(
+          studentName
+            ? `Arbeit für ${studentName} (${effectiveCount} ${effectiveCount === 1 ? 'Datei' : 'Dateien'}) hochgeladen — KI-Korrektur gestartet!`
+            : `${effectiveCount} ${effectiveCount === 1 ? 'Datei' : 'Dateien'} erfolgreich hochgeladen — KI-Korrektur läuft!`
+        );
+      }
       if (onRefreshSubmissions) {
         onRefreshSubmissions();
       }
@@ -262,9 +362,9 @@ export default function QrScannerDialog({
   const getModeHeader = () => {
     if (targetMode === 'RUBRIC') {
       return {
-        title: 'Musterlösung (Stufe 2) per Smartphone abfotografieren',
+        title: 'Musterlösung (Stufe 2) erfassen',
         description:
-          'Fotografiere deine handschriftliche oder gedruckte Musterlösung (1 oder mehrere Seiten). Sie wird sofort auf den Desktop übertragen und auf Wunsch automatisch in Aufgaben zerlegt.',
+          'Musterlösung (1 oder mehrere Seiten) per Kamera oder Datei erfassen und automatisch in Aufgaben zerlegen.',
         bg: '#eff6ff',
         border: '#bfdbfe',
         color: '#1d4ed8',
@@ -272,9 +372,9 @@ export default function QrScannerDialog({
     }
     if (targetMode === 'EXAM_TEMPLATE') {
       return {
-        title: 'Vorlagenprüfung (Stufe 1) per Smartphone abfotografieren',
+        title: 'Vorlagenprüfung (Stufe 1) erfassen',
         description:
-          'Fotografiere das leere Aufgabenblatt (Vorlagenprüfung), damit die KI die exakte Aufgabenstellung und Maximalpunkte kennt.',
+          'Leeres Aufgabenblatt per Kamera oder Datei erfassen, damit Aufgabenstellung und Maximalpunkte bekannt sind.',
         bg: '#f5f3ff',
         border: '#ddd6fe',
         color: '#6d28d9',
@@ -284,7 +384,7 @@ export default function QrScannerDialog({
       return {
         title: `Scan ersetzen oder Seite anhängen${studentName ? `: ${studentName}` : ''}`,
         description:
-          'Fotografiere mit dem Smartphone eine fehlende Prüfungsseite zum Anhängen oder ersetze den gesamten Scan dieser Korrektur.',
+          'Fehlende Prüfungsseite zum Anhängen aufnehmen oder den gesamten Scan dieser Korrektur ersetzen.',
         bg: '#fff7ed',
         border: '#fed7aa',
         color: '#c2410c',
@@ -293,7 +393,7 @@ export default function QrScannerDialog({
     if (studentId && studentName) {
       return {
         title: `Schüler-Scan: ${studentName} (${examTitle || 'Prüfung'})`,
-        description: `Alle Aufnahmen oder hochgeladenen Dateien werden direkt ${studentName} zugeordnet – ideal auch dann, wenn auf dem Blatt kein Name steht.`,
+        description: `Alle Aufnahmen oder hochgeladenen Dateien werden direkt ${studentName} zugeordnet – ideal auch ohne Namen auf dem Blatt.`,
         bg: '#f0fdf4',
         border: '#bbf7d0',
         color: '#15803d',
@@ -303,7 +403,7 @@ export default function QrScannerDialog({
       return {
         title: `Prüfungs-Modus: ${className || 'Klasse'} · ${examTitle}`,
         description:
-          'Alle mit dem Smartphone fotografierten Seiten werden dieser Prüfung zugeordnet. Die KI liest den Schülernamen automatisch ab (oder du wählst ihn direkt auf dem Handy).',
+          'Alle erfassten Seiten werden dieser Prüfung zugeordnet. Die KI liest den Schülernamen automatisch ab.',
         bg: '#f0f7ff',
         border: '#bae6fd',
         color: '#0369a1',
@@ -312,7 +412,7 @@ export default function QrScannerDialog({
     return {
       title: 'Universal-Scan-Modus (Automatische KI-Erkennung)',
       description:
-        'Fotografiere beliebige Schülerprüfungen oder Musterlösungen mit deinem Smartphone. Die KI erkennt Klasse, Prüfung und Schüler/in automatisch.',
+        'Beliebige Schülerprüfungen oder Musterlösungen erfassen. Die KI erkennt Klasse, Prüfung und Schüler/in automatisch.',
       bg: '#f0fdf4',
       border: '#bbf7d0',
       color: '#15803d',
@@ -320,6 +420,7 @@ export default function QrScannerDialog({
   };
 
   const modeHeader = getModeHeader();
+  const sameDeviceCopy = getSameDeviceUploadCopy(targetMode, studentName);
 
   return (
     <Dialog
@@ -619,63 +720,114 @@ export default function QrScannerDialog({
               featureLabel="Das Einscannen und Hochladen von Schülerarbeiten"
             />
           )}
-          {(targetMode === 'SUBMISSION' || targetMode === 'REPLACE_SUBMISSION') && examId && (
-            <>
-              <Divider sx={{ fontSize: '0.75rem', color: 'text.secondary', fontWeight: 700 }}>
-                ODER DIREKT VOM COMPUTER HOCHLADEN
-              </Divider>
-              <Box
+          <Divider sx={{ fontSize: '0.75rem', color: 'text.secondary', fontWeight: 700 }}>
+            {isMobileDevice
+              ? 'DIREKT AUF DIESEM GERÄT'
+              : 'AUF DIESEM GERÄT ODER DATEI HOCHLADEN'}
+          </Divider>
+          <Box
+            data-testid="same-device-scan-section"
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1.25,
+              p: 1.5,
+              borderRadius: '12px',
+              border: isMobileDevice ? '2px solid #1b77d1' : '1px solid #cbd5e1',
+              backgroundColor: isMobileDevice ? '#f0f7ff' : '#ffffff',
+            }}
+          >
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                {sameDeviceCopy.title}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                {sameDeviceCopy.subtitle}
+              </Typography>
+            </Box>
+            <input
+              ref={cameraFileInputRef}
+              data-testid="same-device-camera-input"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handlePcFilesSelected}
+              style={{ display: 'none' }}
+            />
+            <input
+              ref={pcFileInputRef}
+              data-testid="same-device-file-input"
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              multiple
+              onChange={handlePcFilesSelected}
+              style={{ display: 'none' }}
+            />
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              useFlexGap
+              sx={{
+                alignItems: { xs: 'stretch', sm: 'center' },
+                flexWrap: 'wrap',
+                width: '100%',
+              }}
+            >
+              <Button
+                data-testid="same-device-scan-button"
+                component="a"
+                href={scanUrl || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant={isMobileDevice ? 'contained' : 'outlined'}
+                startIcon={<OpenInNewIcon />}
+                disabled={(isPaidSubmissionScan && isUnverified) || loading || !scanUrl}
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 2,
-                  p: 1.5,
-                  borderRadius: '10px',
-                  border: '1px solid #cbd5e1',
-                  backgroundColor: '#ffffff',
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  flex: { xs: '1 1 auto', sm: '0 0 auto' },
                 }}
               >
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
-                    {studentName
-                      ? `Datei(en) für ${studentName} auswählen`
-                      : 'PDF oder Bilder direkt vom PC hochladen'}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    Mehrere ausgewählte Bilder werden als mehrseitige Prüfung zusammengefasst.
-                  </Typography>
-                </Box>
-                <input
-                  ref={pcFileInputRef}
-                  type="file"
-                  accept="application/pdf,image/jpeg,image/png,image/webp"
-                  multiple
-                  onChange={handlePcFilesSelected}
-                  style={{ display: 'none' }}
-                />
-                <Button
-                  variant="outlined"
-                  startIcon={pcUploading ? <CircularProgress size={16} /> : <CloudUploadIcon />}
-                  disabled={(isPaidSubmissionScan && isUnverified) || pcUploading || !token}
-                  onClick={() => pcFileInputRef.current?.click()}
-                  sx={{
-                    textTransform: 'none',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    flexShrink: 0,
-                  }}
-                >
-                  {pcUploading ? 'Lädt...' : 'Datei wählen'}
-                </Button>
-              </Box>
-            </>
-          )}
+                Auf diesem Gerät scannen
+              </Button>
+              <Button
+                data-testid="same-device-camera-button"
+                variant="outlined"
+                startIcon={pcUploading ? <CircularProgress size={16} /> : <PhotoCameraIcon />}
+                disabled={(isPaidSubmissionScan && isUnverified) || pcUploading || !token}
+                onClick={() => cameraFileInputRef.current?.click()}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  flex: { xs: '1 1 auto', sm: '0 0 auto' },
+                }}
+              >
+                Kamera
+              </Button>
+              <Button
+                data-testid="same-device-upload-button"
+                variant="outlined"
+                startIcon={pcUploading ? <CircularProgress size={16} /> : <CloudUploadIcon />}
+                disabled={(isPaidSubmissionScan && isUnverified) || pcUploading || !token}
+                onClick={() => pcFileInputRef.current?.click()}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  flex: { xs: '1 1 auto', sm: '0 0 auto' },
+                }}
+              >
+                {pcUploading ? 'Lädt...' : 'Datei wählen'}
+              </Button>
+            </Stack>
+          </Box>
 
-          {isDevMode && scanUrl && (
-            <Stack spacing={1}>
+          {scanUrl && (
+            <Stack spacing={1} data-testid="same-device-direct-link">
               <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
-                Direktlink für Smartphone (gültig für 2 Stunden):
+                Direktlink (gültig für 2 Std.):
               </Typography>
               <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                 <TextField
@@ -693,6 +845,7 @@ export default function QrScannerDialog({
                 />
                 <Tooltip title={copied ? 'Kopiert!' : 'Link kopieren'}>
                   <IconButton
+                    aria-label="Link kopieren"
                     color={copied ? 'success' : 'primary'}
                     onClick={handleCopyUrl}
                     sx={{ border: '1px solid #cbd5e1', borderRadius: '8px' }}
@@ -702,6 +855,7 @@ export default function QrScannerDialog({
                 </Tooltip>
                 <Tooltip title="Neuen QR-Code generieren">
                   <IconButton
+                    aria-label="Neuen QR-Code generieren"
                     onClick={() => generateQrSession()}
                     sx={{ border: '1px solid #cbd5e1', borderRadius: '8px' }}
                   >
@@ -709,28 +863,30 @@ export default function QrScannerDialog({
                   </IconButton>
                 </Tooltip>
               </Stack>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pt: 0.5 }}>
-                <TextField
-                  size="small"
-                  fullWidth
-                  placeholder="Optional: Eigene Server-URL / WLAN-IP (z. B. http://192.168.1.50:3000)"
-                  value={customOrigin}
-                  onChange={(e) => setCustomOrigin(e.target.value)}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      fontSize: '0.78rem',
-                    },
-                  }}
-                />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => generateQrSession(customOrigin)}
-                  sx={{ textTransform: 'none', fontWeight: 600, flexShrink: 0 }}
-                >
-                  URL anwenden
-                </Button>
-              </Stack>
+              {isDevMode && (
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pt: 0.5 }}>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    placeholder="Optional: Eigene Server-URL / WLAN-IP (z. B. http://192.168.1.50:3000)"
+                    value={customOrigin}
+                    onChange={(e) => setCustomOrigin(e.target.value)}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        fontSize: '0.78rem',
+                      },
+                    }}
+                  />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => generateQrSession(customOrigin)}
+                    sx={{ textTransform: 'none', fontWeight: 600, flexShrink: 0 }}
+                  >
+                    URL anwenden
+                  </Button>
+                </Stack>
+              )}
             </Stack>
           )}
         </Stack>
