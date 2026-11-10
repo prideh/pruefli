@@ -71,6 +71,11 @@ import {
   invalidateClasses,
 } from '@/lib/dataCache';
 import {
+  isValidMaxPointsInput,
+  normalizeMaxPointsInput,
+  parseMaxPointsInput,
+} from '@/lib/ux-polish';
+import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
   getSubjectSupportInfo,
@@ -408,7 +413,7 @@ export default function Dashboard() {
   // New exam states
   const [examTitle, setExamTitle] = useState<string>('');
   const [examSubject, setExamSubject] = useState<string>('');
-  const [examMaxPoints, setExamMaxPoints] = useState<number>(20);
+  const [examMaxPoints, setExamMaxPoints] = useState<string>('20');
   const [rubricText, setRubricText] = useState<string>('');
   const [rubricFile, setRubricFile] = useState<File | null>(null);
   const [rubricScannedPages, setRubricScannedPages] = useState<number>(0);
@@ -488,7 +493,7 @@ export default function Dashboard() {
         isNewExam: selectedExamId === 'NEW',
         hasTitle: Boolean(examTitle.trim()),
         hasSubject: Boolean((examSubject || effectiveExamSubject).trim()),
-        hasValidMaxPoints: Number(examMaxPoints) > 0,
+        hasValidMaxPoints: isValidMaxPointsInput(examMaxPoints),
         hasFiles: studentFiles.length > 0,
       })
     ) {
@@ -1004,12 +1009,13 @@ export default function Dashboard() {
       setError('Bitte wähle einen Schüler oder Auto-Match aus.');
       return;
     }
+    const parsedMaxPoints = parseMaxPointsInput(examMaxPoints);
     if (selectedExamId === 'NEW') {
       if (!examTitle.trim() || !effectiveExamSubject.trim()) {
         setError('Bitte gib einen Prüfungstitel und ein Fach für die neue Prüfung an.');
         return;
       }
-      if (!examMaxPoints || Number(examMaxPoints) <= 0) {
+      if (parsedMaxPoints === null) {
         setError('Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.');
         return;
       }
@@ -1044,10 +1050,7 @@ export default function Dashboard() {
         } else if (selectedExamId === 'NEW') {
           formData.append('examTitle', examTitle.trim());
           formData.append('examSubject', effectiveExamSubject.trim());
-          formData.append(
-            'maxPoints',
-            String(Number(examMaxPoints) > 0 ? Number(examMaxPoints) : 20)
-          );
+          formData.append('maxPoints', String(parsedMaxPoints ?? 20));
           formData.append('gradingFormula', gradingFormula);
           formData.append('gradeRounding', gradeRounding);
           if (examTemplateFile) {
@@ -2144,9 +2147,12 @@ export default function Dashboard() {
                               type="number"
                               value={examMaxPoints}
                               onChange={(e) => {
-                                const val = Number(e.target.value);
-                                setExamMaxPoints(val > 0 ? val : 0);
-                                if (val > 0) {
+                                const nextVal = normalizeMaxPointsInput(e.target.value);
+                                if (e.target.value !== nextVal) {
+                                  e.target.value = nextVal;
+                                }
+                                setExamMaxPoints(nextVal);
+                                if (isValidMaxPointsInput(nextVal)) {
                                   setError((prev) =>
                                     prev ===
                                       'Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.' ||
@@ -2155,6 +2161,13 @@ export default function Dashboard() {
                                       : prev
                                   );
                                 }
+                              }}
+                              onBlur={(e) => {
+                                const nextVal = normalizeMaxPointsInput(e.target.value);
+                                if (e.target.value !== nextVal) {
+                                  e.target.value = nextVal;
+                                }
+                                setExamMaxPoints(nextVal);
                               }}
                               slotProps={{
                                 htmlInput: { min: 1, step: 0.5 },
@@ -2517,7 +2530,8 @@ export default function Dashboard() {
                               window.scrollTo({ top: 0, behavior: 'smooth' });
                               return;
                             }
-                            if (!examMaxPoints || Number(examMaxPoints) <= 0) {
+                            const parsedMaxPoints = parseMaxPointsInput(examMaxPoints);
+                            if (parsedMaxPoints === null) {
                               setError('Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.');
                               window.scrollTo({ top: 0, behavior: 'smooth' });
                               return;
@@ -2543,7 +2557,7 @@ export default function Dashboard() {
                                 body: JSON.stringify({
                                   title: examTitle.trim(),
                                   subject: (examSubject || effectiveExamSubject).trim(),
-                                  maxPoints: Number(examMaxPoints) > 0 ? Number(examMaxPoints) : 20,
+                                  maxPoints: parsedMaxPoints,
                                   rubricText: resolvedRubric,
                                   examTemplateText: examTemplateScannedPayload || null,
                                   gradingNotes: gradingNotes.trim() || null,
@@ -2779,7 +2793,7 @@ export default function Dashboard() {
                         if (!examTitle.trim()) {
                           missingRequirements.push('Prüfungstitel angeben (Schritt ②)');
                         }
-                        if (!examMaxPoints || Number(examMaxPoints) <= 0) {
+                        if (!isValidMaxPointsInput(examMaxPoints)) {
                           missingRequirements.push('Gültige Maximalpunktzahl angeben (Schritt ②)');
                         }
                         if (!rubricText.trim() && !rubricFile) {
