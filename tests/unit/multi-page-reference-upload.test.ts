@@ -310,10 +310,16 @@ describe('Mehrseitiger Direkt-Upload fuer Musterloesung & Vorlagenpruefung (Issu
         /<input[\s\S]*?type="file"[\s\S]*?multiple[\s\S]*?id="examTemplateFile"/
       );
 
-      // Seiten-Reihenfolge & "+ Seite"-Aktion müssen im Wizard vorhanden sein
+      // Seiten-Reihenfolge & "+ Seite"-Aktion müssen im Wizard vorhanden sein und auf 360px einzeilig bleiben
       expect(dashboardSource).toContain('data-testid="rubric-add-page-btn"');
+      expect(dashboardSource).toMatch(
+        /data-testid="rubric-add-page-btn"[\s\S]*?whiteSpace:\s*'nowrap'[\s\S]*?flexShrink:\s*0/
+      );
       expect(dashboardSource).toContain('data-testid="rubric-pages-list"');
       expect(dashboardSource).toContain('data-testid="template-add-page-btn"');
+      expect(dashboardSource).toMatch(
+        /data-testid="template-add-page-btn"[\s\S]*?whiteSpace:\s*'nowrap'[\s\S]*?flexShrink:\s*0/
+      );
       expect(dashboardSource).toContain('data-testid="template-pages-list"');
 
       // Auch in /exams und /exams/[id] ist multiple gesetzt

@@ -2239,20 +2239,34 @@ export default function Dashboard() {
                                   justifyContent: 'space-between',
                                   alignItems: 'center',
                                   flexWrap: 'wrap',
+                                  rowGap: 0.75,
                                 }}
                               >
-                                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                                  <DescriptionIcon sx={{ color: 'primary.main' }} />
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{ alignItems: 'center', minWidth: 0 }}
+                                >
+                                  <DescriptionIcon sx={{ color: 'primary.main', flexShrink: 0 }} />
                                   <Typography
                                     variant="body2"
-                                    sx={{ color: 'text.primary', fontWeight: 600 }}
+                                    sx={{
+                                      color: 'text.primary',
+                                      fontWeight: 600,
+                                      minWidth: 0,
+                                      overflowWrap: 'anywhere',
+                                    }}
                                   >
                                     {rubricFiles.length > 0
                                       ? formatReferenceFilesSummary(rubricFiles, 'rubric')
                                       : `Smartphone-Musterlösung geladen (${rubricScannedPages || 1} ${(rubricScannedPages || 1) === 1 ? 'Seite' : 'Seiten'})`}
                                   </Typography>
                                 </Stack>
-                                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{ alignItems: 'center', flexShrink: 0 }}
+                                >
                                   {rubricFiles.length > 0 && (
                                     <Button
                                       component="label"
@@ -2266,6 +2280,8 @@ export default function Dashboard() {
                                         borderColor: '#cbd5e1',
                                         color: 'text.primary',
                                         py: 0.25,
+                                        whiteSpace: 'nowrap',
+                                        flexShrink: 0,
                                       }}
                                     >
                                       + Seite
@@ -2274,6 +2290,7 @@ export default function Dashboard() {
                                   <Button
                                     size="small"
                                     color="error"
+                                    sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
                                     onClick={() => {
                                       setRubricFiles([]);
                                       setRubricText('');
@@ -2536,9 +2553,17 @@ export default function Dashboard() {
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
                                         flexWrap: 'wrap',
+                                        rowGap: 0.75,
                                       }}
                                     >
-                                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      <Typography
+                                        variant="body2"
+                                        sx={{
+                                          fontWeight: 600,
+                                          minWidth: 0,
+                                          overflowWrap: 'anywhere',
+                                        }}
+                                      >
                                         {examTemplateFiles.length > 0
                                           ? formatReferenceFilesSummary(
                                               examTemplateFiles,
@@ -2549,7 +2574,7 @@ export default function Dashboard() {
                                       <Stack
                                         direction="row"
                                         spacing={1}
-                                        sx={{ alignItems: 'center' }}
+                                        sx={{ alignItems: 'center', flexShrink: 0 }}
                                       >
                                         {examTemplateFiles.length > 0 && (
                                           <Button
@@ -2564,6 +2589,8 @@ export default function Dashboard() {
                                               borderColor: '#cbd5e1',
                                               color: 'text.primary',
                                               py: 0.25,
+                                              whiteSpace: 'nowrap',
+                                              flexShrink: 0,
                                             }}
                                           >
                                             + Seite
@@ -2572,6 +2599,7 @@ export default function Dashboard() {
                                         <Button
                                           size="small"
                                           color="error"
+                                          sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
                                           onClick={() => {
                                             setExamTemplateFiles([]);
                                             setExamTemplateScannedPayload('');
