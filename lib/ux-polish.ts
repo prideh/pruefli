@@ -213,3 +213,37 @@ export function filterFeedbackSheetsForPrint<T extends { submissionId: string }>
   if (!trimmedId) return sheets;
   return sheets.filter((sheet) => sheet.submissionId === trimmedId);
 }
+
+/**
+ * Normalizes raw user input in maximum-points fields (Issue #127):
+ * - Preserves empty string `""` while the teacher clears or edits the field (no forced fallback to `0`).
+ * - Strips sticky leading zeros before digits (e.g. `"017"` -> `"17"`, `"0020"` -> `"20"`, `"00.5"` -> `"0.5"`),
+ *   while preserving single `"0"` and decimal prefixes like `"0."` or `"0.5"` during typing.
+ */
+export function normalizeMaxPointsInput(raw: string | number | null | undefined): string {
+  if (raw === null || raw === undefined) return '';
+  const trimmed = String(raw).trim().replace(',', '.');
+  if (!trimmed) return '';
+  return trimmed.replace(/^(-?)0+(?=\d)/, '$1');
+}
+
+/**
+ * Parses a maximum-points input into a valid positive finite number (`> 0`),
+ * or returns `null` when empty, zero, negative, or non-numeric.
+ */
+export function parseMaxPointsInput(value: string | number | null | undefined): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  const normalized = normalizeMaxPointsInput(value);
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Returns true if the maximum-points input represents a valid finite number greater than 0.
+ */
+export function isValidMaxPointsInput(value: string | number | null | undefined): boolean {
+  return parseMaxPointsInput(value) !== null;
+}

@@ -50,7 +50,13 @@ import EmailVerificationAiBanner, {
 import ErrorState from '@/components/ErrorState';
 import QrScannerDialog from '@/components/QrScannerDialog';
 import { useDataCache, invalidateExams } from '@/lib/dataCache';
-import { canCreateExamWithClasses, resolveCreateExamDisabledHint } from '@/lib/ux-polish';
+import {
+  canCreateExamWithClasses,
+  isValidMaxPointsInput,
+  normalizeMaxPointsInput,
+  parseMaxPointsInput,
+  resolveCreateExamDisabledHint,
+} from '@/lib/ux-polish';
 import {
   GRADING_FORMULA_OPTIONS,
   GRADE_ROUNDING_OPTIONS,
@@ -461,7 +467,7 @@ export default function ExamsPage() {
   const [copySourceExam, setCopySourceExam] = useState<ExamListItem | null>(null);
   const [copyTitle, setCopyTitle] = useState('');
   const [copySubject, setCopySubject] = useState('');
-  const [copyMaxPoints, setCopyMaxPoints] = useState<number>(20);
+  const [copyMaxPoints, setCopyMaxPoints] = useState<string>('20');
   const [copyRubric, setCopyRubric] = useState('');
   const [copyGradingNotes, setCopyGradingNotes] = useState('');
   const [copyGradingFormula, setCopyGradingFormula] = useState<GradingFormula>('LINEAR_60');
@@ -470,7 +476,7 @@ export default function ExamsPage() {
   const [copyLoading, setCopyLoading] = useState(false);
   const [copyError, setCopyError] = useState('');
   const [examSubject, setExamSubject] = useState('Mathematik');
-  const [examMaxPoints, setExamMaxPoints] = useState<number>(20);
+  const [examMaxPoints, setExamMaxPoints] = useState<string>('20');
   const [examRubric, setExamRubric] = useState('');
   const [examGradingNotes, setExamGradingNotes] = useState('');
   const [examGradingFormula, setExamGradingFormula] = useState<GradingFormula>('LINEAR_60');
@@ -536,7 +542,7 @@ export default function ExamsPage() {
         (sum: number, t: { maxPoints?: number | string }) => sum + (Number(t.maxPoints) || 0),
         0
       );
-      setExamMaxPoints(totalPoints);
+      setExamMaxPoints(String(totalPoints));
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Fehler bei der Analyse.');
     } finally {
@@ -581,7 +587,7 @@ export default function ExamsPage() {
     setExamRubric('');
     setUploadedFileName('');
     setParsedTasks([]);
-    setExamMaxPoints(20);
+    setExamMaxPoints('20');
     setRubricOverridePrompt(null);
     setRubricOverrideConfirmed(false);
     setCreateError('');
@@ -637,6 +643,11 @@ export default function ExamsPage() {
       setCreateError('Bitte fülle alle Pflichtfelder aus.');
       return;
     }
+    const resolvedMaxPoints = parseMaxPointsInput(examMaxPoints);
+    if (resolvedMaxPoints === null) {
+      setCreateError('Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.');
+      return;
+    }
 
     setCreateLoading(true);
     setCreateError('');
@@ -648,7 +659,7 @@ export default function ExamsPage() {
         body: JSON.stringify({
           title: examTitle.trim(),
           subject: examSubject.trim(),
-          maxPoints: Number(examMaxPoints),
+          maxPoints: resolvedMaxPoints,
           rubricText: examRubric || 'Standard Musterlösung',
           gradingNotes: examGradingNotes || null,
           gradingFormula: examGradingFormula,
@@ -699,7 +710,7 @@ export default function ExamsPage() {
     setCopySourceExam(exam);
     setCopyTitle(`${exam.title} (Kopie)`);
     setCopySubject(exam.subject);
-    setCopyMaxPoints(exam.maxPoints);
+    setCopyMaxPoints(String(exam.maxPoints));
     setCopyRubric(exam.rubricText || 'Standard Musterlösung');
     setCopyGradingNotes(exam.gradingNotes || '');
     setCopyGradingFormula((exam.gradingFormula as GradingFormula) || 'LINEAR_60');
@@ -716,6 +727,11 @@ export default function ExamsPage() {
       setCopyError('Bitte fülle alle Pflichtfelder aus.');
       return;
     }
+    const resolvedCopyMaxPoints = parseMaxPointsInput(copyMaxPoints);
+    if (resolvedCopyMaxPoints === null) {
+      setCopyError('Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.');
+      return;
+    }
 
     setCopyLoading(true);
     setCopyError('');
@@ -728,7 +744,7 @@ export default function ExamsPage() {
           title: copyTitle.trim(),
           targetClassId: copyTargetClassId,
           subject: copySubject.trim(),
-          maxPoints: Number(copyMaxPoints),
+          maxPoints: resolvedCopyMaxPoints,
           rubricText: copyRubric,
           gradingNotes: copyGradingNotes || null,
           gradingFormula: copyGradingFormula,
@@ -1600,7 +1616,28 @@ export default function ExamsPage() {
                       fullWidth
                       variant="outlined"
                       value={examMaxPoints}
-                      onChange={(e) => setExamMaxPoints(Number(e.target.value))}
+                      onChange={(e) => {
+                        const nextVal = normalizeMaxPointsInput(e.target.value);
+                        if (e.target.value !== nextVal) {
+                          e.target.value = nextVal;
+                        }
+                        setExamMaxPoints(nextVal);
+                        if (isValidMaxPointsInput(nextVal)) {
+                          setCreateError((prev) =>
+                            prev === 'Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.' ||
+                            prev === 'Maximale Punktzahl muss eine positive Zahl sein.'
+                              ? ''
+                              : prev
+                          );
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const nextVal = normalizeMaxPointsInput(e.target.value);
+                        if (e.target.value !== nextVal) {
+                          e.target.value = nextVal;
+                        }
+                        setExamMaxPoints(nextVal);
+                      }}
                       required
                       disabled={parsedTasks.length > 0}
                       sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
@@ -1844,7 +1881,7 @@ export default function ExamsPage() {
                                   (sum, t) => sum + (t.maxPoints || 0),
                                   0
                                 );
-                                setExamMaxPoints(totalPoints);
+                                setExamMaxPoints(String(totalPoints));
                               }}
                               sx={{ '& .MuiOutlinedInput-root': { borderRadius: '6px' } }}
                             />
@@ -1860,7 +1897,7 @@ export default function ExamsPage() {
                                   (sum, t) => sum + (t.maxPoints || 0),
                                   0
                                 );
-                                setExamMaxPoints(totalPoints);
+                                setExamMaxPoints(String(totalPoints));
                               }}
                             >
                               <CloseIcon sx={{ fontSize: '1.2rem' }} />
@@ -1883,7 +1920,7 @@ export default function ExamsPage() {
                             (sum, t) => sum + (t.maxPoints || 0),
                             0
                           );
-                          setExamMaxPoints(totalPoints);
+                          setExamMaxPoints(String(totalPoints));
                         }}
                         sx={{
                           alignSelf: 'flex-start',
@@ -2073,7 +2110,28 @@ export default function ExamsPage() {
                       fullWidth
                       variant="outlined"
                       value={copyMaxPoints}
-                      onChange={(e) => setCopyMaxPoints(Number(e.target.value))}
+                      onChange={(e) => {
+                        const nextVal = normalizeMaxPointsInput(e.target.value);
+                        if (e.target.value !== nextVal) {
+                          e.target.value = nextVal;
+                        }
+                        setCopyMaxPoints(nextVal);
+                        if (isValidMaxPointsInput(nextVal)) {
+                          setCopyError((prev) =>
+                            prev === 'Bitte gib eine gültige Maximalpunktzahl grösser als 0 an.' ||
+                            prev === 'Maximale Punktzahl muss eine positive Zahl sein.'
+                              ? ''
+                              : prev
+                          );
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const nextVal = normalizeMaxPointsInput(e.target.value);
+                        if (e.target.value !== nextVal) {
+                          e.target.value = nextVal;
+                        }
+                        setCopyMaxPoints(nextVal);
+                      }}
                       required
                       sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
                     />
