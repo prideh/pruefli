@@ -221,6 +221,7 @@ export default function MobileScanRelayPage() {
   const activeExamObj = exams.find((e) => e.id === selectedExamId) || null;
   const availableStudents = activeExamObj?.students || [];
   const [relayOverrideAllowed, setRelayOverrideAllowed] = useState(false);
+  const [pendingOverrideRelayFiles, setPendingOverrideRelayFiles] = useState<File[]>([]);
 
   const submitPages = async (pagesToSubmit: File[], allowOverride = false) => {
     const distinctPages = deduplicateRelayFiles(pagesToSubmit);
@@ -230,6 +231,7 @@ export default function MobileScanRelayPage() {
     setUploadSuccessMsg('');
     if (!allowOverride) {
       setRelayOverrideAllowed(false);
+      setPendingOverrideRelayFiles([]);
     }
 
     try {
@@ -268,9 +270,11 @@ export default function MobileScanRelayPage() {
         setUploadErrorMsg(data?.error || `Upload fehlgeschlagen (HTTP ${res.status}).`);
         if (data?.canOverride) {
           setRelayOverrideAllowed(true);
+          setPendingOverrideRelayFiles(distinctPages);
         }
       } else {
         setRelayOverrideAllowed(false);
+        setPendingOverrideRelayFiles([]);
         capturedPages.forEach((p) => URL.revokeObjectURL(p.previewUrl));
         setCapturedPages([]);
 
@@ -706,9 +710,12 @@ export default function MobileScanRelayPage() {
                     size="small"
                     variant="outlined"
                     onClick={() => {
-                      const files = capturedPages.map((p) => p.file);
+                      const files =
+                        capturedPages.length > 0
+                          ? capturedPages.map((p) => p.file)
+                          : pendingOverrideRelayFiles;
                       if (files.length > 0) {
-                        submitPages(files, true);
+                        void submitPages(files, true);
                       }
                     }}
                     sx={{ textTransform: 'none', fontWeight: 700 }}
