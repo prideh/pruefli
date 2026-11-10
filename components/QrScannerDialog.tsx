@@ -331,36 +331,93 @@ export default function QrScannerDialog({
         '& .MuiDialog-paper': {
           m: { xs: 1.5, sm: 4 },
           width: { xs: 'calc(100% - 24px)', sm: '100%' },
+          maxWidth: { xs: 'calc(100vw - 24px)', sm: '600px' },
+          maxHeight: { xs: 'calc(100dvh - 24px)', sm: 'calc(100dvh - 64px)' },
+          display: 'flex',
+          flexDirection: 'column',
+          overflowX: 'hidden',
         },
       }}
     >
-      <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1.5, pb: 1 }}>
-        <QrCodeScannerIcon color="primary" />
-        {targetMode === 'RUBRIC'
-          ? 'Musterlösung per QR-Kamera scannen'
-          : targetMode === 'EXAM_TEMPLATE'
-            ? 'Vorlagenprüfung per QR-Kamera scannen'
-            : studentName
-              ? `Arbeit einscannen: ${studentName}`
-              : 'Smartphone-Kamera als Scanner verbinden'}
+      <DialogTitle
+        sx={{
+          fontWeight: 800,
+          display: 'flex',
+          alignItems: { xs: 'flex-start', sm: 'center' },
+          gap: 1.5,
+          px: { xs: 2, sm: 3 },
+          pt: { xs: 1.75, sm: 2 },
+          pb: 1,
+          fontSize: { xs: '1.05rem', sm: '1.25rem' },
+          lineHeight: 1.3,
+          minWidth: 0,
+          overflowWrap: 'anywhere',
+        }}
+      >
+        <QrCodeScannerIcon color="primary" sx={{ flexShrink: 0, mt: { xs: 0.25, sm: 0 } }} />
+        <Box component="span" sx={{ minWidth: 0 }}>
+          {targetMode === 'RUBRIC'
+            ? 'Musterlösung per QR-Kamera scannen'
+            : targetMode === 'EXAM_TEMPLATE'
+              ? 'Vorlagenprüfung per QR-Kamera scannen'
+              : studentName
+                ? `Arbeit einscannen: ${studentName}`
+                : 'Smartphone-Kamera als Scanner verbinden'}
+        </Box>
       </DialogTitle>
-      <DialogContent>
-        <Stack spacing={2.25} sx={{ pt: 0.5 }}>
+      <DialogContent
+        sx={{
+          px: { xs: 2, sm: 3 },
+          py: { xs: 1, sm: 2 },
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }}
+      >
+        <Stack spacing={{ xs: 1.5, sm: 2.25 }} sx={{ pt: 0.5, minWidth: 0 }}>
           <Box
             sx={{
               backgroundColor: modeHeader.bg,
               border: `1px solid ${modeHeader.border}`,
               borderRadius: '12px',
-              p: 1.75,
+              p: { xs: 1.25, sm: 1.75 },
+              minWidth: 0,
             }}
           >
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
-              <AutoAwesomeIcon sx={{ fontSize: '1.1rem', color: modeHeader.color }} />
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: modeHeader.color }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: { xs: 'flex-start', sm: 'center' }, mb: 0.5, minWidth: 0 }}
+            >
+              <AutoAwesomeIcon
+                sx={{
+                  fontSize: '1.1rem',
+                  color: modeHeader.color,
+                  flexShrink: 0,
+                  mt: { xs: 0.2, sm: 0 },
+                }}
+              />
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  fontWeight: 800,
+                  color: modeHeader.color,
+                  lineHeight: 1.3,
+                  minWidth: 0,
+                  overflowWrap: 'anywhere',
+                }}
+              >
                 {modeHeader.title}
               </Typography>
             </Stack>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                display: 'block',
+                lineHeight: 1.4,
+                overflowWrap: 'anywhere',
+              }}
+            >
               {modeHeader.description}
             </Typography>
           </Box>
@@ -467,8 +524,11 @@ export default function QrScannerDialog({
               backgroundColor: '#f8fafc',
               border: '1px dashed #cbd5e1',
               borderRadius: '16px',
-              p: 2.5,
-              minHeight: 250,
+              p: { xs: 1.5, sm: 2.5 },
+              minHeight: { xs: 'auto', sm: 250 },
+              width: '100%',
+              minWidth: 0,
+              boxSizing: 'border-box',
             }}
           >
             {loading ? (
@@ -477,30 +537,75 @@ export default function QrScannerDialog({
               <>
                 <Box
                   sx={{
-                    p: 1.5,
+                    p: { xs: 1, sm: 1.5 },
                     backgroundColor: '#ffffff',
                     borderRadius: '14px',
                     border: '1px solid #e2e8f0',
                     boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+                    maxWidth: '100%',
                   }}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Box
+                    component="img"
                     src={qrDataUrl}
                     alt="QR-Code für Smartphone-Kamera"
-                    style={{ width: 210, height: 210, display: 'block' }}
+                    sx={{
+                      width: { xs: 176, sm: 210 },
+                      height: { xs: 176, sm: 210 },
+                      maxWidth: '100%',
+                      aspectRatio: '1 / 1',
+                      display: 'block',
+                    }}
                   />
                 </Box>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1.5 }}>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={{ xs: 0.75, sm: 1 }}
+                  useFlexGap
+                  sx={{
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexWrap: 'wrap',
+                    mt: { xs: 1.25, sm: 1.5 },
+                    width: '100%',
+                    minWidth: 0,
+                  }}
+                >
                   <Chip
                     label="1. QR-Code mit Handy scannen"
                     size="small"
-                    sx={{ fontWeight: 700, backgroundColor: '#e2e8f0' }}
+                    sx={{
+                      fontWeight: 700,
+                      backgroundColor: '#e2e8f0',
+                      maxWidth: '100%',
+                      height: 'auto',
+                      py: 0.5,
+                      '& .MuiChip-label': {
+                        display: 'block',
+                        whiteSpace: 'normal',
+                        textAlign: 'center',
+                        overflowWrap: 'anywhere',
+                        lineHeight: 1.3,
+                      },
+                    }}
                   />
                   <Chip
                     label="2. Seiten abfotografieren"
                     size="small"
-                    sx={{ fontWeight: 700, backgroundColor: '#e2e8f0' }}
+                    sx={{
+                      fontWeight: 700,
+                      backgroundColor: '#e2e8f0',
+                      maxWidth: '100%',
+                      height: 'auto',
+                      py: 0.5,
+                      '& .MuiChip-label': {
+                        display: 'block',
+                        whiteSpace: 'normal',
+                        textAlign: 'center',
+                        overflowWrap: 'anywhere',
+                        lineHeight: 1.3,
+                      },
+                    }}
                   />
                 </Stack>
               </>
@@ -630,7 +735,7 @@ export default function QrScannerDialog({
           )}
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+      <DialogActions sx={{ px: { xs: 2, sm: 3 }, pt: 1, pb: { xs: 1.75, sm: 2.5 }, flexShrink: 0 }}>
         <Button
           onClick={onClose}
           variant="contained"
